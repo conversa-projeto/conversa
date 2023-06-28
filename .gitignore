@@ -1,0 +1,10 @@
+*.exe
+*.local
+*.identcache
+*.res
+*.dcu
+*.db
+*.db-shm
+*.db-wal
+__history/
+__recovery/
