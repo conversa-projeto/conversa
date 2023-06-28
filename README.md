@@ -3,5 +3,5 @@ O Conversa é um serviço de mensagens instantâneas aberto desenvolvido em delp
 
 # Ecossistema
 - [Servidor](https://github.com/conversa-projeto/conversa)
-- [Cliente - Android - FMX](https://github.com/conversa-projeto/conversa-android-fmx)
-- [Cliente - Windows - FMX](https://github.com/conversa-projeto/conversa-windows-fmx)
+- <img src="https://cdn-icons-png.flaticon.com/512/270/270780.png" width="20" height="20" style="float:left;"> [Cliente - Android - FMX](https://github.com/conversa-projeto/conversa-android-fmx)
+- <img src="https://cdn-icons-png.flaticon.com/512/906/906308.png" width="20" height="20" style="float:left;"> [Cliente - Windows - FMX](https://github.com/conversa-projeto/conversa-windows-fmx)
