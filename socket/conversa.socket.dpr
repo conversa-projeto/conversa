@@ -1,4 +1,5 @@
-﻿program conversa.socket;
+﻿// Eduardo - 31/05/2023
+program conversa.socket;
 
 {$APPTYPE CONSOLE}
 
@@ -6,8 +7,8 @@
 
 uses
   System.SysUtils,
-  conversa.tipos in 'conversa.tipos.pas',
-  conversa.servidor in 'conversa.servidor.pas';
+  conversa.tipos in 'src\conversa.tipos.pas',
+  conversa.servidor in 'src\conversa.servidor.pas';
 
 begin
   {$IFDEF LINUX}

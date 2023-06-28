@@ -121,8 +121,8 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="conversa.tipos.pas"/>
-        <DCCReference Include="conversa.servidor.pas"/>
+        <DCCReference Include="src\conversa.tipos.pas"/>
+        <DCCReference Include="src\conversa.servidor.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>
