@@ -1,0 +1,48 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{46A01575-492F-4347-93F0-1811ECE052E8}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="rest\conversa.rest.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="socket\conversa.socket.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="conversa_rest">
+        <MSBuild Projects="rest\conversa.rest.dproj"/>
+    </Target>
+    <Target Name="conversa_rest:Clean">
+        <MSBuild Projects="rest\conversa.rest.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="conversa_rest:Make">
+        <MSBuild Projects="rest\conversa.rest.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="conversa_socket">
+        <MSBuild Projects="socket\conversa.socket.dproj"/>
+    </Target>
+    <Target Name="conversa_socket:Clean">
+        <MSBuild Projects="socket\conversa.socket.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="conversa_socket:Make">
+        <MSBuild Projects="socket\conversa.socket.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="conversa_rest;conversa_socket"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="conversa_rest:Clean;conversa_socket:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="conversa_rest:Make;conversa_socket:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>

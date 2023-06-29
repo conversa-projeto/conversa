@@ -93,16 +93,15 @@ end;
 class function TConversa.UsuarioContatos(Usuario: Integer): TJSONArray;
 begin
   Result := Open(
-    sl +'select uc.id '+
-    sl +'     , uc.relacionamento_id '+
-    sl +'     , u.nome '+ 
-    sl +'  from usuario_contato as uc '+  
-    sl +' inner '+
-    sl +'  join usuario as u '+
-    sl +'    on u.id = uc.relacionamento_id '+
-    sl +' where uc.usuario_id = '+ Usuario.ToString +
+    sl +'select u.id '+
+    sl +'     , u.nome '+
+    sl +'     , u.user '+
+    sl +'     , u.email '+
+    sl +'     , u.telefone '+
+    sl +'  from usuario as u '+
+    sl +' where u.id <> '+ Usuario.ToString +
     sl +' order '+
-    sl +'    by uc.id '
+    sl +'    by u.id '
   );
 end;
 
