@@ -1,4 +1,4 @@
-// Eduardo - 26/04/2023
+Ôªø// Eduardo - 26/04/2023
 unit conversa.comum;
 
 interface
@@ -114,7 +114,7 @@ var
   iID: Integer;
 begin
   if Assigned(oJSON.FindValue('id')) then
-    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Campo "id" n„o permitido na inserÁ„o!');
+    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Campo "id" n√£o permitido na inser√ß√£o!');
 
   for Par in oJSON do
   begin
@@ -160,7 +160,7 @@ var
   iID: Integer;
 begin
   if not Assigned(oJSON.FindValue('id')) then
-    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Campo "id" obrigatÛrio para alteraÁ„o!');
+    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Campo "id" obrigat√≥rio para altera√ß√£o!');
 
   for Par in oJSON do
   begin
@@ -214,7 +214,7 @@ var
 begin
   for sCampo in aCamposObrigatorios do
     if not Assigned(oJSON.FindValue(sCampo)) then
-      EHorseException.New.Status(THTTPStatus.BadRequest).Error('Campo "'+ sCampo +'" È obrigatÛrio e n„o foi informado!');
+      EHorseException.New.Status(THTTPStatus.BadRequest).Error('Campo "'+ sCampo +'" √© obrigat√≥rio e n√£o foi informado!');
 end;
 
 end.
