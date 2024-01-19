@@ -48,6 +48,7 @@ type
     procedure EnviarParaCliente(Context: TIdContext; Method: TMethod; Bytes: TIdBytes);
     procedure RecusarChamada(AContext: TIdContext; Bytes: TIdBytes);
     procedure AtribuirIdentificador(AContext: TIdContext; Bytes: TIdBytes);
+    procedure AddLog(sMsg: string);
   public
     constructor Create;
     destructor Destroy; override;
@@ -61,8 +62,14 @@ const
   PORTA_UPD = 49000;
   PORTA_TCP = 490;
 
+procedure TServidor.AddLog(sMsg: string);
+begin
+  Writeln(FormatDateTime('HH:nn:ss.zzz', Now) +' | '+ sMsg);
+end;
+
 constructor TServidor.Create;
 begin
+  AddLog('Create');
   UDPServer := TIdUDPServer.Create(nil);
   TCPServer := TIdTCPServer.Create(nil);
 
@@ -82,6 +89,7 @@ end;
 
 destructor TServidor.Destroy;
 begin
+  AddLog('Destroy');
   FreeAndNil(UDPServer);
   FreeAndNil(TCPServer);
   inherited;
@@ -89,6 +97,7 @@ end;
 
 procedure TServidor.EnviarParaCliente(Context: TIdContext; Method: TMethod; Bytes: TIdBytes);
 begin
+  AddLog('EnviarParaCliente');
   Context.Connection.IOHandler.Write(Byte(Method));
   Context.Connection.IOHandler.Write(Integer(Length(Bytes)));
   Context.Connection.IOHandler.Write(Bytes);
@@ -101,6 +110,7 @@ var
   ID: Integer;
   I: Integer;
 begin
+  AddLog('Registrar');
   if Assigned(AContext.Data) then
     raise Exception.Create('Conexão já iniciada!');
 
@@ -130,6 +140,7 @@ begin
   TSessao(AContext.Data).Ponta := Default(TPonta);
   TSessao(AContext.Data).Ponta.ID := ID;
 
+  Writeln('Registrado ID: '+ TSessao(AContext.Data).Ponta.ID.ToString);
 
   // Retomar chamada
   for I := 0 to Pred(Length(FChamadas)) do
@@ -142,6 +153,7 @@ end;
 
 procedure TServidor.AtribuirIdentificador(AContext: TIdContext; Bytes: TIdBytes);
 begin
+  AddLog('AtribuirIdentificador');
   TSessao(AContext.Data).Ponta.Identificador := TSerializer<String>.DeBytes(Bytes);
 end;
 
@@ -151,6 +163,7 @@ var
   UDP: TUDP;
   ID: Integer;
 begin
+  AddLog('AtribuirUDP('+ TSessao(AContext.Data).Ponta.ID.ToString +'): '+ IndyTextEncoding_UTF8.GetString(Bytes));
   UDP := Bytes;
   ID := TSessao(AContext.Data).Ponta.ID;
 
@@ -172,6 +185,7 @@ var
   Context: TIdContext;
   bFind: Boolean;
 begin
+  AddLog('IniciarChamada');
   // Obtem o ID do destinatário
   ID := TSerializer<Integer>.DeBytes(Bytes);
 
@@ -207,11 +221,15 @@ end;
 procedure TServidor.CancelarChamada(AContext: TIdContext; Bytes: TIdBytes);
 var
   ID: Integer;
+
   Lista: TIdContextList;
   Context: TIdContext;
 begin
+  AddLog('CancelarChamada');
   // Obtem o ID do destinatário
   ID := TSerializer<Integer>.DeBytes(Bytes);
+
+  TSessao(AContext.Data).Ponta.UDP := Default(TUDP);
 
   // Localiza o destinatário
   Lista := TCPServer.Contexts.LockList;
@@ -242,6 +260,7 @@ var
   Lista: TIdContextList;
   Context: TIdContext;
 begin
+  AddLog('DestinatarioOcupado');
   // Obtem o ID do destinatário
   ID := TSerializer<Integer>.DeBytes(Bytes);
 
@@ -274,6 +293,7 @@ var
   Lista: TIdContextList;
   Context: TIdContext;
 begin
+  AddLog('AtenderChamada');
   // Cria a chamada
   Chamada := Default(TChamada);
   Chamada.Remetente.ID := TSerializer<Integer>.DeBytes(Bytes);
@@ -311,7 +331,9 @@ var
   Context: TIdContext;
   ID: Integer;
 begin
+  AddLog('RecusarChamada');
   ID := TSerializer<Integer>.DeBytes(Bytes);
+  TSessao(AContext.Data).Ponta.UDP := Default(TUDP);
 
   // Avisa a ponta que iniciou a chamada que ela foi recusada
   Lista := TCPServer.Contexts.LockList;
@@ -346,6 +368,7 @@ var
   EncerrarChamadas: TArray<TChamada>;
   ChamdasAtivas: TArray<TChamada>;
 begin
+  AddLog('FinalizarChamada');
   ID := TSerializer<Integer>.DeBytes(Bytes);
 
   EncerrarChamadas := [];
@@ -385,6 +408,7 @@ end;
 
 procedure TServidor.ChamadasAtivas(AContext: TIdContext; Bytes: TIdBytes);
 begin
+  AddLog('ChamadasAtivas');
   EnviarParaCliente(AContext, TMethod.ChamadasAtivas, TSerializer<TArray<TChamada>>.ParaBytes(FChamadas));
 end;
 
@@ -394,6 +418,7 @@ var
   Context: TIdContext;
   Chamada: TChamada;
 begin
+  AddLog('FinalizarTodasChamadas');
   // Avisa a todos remetentes e destinatários que a chamada foi encerrada
   Lista := TCPServer.Contexts.LockList;
   try
@@ -426,6 +451,7 @@ var
   Tamanho: Integer;
   Bytes: TIdBytes;
 begin
+//  AddLog('TCPServerExecute');
   // Verifica se desconectou
   AContext.Connection.IOHandler.CheckForDisconnect;
 
@@ -469,15 +495,18 @@ end;
 
 procedure TServidor.TCPConnect(AContext: TIdContext);
 begin
+  AddLog('TCPConnect');
   Exit;
 end;
 
 procedure TServidor.TCPDisconnect(AContext: TIdContext);
 begin
+  AddLog('TCPDisconnect');
   // Desconexão de uma ponta
   if not Assigned(AContext.Data) then
     Exit;
 
+  AddLog('Desconectado ID: '+ TSessao(AContext.Data).Ponta.ID.ToString);
 end;
 
 procedure TServidor.UDPServerRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle);
@@ -485,13 +514,16 @@ var
   Chamada: TChamada;
   UDP: TUDP;
 begin
+//  AddLog('UDPServerRead');
   // Se não veio nada.. é para retornar os dados da conexão UDP atual
   if Length(AData) = 0 then
   begin
+    AddLog('Obtendo UDP');
     UDP := Default(TUDP);
     UDP.IP := ABinding.PeerIP;
     UDP.Porta := ABinding.PeerPort;
     UDPServer.Binding.SendTo(ABinding.PeerIP, ABinding.PeerPort, UDP);
+    AddLog('UDP Obtido: '+ UDP.IP +':'+ UDP.Porta.ToString);
   end
   else // Retransmissão de dados
   begin
@@ -515,6 +547,7 @@ end;
 
 procedure TServidor.Start;
 begin
+  AddLog('Start');
   UDPServer.Active := True;
   TCPServer.Active := True;
 end;
