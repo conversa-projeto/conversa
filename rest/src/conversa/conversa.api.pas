@@ -98,10 +98,23 @@ begin
     sl +'     , u.user '+
     sl +'     , u.email '+
     sl +'     , u.telefone '+
+    sl +'     , u.senha '+
     sl +'  from usuario as u '+
     sl +' where u.id <> '+ Usuario.ToString +
     sl +' order '+
-    sl +'    by u.id '
+    sl +'    by u.id '+
+    sl +' limit 500'
+//    sl +'  union all '+
+//    sl +'select u.id '+
+//    sl +'     , u.nome '+
+//    sl +'     , u.user '+
+//    sl +'     , u.email '+
+//    sl +'     , u.telefone '+
+//    sl +'     , u.senha '+
+//    sl +'  from usuario as u '+
+//    sl +' where u.id <> '+ Usuario.ToString
+//    sl +' order '+
+//    sl +'    by u.id '
   );
 end;
 
