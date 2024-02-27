@@ -212,7 +212,7 @@ begin
 
     // Informar ao remetende que o destinatário está offline
     if not bFind then
-      raise Exception.Create('Destinatário: '+ ID.ToString +' desconectado!');
+      EnviarParaCliente(AContext, TMethod.UsuarioDesconectado, TSerializer<String>.ParaBytes('Destinatário: '+ ID.ToString +' desconectado!'));
   finally
     TCPServer.Contexts.UnlockList;
   end;
