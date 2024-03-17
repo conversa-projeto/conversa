@@ -164,30 +164,34 @@ end;
 
 class function TConversa.MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject;
 begin
-  CamposObrigatorios(oMensagem, ['conversa_id', 'conteudo']);
-
-  if Assigned(oMensagem.FindValue('usuario_id')) then
-    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Não pode ser definido o usuário ao incluir uma mensagem!');
-  if Assigned(oMensagem.FindValue('inserida')) then
-    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Não pode ser definida a data de inclusão da mensagem!');
-
-  oMensagem.AddPair('usuario_id', TJSONNumber.Create(Usuario));
-  oMensagem.AddPair('inserida', DateToISO8601(Now));
-
-  Result := InsertJSON('mensagem', oMensagem);
+//  CamposObrigatorios(oMensagem, ['conversa_id', 'conteudo']);
+//
+//  if Assigned(oMensagem.FindValue('usuario_id')) then
+//    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Não pode ser definido o usuário ao incluir uma mensagem!');
+//  if Assigned(oMensagem.FindValue('inserida')) then
+//    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Não pode ser definida a data de inclusão da mensagem!');
+//
+//  oMensagem.AddPair('usuario_id', TJSONNumber.Create(Usuario));
+//  oMensagem.AddPair('inserida', DateToISO8601(Now));
+//
+//  Result := InsertJSON('mensagem', oMensagem);
 end;
 
 class function TConversa.MensagemAlterar(oMensagem: TJSONObject): TJSONObject;
 begin
-  if (oMensagem.Count <> 1) or not Assigned(oMensagem.FindValue('conteudo')) then
-    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Só é permitido alterar o conteúdo da mensagem!');
-
-  Result := UpdateJSON('mensagem', oMensagem);
+//  if (oMensagem.Count <> 1) or not Assigned(oMensagem.FindValue('conteudo')) then
+//    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Só é permitido alterar o conteúdo da mensagem!');
+//
+//  Result := UpdateJSON('mensagem', oMensagem);
 end;
 
 class function TConversa.MensagemExcluir(Mensagem: Integer): TJSONObject;
+var
+  oConteudo: TJSONObject;
 begin
+  oConteudo := Delete('mensagem_conteudo', Mensagem, 'mensagem_id');
   Result := Delete('mensagem', Mensagem);
+  Result.AddPair('conteudo', oConteudo);
 end;
 
 class function TConversa.Mensagens(Conversa: Integer): TJSONArray;

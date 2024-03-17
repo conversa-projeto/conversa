@@ -19,7 +19,7 @@ function OpenKey(const ASQL: String): TJSONObject;
 function Open(const ASQL: String): TJSONArray;
 function InsertJSON(sTabela: String; oJSON: TJSONObject): TJSONObject;
 function UpdateJSON(sTabela: String; oJSON: TJSONObject): TJSONObject;
-function Delete(sTabela: String; iID: Integer): TJSONObject;
+function Delete(sTabela: String; iID: Integer; sField: String = 'id'): TJSONObject;
 procedure CamposObrigatorios(oJSON: TJSONObject; aCamposObrigatorios: TArray<String>);
 
 implementation
@@ -193,18 +193,18 @@ begin
   );
 end;
 
-function Delete(sTabela: String; iID: Integer): TJSONObject;
+function Delete(sTabela: String; iID: Integer; sField: String = 'id'): TJSONObject;
 begin
   Result := OpenKey(
     sl +'select * '+
     sl +'  from '+ sTabela +
-    sl +' where id = '+ iID.ToString
+    sl +' where '+ sField +' = '+ iID.ToString
   );
 
   TPool.Instance.Connection.ExecSQL(
     sl +'delete '+
     sl +'  from '+ sTabela +
-    sl +' where id = '+ iID.ToString
+    sl +' where '+ sField +' = '+ iID.ToString
   );
 end;
 
