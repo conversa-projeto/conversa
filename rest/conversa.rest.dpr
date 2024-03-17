@@ -15,7 +15,7 @@ uses
   Horse.CORS,
   conversa.api in 'src\conversa\conversa.api.pas',
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
-  SQLite in 'src\conversa\SQLite.pas',
+  Postgres in 'src\conversa\Postgres.pas',
   conversa.comum in 'src\conversa\conversa.comum.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
@@ -35,7 +35,7 @@ begin
       .Use(HandleException)
       .Use(CORS);
 
-    TPool.Start('conversa.db');
+    TPool.Start;
     try
       Migracoes(0);
 

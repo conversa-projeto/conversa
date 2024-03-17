@@ -6,7 +6,7 @@ interface
 uses
   System.SysUtils,
   FireDAC.Comp.Client,
-  SQLite,
+  Postgres,
   conversa.comum;
 
 procedure Migracoes(iVersao: Integer);
@@ -18,46 +18,67 @@ uses
 
 const v0 =
   sl +'create '+
-  sl +' table if not exists usuario '+
-  sl +'     ( id integer primary key autoincrement '+
-  sl +'     , nome text not null '+
-  sl +'     , user text null '+
-  sl +'     , email text not null unique '+
-  sl +'     , telefone text null '+
-  sl +'     , senha text not null '+
+  sl +' table usuario  '+
+  sl +'     ( id serial4 not null '+
+  sl +'     , nome varchar(100) not null '+
+  sl +'     , login varchar(50) not null '+
+  sl +'     , email varchar(100) not null '+
+  sl +'     , telefone varchar(50) null '+
+  sl +'     , senha varchar(50) not null '+
+  sl +'     , constraint usuario_email_unique unique (email) '+
+  sl +'     , constraint usuario_pk primary key (id) '+
   sl +'     ); '+
+  sl +
   sl +'create '+
-  sl +' table if not exists usuario_contato '+
-  sl +'     ( id integer primary key autoincrement '+
-  sl +'     , usuario_id integer not null '+
-  sl +'     , relacionamento_id integer not null '+
-  sl +'     , foreign key (usuario_id) references usuario(id) '+
-  sl +'     , foreign key (relacionamento_id) references usuario(id) '+
+  sl +' table conversa  '+
+  sl +'     ( id serial4 not null '+
+  sl +'     , descricao varchar(100) null '+
+  sl +'     , constraint conversa_pk primary key (id) '+
   sl +'     ); '+
+  sl +
   sl +'create '+
-  sl +' table if not exists conversa '+
-  sl +'     ( id integer primary key autoincrement '+
-  sl +'     , descricao text not null '+
+  sl +' table usuario_contato  '+
+  sl +'     ( id serial4 not null '+
+  sl +'     , usuario_id int4 null '+
+  sl +'     , relacionamento_id int4 null '+
+  sl +'     , constraint usuario_contato_pk primary key (id) '+
+  sl +'     , constraint usuario_contato_usuario_fk foreign key (usuario_id) references usuario(id) '+
+  sl +'     , constraint usuario_contato_usuario_fk_1 foreign key (relacionamento_id) references usuario(id) '+
   sl +'     ); '+
+  sl +
   sl +'create '+
-  sl +' table if not exists conversa_usuario '+
-  sl +'     ( id integer primary key autoincrement '+
-  sl +'     , usuario_id integer not null '+
-  sl +'     , conversa_id integer not null '+
-  sl +'     , foreign key (usuario_id) references usuario(id) '+
-  sl +'     , foreign key (conversa_id) references conversa(id) '+
+  sl +' table conversa_usuario  '+
+  sl +'     ( id serial4 not null '+
+  sl +'     , usuario_id int4 not null '+
+  sl +'     , conversa_id int4 not null '+
+  sl +'     , constraint conversa_usuario_pk primary key (id) '+
+  sl +'     , constraint conversa_usuario_conversa_fk foreign key (conversa_id) references conversa(id) '+
+  sl +'     , constraint conversa_usuario_usuario_fk foreign key (usuario_id) references usuario(id) '+
   sl +'     ); '+
+  sl +
   sl +'create '+
-  sl +' table if not exists mensagem '+
-  sl +'     ( id integer primary key autoincrement '+
-  sl +'     , usuario_id integer not null '+
-  sl +'     , conversa_id integer not null '+
-  sl +'     , inserida text not null '+
-  sl +'     , alterada text null '+
-  sl +'     , conteudo text not null '+
-  sl +'     , foreign key (usuario_id) references usuario(id) '+
-  sl +'     , foreign key (conversa_id) references conversa(id) '+
+  sl +' table mensagem  '+
+  sl +'     ( id serial4 not null '+
+  sl +'     , usuario_id int4 not null '+
+  sl +'     , conversa_id int4 not null '+
+  sl +'     , inserida timestamp not null '+
+  sl +'     , alterada timestamp null '+
+  sl +'     , constraint mensagem_pk primary key (id) '+
+  sl +'     , constraint mensagem_conversa_fk foreign key (conversa_id) references conversa(id) '+
+  sl +'     , constraint mensagem_usuario_fk foreign key (usuario_id) references usuario(id) '+
   sl +'     ); '+
+  sl +
+  sl +'create '+
+  sl +' table mensagem_conteudo  '+
+  sl +'     ( id serial4 not null '+
+  sl +'     , mensagem_id int4 not null '+
+  sl +'     , ordem int4 not null '+
+  sl +'     , tipo int4 not null '+
+  sl +'     , conteudo bytea null '+
+  sl +'     , constraint mensagem_conteudo_pk primary key (id) '+
+  sl +'     , constraint mensagem_conteudo_mensagem_fk foreign key (mensagem_id) references mensagem(id) '+
+  sl +'     ); '+
+  sl +
   sl +'update parametros '+
   sl +'   set valor = ''0'' '+
   sl +' where nome  = ''versao'' ';
@@ -73,9 +94,10 @@ begin
 
   Pool.Connection.ExecSQL(
     sl +'create '+
-    sl +' table if not exists parametros '+
-    sl +'     ( nome text not null unique '+
-    sl +'     , valor text not null '+
+    sl +' table if not exists parametros  '+
+    sl +'     ( nome varchar(50) not null '+
+    sl +'     , valor varchar(500) not null '+
+    sl +'     , constraint parametros_nome_key unique (nome) '+
     sl +'     ); '
   );
 

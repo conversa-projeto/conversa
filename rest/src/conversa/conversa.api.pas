@@ -13,7 +13,7 @@ uses
   Data.DB,
   FireDAC.Comp.Client,
   Horse,
-  SQLite,
+  Postgres,
   conversa.comum;
 
 type
@@ -41,7 +41,7 @@ implementation
 
 class function TConversa.Login(oAutenticacao: TJSONObject): TJSONObject;
 begin
-  CamposObrigatorios(oAutenticacao, ['email', 'senha']);
+  CamposObrigatorios(oAutenticacao, ['login', 'senha']);
 
   Result := OpenKey(
     sl +'select id '+
@@ -49,7 +49,7 @@ begin
     sl +'     , email '+
     sl +'     , telefone '+
     sl +'  from usuario '+
-    sl +' where email = '+ Qt(oAutenticacao.GetValue<String>('email')) +
+    sl +' where login = '+ Qt(oAutenticacao.GetValue<String>('login')) +
     sl +'   and senha = '+ Qt(oAutenticacao.GetValue<String>('senha'))
   );
 
@@ -95,26 +95,14 @@ begin
   Result := Open(
     sl +'select u.id '+
     sl +'     , u.nome '+
-    sl +'     , u.user '+
+    sl +'     , u.login '+
     sl +'     , u.email '+
     sl +'     , u.telefone '+
     sl +'     , u.senha '+
     sl +'  from usuario as u '+
     sl +' where u.id <> '+ Usuario.ToString +
     sl +' order '+
-    sl +'    by u.id '+
-    sl +' limit 500'
-//    sl +'  union all '+
-//    sl +'select u.id '+
-//    sl +'     , u.nome '+
-//    sl +'     , u.user '+
-//    sl +'     , u.email '+
-//    sl +'     , u.telefone '+
-//    sl +'     , u.senha '+
-//    sl +'  from usuario as u '+
-//    sl +' where u.id <> '+ Usuario.ToString
-//    sl +' order '+
-//    sl +'    by u.id '
+    sl +'    by u.id '
   );
 end;
 
@@ -138,11 +126,11 @@ class function TConversa.Conversas(Usuario: Integer): TJSONArray;
 begin
   Result := Open(
     sl +'select c.id '+
-    sl +'     , ifnull(c.descricao, group_concat(u.nome, '', '')) as descricao '+
-    sl +'     , ( select max(datetime(inserida)) '+
+    sl +'     , case when c.descricao is null then string_agg(substring(trim(u.nome) from ''^([^ ]+)''), '', '') else c.descricao end as descricao '+
+    sl +'     , ( select max(inserida) '+
     sl +'           from mensagem as m '+
     sl +'          where m.conversa_id = c.id '+
-    sl +'       ) as "ultima_mensagem::datetime" '+
+    sl +'       ) as ultima_mensagem '+
     sl +'  from conversa as c '+
     sl +' inner '+
     sl +'  join conversa_usuario as cu '+
@@ -159,7 +147,7 @@ begin
     sl +'    by c.id '+
     sl +'     , c.descricao '+
     sl +' order '+
-    sl +'    by "ultima_mensagem::datetime" desc '
+    sl +'    by ultima_mensagem'
   );
 end;
 
@@ -203,21 +191,50 @@ begin
 end;
 
 class function TConversa.Mensagens(Conversa: Integer): TJSONArray;
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
 begin
-  Result := Open(
-    sl +'select m.id '+
-    sl +'     , u.nome as remetente '+
-    sl +'     , m.inserida as "inserida::datetime" '+
-    sl +'     , m.alterada as "alterada::datetime" '+
-    sl +'     , m.conteudo '+
-    sl +'  from mensagem as m '+
-    sl +' inner '+
-    sl +'  join usuario as u '+
-    sl +'    on u.id = m.usuario_id '+
-    sl +' where m.conversa_id = '+ Conversa.ToString +
-    sl +' order '+
-    sl +'    by m.inserida desc '
-  );
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    Qry.Open(
+      sl +'select jsonb_agg( '+
+      sl +'         jsonb_build_object( ''id'', m.id '+
+      sl +'                           , ''remetente_id'', m.usuario_id '+
+      sl +'                           , ''remetente'', substring(trim(u.nome) from ''^([^ ]+)'') '+
+      sl +'                           , ''conversa_id'', m.conversa_id '+
+      sl +'                           , ''inserida'', m.inserida '+
+      sl +'                           , ''alterada'', m.alterada '+
+      sl +'                           , ''conteudos'', mc.conteudos '+
+      sl +'                           ) '+
+      sl +'       ) as resultado '+
+      sl +'  from mensagem as m '+
+      sl +' inner  '+
+      sl +'  join usuario as u  '+
+      sl +'    on u.id = m.usuario_id  '+
+      sl +'  left  '+
+      sl +'  join  '+
+      sl +'     ( select mensagem_id '+
+      sl +'            , jsonb_agg( '+
+      sl +'                jsonb_build_object( ''id'', id '+
+      sl +'                                  , ''ordem'', ordem '+
+      sl +'                                  , ''tipo'', tipo '+
+      sl +'                                  , ''conteudo'', conteudo '+
+      sl +'                                  ) '+
+      sl +'              ) as conteudos '+
+      sl +'         from mensagem_conteudo '+
+      sl +'        group  '+
+      sl +'           by mensagem_id '+
+      sl +'     ) as mc  '+
+      sl +'    on mc.mensagem_id = m.id '+
+      sl +' where m.conversa_id = '+ Conversa.ToString
+    );
+    Result := TJSONObject.ParseJSONValue(Qry.FieldByName('resultado').AsString) as TJSONArray;
+  finally
+    FreeAndNil(Qry);
+  end;
 end;
 
 end.

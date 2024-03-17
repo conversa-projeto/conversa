@@ -9,7 +9,7 @@ uses
   System.DateUtils,
   System.JSON,
   FireDAC.Comp.Client,
-  SQLite;
+  Postgres;
 
 const
   sl = sLineBreak;
@@ -140,9 +140,9 @@ begin
     sl +'     ) '+
     sl +'values '+
     sl +'     ( '+ sValores +
-    sl +'     ); '+
+    sl +'     ) '+
     sl +
-    sl +'select last_insert_rowid(); '
+    sl +'returning id; '
   );
 
   Result := OpenKey(
