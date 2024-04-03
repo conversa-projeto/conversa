@@ -3,8 +3,6 @@
 *.identcache
 *.res
 *.dcu
-*.db
-*.db-shm
-*.db-wal
+anexos/
 __history/
 __recovery/

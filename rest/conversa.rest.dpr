@@ -13,6 +13,7 @@ uses
   Horse.Jhonson,
   Horse.HandleException,
   Horse.CORS,
+  Horse.OctetStream,
   conversa.api in 'src\conversa\conversa.api.pas',
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
@@ -32,6 +33,7 @@ begin
   try
     THorse
       .Use(Jhonson)
+      .Use(OctetStream)
       .Use(HandleException)
       .Use(CORS);
 
@@ -187,6 +189,25 @@ begin
           Req.Headers.Field('uid').Required(True);
           Req.Query.Field('id').Required(True);
           Res.Send<TJSONObject>(TConversa.MensagemExcluir(Req.Query.Field('id').AsInteger));
+        end
+      );
+
+      THorse.Get(
+        '/anexo',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Headers.Field('uid').Required(True);
+          Req.Headers.Field('identificador').Required(True);
+          Res.Send<TStringStream>(TConversa.Anexo(Req.Headers.Field('uid').AsInteger, Req.Query.Field('identificador').AsString));
+        end
+      );
+
+      THorse.Put(
+        '/anexo',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Headers.Field('uid').Required(True);
+          Res.Send<TJSONObject>(TConversa.AnexoIncluir(Req.Headers.Field('uid').AsInteger, Req.Query.Field('tipo').AsInteger, Req.Body<TStringStream>));
         end
       );
 

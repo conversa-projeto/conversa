@@ -10,6 +10,9 @@ uses
   System.DateUtils,
   System.StrUtils,
   System.Generics.Collections,
+  System.NetEncoding,
+  System.Hash,
+  System.IOUtils,
   Data.DB,
   FireDAC.Comp.Client,
   Horse,
@@ -35,6 +38,8 @@ type
     class function MensagemAlterar(oMensagem: TJSONObject): TJSONObject;
     class function MensagemExcluir(Mensagem: Integer): TJSONObject;
     class function Mensagens(Conversa: Integer): TJSONArray;
+    class function AnexoIncluir(Usuario: Integer; Tipo: Integer; Dados: TStringStream): TJSONObject;
+    class function Anexo(Usuario: Integer; Identificador: String): TStringStream;
   end;
 
 implementation
@@ -175,6 +180,8 @@ begin
 //  oMensagem.AddPair('inserida', DateToISO8601(Now));
 //
 //  Result := InsertJSON('mensagem', oMensagem);
+
+// Se o tipo de mensagem for texto
 end;
 
 class function TConversa.MensagemAlterar(oMensagem: TJSONObject): TJSONObject;
@@ -192,6 +199,131 @@ begin
   oConteudo := Delete('mensagem_conteudo', Mensagem, 'mensagem_id');
   Result := Delete('mensagem', Mensagem);
   Result.AddPair('conteudo', oConteudo);
+end;
+
+class function TConversa.Anexo(Usuario: Integer; Identificador: String): TStringStream;
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+begin
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    Qry.Open(
+      sl +'select a.id '+
+      sl +'     , a.identificador '+
+      sl +'     , a.tipo '+
+      sl +'     , a.tamanho '+
+      sl +'     , a.arquivo '+
+      sl +'  from anexo as a '+
+      sl +' where a.identificador = '+ Qt(Identificador)
+    );
+
+    if Qry.IsEmpty then
+      raise Exception.Create('Anexo não encontrado!');
+
+    Result := TStringStream.Create;
+    Result.LoadFromFile(Qry.FieldByName('arquivo').AsString);
+  finally
+    FreeAndNil(Qry);
+  end;
+end;
+
+class function TConversa.AnexoIncluir(Usuario: Integer; Tipo: Integer; Dados: TStringStream): TJSONObject;
+var
+  iID: Integer;
+  sIdentificador: String;
+  sLocal: String;
+  Pool: IConnection;
+  Qry: TFDQuery;
+begin
+  sIdentificador := THashSHA2.GetHashString(Dados);
+
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    Qry.Open(
+      sl +'select a.id '+
+      sl +'  from anexo as a '+
+      sl +' where a.identificador = '+ Qt(sIdentificador)
+    );
+
+    if not Qry.IsEmpty then
+    begin
+      Result := OpenKey(
+        sl +'select a.id '+
+        sl +'     , a.identificador '+
+        sl +'     , a.tipo '+
+        sl +'     , a.tamanho '+
+        sl +'  from anexo as a '+
+        sl +' where a.id = '+ Qry.FieldByName('id').AsString
+      );
+      Exit;
+    end;
+  finally
+    FreeAndNil(Qry);
+  end;
+
+  sLocal := ExtractFilePath(ParamStr(0)) +'anexos';
+
+  if not TDirectory.Exists(sLocal) then
+    TDirectory.CreateDirectory(sLocal);
+
+  Dados.SaveToFile(sLocal + PathDelim + sIdentificador);
+
+  iID := TPool.Instance.Connection.ExecSQLScalar(
+    sl +'insert '+
+    sl +'  into anexo '+
+    sl +'     ( identificador '+
+    sl +'     , tipo '+
+    sl +'     , tamanho '+
+    sl +'     , arquivo '+
+    sl +'     ) '+
+    sl +'values '+
+    sl +'     ( '+ Qt(sIdentificador) +
+    sl +'     , '+ Tipo.ToString +
+    sl +'     , '+ Dados.Size.ToString +
+    sl +'     , '+ Qt(sLocal + PathDelim + sIdentificador) +
+    sl +'     ) '+
+    sl +
+    sl +'returning id; '
+  );
+
+  Result := OpenKey(
+    sl +'select a.id '+
+    sl +'     , a.identificador '+
+    sl +'     , a.tipo '+
+    sl +'     , a.tamanho '+
+    sl +'  from anexo as a '+
+    sl +' where a.id = '+ iID.ToString
+  );
+end;
+
+function HexToBytes(const Hex: string): TBytes;
+var
+  I: Integer;
+begin
+  SetLength(Result, Length(Hex) div 2);
+  for I := 1 to Length(Hex) div 2 do
+    Result[I - 1] := StrToInt('$'+ Copy(Hex, 2 * I - 1, 2));
+end;
+
+function DecodeHex(const HexStr: string): string;
+var
+  DecodedBytes: TBytes;
+  AnsiStr: AnsiString;
+begin
+  // Remova o prefixo '\\x' se estiver presente
+  if HexStr.StartsWith('\x') then
+    DecodedBytes := HexToBytes(Copy(HexStr, 3, Length(HexStr) - 2))
+  else
+    DecodedBytes := HexToBytes(HexStr);
+
+  // Decodifique os bytes em uma string Ansi
+  SetString(AnsiStr, PAnsiChar(@DecodedBytes[0]), Length(DecodedBytes));
+  Result := String(AnsiStr);
 end;
 
 class function TConversa.Mensagens(Conversa: Integer): TJSONArray;
@@ -218,8 +350,8 @@ begin
       sl +' inner  '+
       sl +'  join usuario as u  '+
       sl +'    on u.id = m.usuario_id  '+
-      sl +'  left  '+
-      sl +'  join  '+
+      sl +'  left '+
+      sl +'  join '+
       sl +'     ( select mensagem_id '+
       sl +'            , jsonb_agg( '+
       sl +'                jsonb_build_object( ''id'', id '+
@@ -231,7 +363,7 @@ begin
       sl +'         from mensagem_conteudo '+
       sl +'        group  '+
       sl +'           by mensagem_id '+
-      sl +'     ) as mc  '+
+      sl +'     ) as mc '+
       sl +'    on mc.mensagem_id = m.id '+
       sl +' where m.conversa_id = '+ Conversa.ToString
     );

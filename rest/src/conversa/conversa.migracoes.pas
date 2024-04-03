@@ -79,6 +79,16 @@ const v0 =
   sl +'     , constraint mensagem_conteudo_mensagem_fk foreign key (mensagem_id) references mensagem(id) '+
   sl +'     ); '+
   sl +
+  sl +'create '+
+  sl +' table anexo '+
+  sl +'     ( id serial4 not null '+
+  sl +'     , identificador varchar(64) not null '+
+  sl +'     , tipo int4 not null '+
+  sl +'     , tamanho int4 not null '+
+  sl +'     , arquivo varchar(500) not null '+
+  sl +'     , constraint anexo_pk primary key (id) '+
+  sl +'     ); '+
+  sl +
   sl +'update parametros '+
   sl +'   set valor = ''0'' '+
   sl +' where nome  = ''versao'' ';
