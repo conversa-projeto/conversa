@@ -44,6 +44,9 @@ type
 
 implementation
 
+const
+  PASTA_ANEXO = 'anexos';
+
 class function TConversa.Login(oAutenticacao: TJSONObject): TJSONObject;
 begin
   CamposObrigatorios(oAutenticacao, ['login', 'senha']);
@@ -215,7 +218,6 @@ begin
       sl +'     , a.identificador '+
       sl +'     , a.tipo '+
       sl +'     , a.tamanho '+
-      sl +'     , a.arquivo '+
       sl +'  from anexo as a '+
       sl +' where a.identificador = '+ Qt(Identificador)
     );
@@ -224,7 +226,7 @@ begin
       raise Exception.Create('Anexo não encontrado!');
 
     Result := TStringStream.Create;
-    Result.LoadFromFile(Qry.FieldByName('arquivo').AsString);
+    Result.LoadFromFile(ExtractFilePath(ParamStr(0)) + PASTA_ANEXO + PathDelim + Qry.FieldByName('identificador').AsString);
   finally
     FreeAndNil(Qry);
   end;
@@ -238,6 +240,9 @@ var
   Pool: IConnection;
   Qry: TFDQuery;
 begin
+  if not Assigned(Dados) then
+    raise Exception.Create('Sem dados na requisição! Verifique se tipo de conteúdo é Content-Type: application/octet-stream');
+
   sIdentificador := THashSHA2.GetHashString(Dados);
 
   Pool := TPool.Instance;
@@ -266,7 +271,7 @@ begin
     FreeAndNil(Qry);
   end;
 
-  sLocal := ExtractFilePath(ParamStr(0)) +'anexos';
+  sLocal := ExtractFilePath(ParamStr(0)) + PASTA_ANEXO;
 
   if not TDirectory.Exists(sLocal) then
     TDirectory.CreateDirectory(sLocal);
@@ -279,13 +284,11 @@ begin
     sl +'     ( identificador '+
     sl +'     , tipo '+
     sl +'     , tamanho '+
-    sl +'     , arquivo '+
     sl +'     ) '+
     sl +'values '+
     sl +'     ( '+ Qt(sIdentificador) +
     sl +'     , '+ Tipo.ToString +
     sl +'     , '+ Dados.Size.ToString +
-    sl +'     , '+ Qt(sLocal + PathDelim + sIdentificador) +
     sl +'     ) '+
     sl +
     sl +'returning id; '
@@ -299,31 +302,6 @@ begin
     sl +'  from anexo as a '+
     sl +' where a.id = '+ iID.ToString
   );
-end;
-
-function HexToBytes(const Hex: string): TBytes;
-var
-  I: Integer;
-begin
-  SetLength(Result, Length(Hex) div 2);
-  for I := 1 to Length(Hex) div 2 do
-    Result[I - 1] := StrToInt('$'+ Copy(Hex, 2 * I - 1, 2));
-end;
-
-function DecodeHex(const HexStr: string): string;
-var
-  DecodedBytes: TBytes;
-  AnsiStr: AnsiString;
-begin
-  // Remova o prefixo '\\x' se estiver presente
-  if HexStr.StartsWith('\x') then
-    DecodedBytes := HexToBytes(Copy(HexStr, 3, Length(HexStr) - 2))
-  else
-    DecodedBytes := HexToBytes(HexStr);
-
-  // Decodifique os bytes em uma string Ansi
-  SetString(AnsiStr, PAnsiChar(@DecodedBytes[0]), Length(DecodedBytes));
-  Result := String(AnsiStr);
 end;
 
 class function TConversa.Mensagens(Conversa: Integer): TJSONArray;

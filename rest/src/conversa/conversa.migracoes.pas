@@ -85,7 +85,6 @@ const v0 =
   sl +'     , identificador varchar(64) not null '+
   sl +'     , tipo int4 not null '+
   sl +'     , tamanho int4 not null '+
-  sl +'     , arquivo varchar(500) not null '+
   sl +'     , constraint anexo_pk primary key (id) '+
   sl +'     ); '+
   sl +
