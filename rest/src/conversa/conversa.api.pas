@@ -335,7 +335,7 @@ begin
       sl +'                jsonb_build_object( ''id'', id '+
       sl +'                                  , ''ordem'', ordem '+
       sl +'                                  , ''tipo'', tipo '+
-      sl +'                                  , ''conteudo'', conteudo '+
+      sl +'                                  , ''conteudo'', convert_from(conteudo, ''utf-8'') '+
       sl +'                                  ) '+
       sl +'              ) as conteudos '+
       sl +'         from mensagem_conteudo '+
