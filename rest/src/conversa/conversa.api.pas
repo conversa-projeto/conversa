@@ -171,20 +171,33 @@ begin
 end;
 
 class function TConversa.MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject;
+var
+  Item: TJSONValue;
+  pJSON: TJSONPair;
+  oConteudo: TJSONObject;
 begin
-//  CamposObrigatorios(oMensagem, ['conversa_id', 'conteudo']);
-//
-//  if Assigned(oMensagem.FindValue('usuario_id')) then
-//    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Não pode ser definido o usuário ao incluir uma mensagem!');
-//  if Assigned(oMensagem.FindValue('inserida')) then
-//    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Não pode ser definida a data de inclusão da mensagem!');
-//
-//  oMensagem.AddPair('usuario_id', TJSONNumber.Create(Usuario));
-//  oMensagem.AddPair('inserida', DateToISO8601(Now));
-//
-//  Result := InsertJSON('mensagem', oMensagem);
+  CamposObrigatorios(oMensagem, ['conversa_id', 'conteudos']);
 
-// Se o tipo de mensagem for texto
+  oMensagem.AddPair('usuario_id', TJSONNumber.Create(Usuario));
+  oMensagem.AddPair('inserida', DateToISO8601(Now));
+
+  pJSON := oMensagem.RemovePair('conteudos');
+  try
+    Result := InsertJSON('mensagem', oMensagem);
+
+    // Insere os conteudos
+    for Item in pJSON.JsonValue as TJSONArray do
+    begin
+      oConteudo := TJSONObject.Create;
+      oConteudo.AddPair('mensagem_id', Result.GetValue<Integer>('id'));
+      oConteudo.AddPair('ordem', Item.GetValue<Integer>('ordem'));
+      oConteudo.AddPair('tipo', Item.GetValue<Integer>('tipo'));
+      oConteudo.AddPair('conteudo', Item.GetValue<String>('conteudo'));
+      InsertJSON('mensagem_conteudo', oConteudo);
+    end;
+  finally
+    FreeAndNil(pJSON);
+  end;
 end;
 
 class function TConversa.MensagemAlterar(oMensagem: TJSONObject): TJSONObject;
@@ -307,47 +320,77 @@ end;
 class function TConversa.Mensagens(Conversa: Integer): TJSONArray;
 var
   Pool: IConnection;
-  Qry: TFDQuery;
+  Mensagem: TFDQuery;
+  Conteudo: TFDQuery;
+  oMensagem: TJSONObject;
+  aConteudos: TJSONArray;
+  oConteudo: TJSONObject;
 begin
   Pool := TPool.Instance;
-  Qry := TFDQuery.Create(nil);
+  Mensagem := TFDQuery.Create(nil);
+  Conteudo := TFDQuery.Create(nil);
   try
-    Qry.Connection := Pool.Connection;
-    Qry.Open(
-      sl +'select jsonb_agg( '+
-      sl +'         jsonb_build_object( ''id'', m.id '+
-      sl +'                           , ''remetente_id'', m.usuario_id '+
-      sl +'                           , ''remetente'', substring(trim(u.nome) from ''^([^ ]+)'') '+
-      sl +'                           , ''conversa_id'', m.conversa_id '+
-      sl +'                           , ''inserida'', m.inserida '+
-      sl +'                           , ''alterada'', m.alterada '+
-      sl +'                           , ''conteudos'', mc.conteudos '+
-      sl +'                           ) '+
-      sl +'       ) as resultado '+
+    Mensagem.Connection := Pool.Connection;
+    Conteudo.Connection := Pool.Connection;
+
+    Mensagem.Open(
+      sl +'select m.id '+
+      sl +'     , m.usuario_id as remetente_id '+
+      sl +'     , substring(trim(u.nome) from ''^([^ ]+)'') as remetente '+
+      sl +'     , m.conversa_id '+
+      sl +'     , m.inserida '+
+      sl +'     , m.alterada '+
       sl +'  from mensagem as m '+
       sl +' inner  '+
       sl +'  join usuario as u  '+
       sl +'    on u.id = m.usuario_id  '+
-      sl +'  left '+
-      sl +'  join '+
-      sl +'     ( select mensagem_id '+
-      sl +'            , jsonb_agg( '+
-      sl +'                jsonb_build_object( ''id'', id '+
-      sl +'                                  , ''ordem'', ordem '+
-      sl +'                                  , ''tipo'', tipo '+
-      sl +'                                  , ''conteudo'', convert_from(conteudo, ''utf-8'') '+
-      sl +'                                  ) '+
-      sl +'              ) as conteudos '+
-      sl +'         from mensagem_conteudo '+
-      sl +'        group  '+
-      sl +'           by mensagem_id '+
-      sl +'     ) as mc '+
-      sl +'    on mc.mensagem_id = m.id '+
-      sl +' where m.conversa_id = '+ Conversa.ToString
+      sl +' where m.conversa_id = '+ Conversa.ToString +
+      sl +' order '+
+      sl +'    by m.id '
     );
-    Result := TJSONObject.ParseJSONValue(Qry.FieldByName('resultado').AsString) as TJSONArray;
+
+    Result := TJSONArray.Create;
+
+    Mensagem.First;
+    while not Mensagem.Eof do
+    begin
+      oMensagem := TJSONObject.Create;
+      Result.Add(oMensagem);
+      oMensagem.AddPair('id', Mensagem.FieldByName('id').AsInteger);
+      oMensagem.AddPair('remetente_id', Mensagem.FieldByName('remetente_id').AsInteger);
+      oMensagem.AddPair('remetente', Mensagem.FieldByName('remetente').AsString);
+      oMensagem.AddPair('conversa_id', Mensagem.FieldByName('conversa_id').AsInteger);
+      oMensagem.AddPair('inserida', DateToISO8601(Mensagem.FieldByName('inserida').AsDateTime));
+      oMensagem.AddPair('alterada', DateToISO8601(Mensagem.FieldByName('alterada').AsDateTime));
+
+      aConteudos := TJSONArray.Create;
+      oMensagem.AddPair('conteudos', aConteudos);
+
+      Conteudo.Open(
+        sl +'select id '+
+        sl +'     , ordem '+
+        sl +'     , tipo '+
+        sl +'     , convert_from(conteudo, ''utf-8'') as conteudo '+
+        sl +'  from mensagem_conteudo '+
+        sl +' where mensagem_id = '+ Mensagem.FieldByName('id').AsString +
+        sl +' order '+
+        sl +'    by ordem '
+      );
+      Conteudo.First;
+      while not Conteudo.Eof do
+      begin
+        oConteudo := TJSONObject.Create;
+        aConteudos.Add(oConteudo);
+        oConteudo.AddPair('id', Conteudo.FieldByName('id').AsInteger);
+        oConteudo.AddPair('tipo', Conteudo.FieldByName('tipo').AsInteger);
+        oConteudo.AddPair('ordem', Conteudo.FieldByName('ordem').AsInteger);
+        oConteudo.AddPair('conteudo', Conteudo.FieldByName('conteudo').AsString);
+        Conteudo.Next;
+      end;
+      Mensagem.Next;
+    end;
   finally
-    FreeAndNil(Qry);
+    FreeAndNil(Mensagem);
   end;
 end;
 
