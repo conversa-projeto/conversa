@@ -35,9 +35,9 @@ type
     class function ConversaUsuarioIncluir(oConversaUsuario: TJSONObject): TJSONObject;
     class function ConversaUsuarioExcluir(ConversaUsuario: Integer): TJSONObject;
     class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject;
-    class function MensagemAlterar(oMensagem: TJSONObject): TJSONObject;
     class function MensagemExcluir(Mensagem: Integer): TJSONObject;
     class function Mensagens(Conversa: Integer): TJSONArray;
+    class function AnexoExiste(Identificador: String): TJSONObject;
     class function AnexoIncluir(Usuario: Integer; Tipo: Integer; Dados: TStringStream): TJSONObject;
     class function Anexo(Usuario: Integer; Identificador: String): TStringStream;
   end;
@@ -200,14 +200,6 @@ begin
   end;
 end;
 
-class function TConversa.MensagemAlterar(oMensagem: TJSONObject): TJSONObject;
-begin
-//  if (oMensagem.Count <> 1) or not Assigned(oMensagem.FindValue('conteudo')) then
-//    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Só é permitido alterar o conteúdo da mensagem!');
-//
-//  Result := UpdateJSON('mensagem', oMensagem);
-end;
-
 class function TConversa.MensagemExcluir(Mensagem: Integer): TJSONObject;
 var
   oConteudo: TJSONObject;
@@ -217,7 +209,7 @@ begin
   Result.AddPair('conteudo', oConteudo);
 end;
 
-class function TConversa.Anexo(Usuario: Integer; Identificador: String): TStringStream;
+class function TConversa.AnexoExiste(Identificador: String): TJSONObject;
 var
   Pool: IConnection;
   Qry: TFDQuery;
@@ -235,11 +227,8 @@ begin
       sl +' where a.identificador = '+ Qt(Identificador)
     );
 
-    if Qry.IsEmpty then
-      raise Exception.Create('Anexo não encontrado!');
-
-    Result := TStringStream.Create;
-    Result.LoadFromFile(ExtractFilePath(ParamStr(0)) + PASTA_ANEXO + PathDelim + Qry.FieldByName('identificador').AsString);
+    Result := TJSONObject.Create;
+    Result.AddPair('existe', TJSONBool.Create(not Qry.IsEmpty and TFile.Exists(ExtractFilePath(ParamStr(0)) + PASTA_ANEXO + PathDelim + Qry.FieldByName('identificador').AsString)));
   finally
     FreeAndNil(Qry);
   end;
@@ -315,6 +304,34 @@ begin
     sl +'  from anexo as a '+
     sl +' where a.id = '+ iID.ToString
   );
+end;
+
+class function TConversa.Anexo(Usuario: Integer; Identificador: String): TStringStream;
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+begin
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    Qry.Open(
+      sl +'select a.id '+
+      sl +'     , a.identificador '+
+      sl +'     , a.tipo '+
+      sl +'     , a.tamanho '+
+      sl +'  from anexo as a '+
+      sl +' where a.identificador = '+ Qt(Identificador)
+    );
+
+    if Qry.IsEmpty then
+      raise Exception.Create('Anexo não encontrado!');
+
+    Result := TStringStream.Create;
+    Result.LoadFromFile(ExtractFilePath(ParamStr(0)) + PASTA_ANEXO + PathDelim + Qry.FieldByName('identificador').AsString);
+  finally
+    FreeAndNil(Qry);
+  end;
 end;
 
 class function TConversa.Mensagens(Conversa: Integer): TJSONArray;

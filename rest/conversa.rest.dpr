@@ -9,6 +9,7 @@ uses
   System.SysUtils,
   System.Classes,
   System.JSON,
+  Winapi.Windows,
   Horse,
   Horse.Jhonson,
   Horse.HandleException,
@@ -29,6 +30,9 @@ end;
 const
   sl = sLineBreak;
 begin
+  // Habilita caracteres UTF8 no terminal
+  SetConsoleOutputCP(CP_UTF8);
+
   ReportMemoryLeaksOnShutdown := True;
   try
     THorse
@@ -173,15 +177,6 @@ begin
         end
       );
 
-      THorse.Patch(
-        '/mensagem',
-        procedure(Req: THorseRequest; Res: THorseResponse)
-        begin
-          Req.Headers.Field('uid').Required(True);
-          Res.Send<TJSONObject>(TConversa.MensagemAlterar(Conteudo(Req)));
-        end
-      );
-
       THorse.Delete(
         '/mensagem',
         procedure(Req: THorseRequest; Res: THorseResponse)
@@ -189,6 +184,15 @@ begin
           Req.Headers.Field('uid').Required(True);
           Req.Query.Field('id').Required(True);
           Res.Send<TJSONObject>(TConversa.MensagemExcluir(Req.Query.Field('id').AsInteger));
+        end
+      );
+
+      THorse.Get(
+        '/anexo/existe',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Headers.Field('identificador').Required(True);
+          Res.Send<TJSONObject>(TConversa.AnexoExiste(Req.Query.Field('identificador').AsString));
         end
       );
 
@@ -221,7 +225,7 @@ begin
         end
       );
 
-      Writeln('Servidor iniciado na porta: 90');
+      Writeln('Servidor iniciado na porta: 90 🚀');
       THorse.Listen(90);
     finally
       TPool.Stop;
