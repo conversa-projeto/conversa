@@ -221,7 +221,16 @@ begin
         begin
           Req.Headers.Field('uid').Required(True);
           Req.Query.Field('conversa').Required(True);
-          Res.Send<TJSONArray>(TConversa.Mensagens(Req.Query.Field('conversa').AsInteger));
+          Res.Send<TJSONArray>(TConversa.Mensagens(Req.Query.Field('conversa').AsInteger, Req.Query.Field('ultima').AsInteger));
+        end
+      );
+
+      THorse.Get(
+        '/mensagens/novas',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Headers.Field('uid').Required(True);
+          Res.Send<TJSONArray>(TConversa.NovasMensagens(Req.Headers.Field('uid').AsInteger, Req.Query.Field('ultima').AsInteger));
         end
       );
 

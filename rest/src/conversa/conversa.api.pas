@@ -36,10 +36,11 @@ type
     class function ConversaUsuarioExcluir(ConversaUsuario: Integer): TJSONObject;
     class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject;
     class function MensagemExcluir(Mensagem: Integer): TJSONObject;
-    class function Mensagens(Conversa: Integer): TJSONArray;
+    class function Mensagens(Conversa, UltimaMensagem: Integer): TJSONArray;
     class function AnexoExiste(Identificador: String): TJSONObject;
     class function AnexoIncluir(Usuario: Integer; Tipo: Integer; Dados: TStringStream): TJSONObject;
     class function Anexo(Usuario: Integer; Identificador: String): TStringStream;
+    class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray;
   end;
 
 implementation
@@ -334,7 +335,7 @@ begin
   end;
 end;
 
-class function TConversa.Mensagens(Conversa: Integer): TJSONArray;
+class function TConversa.Mensagens(Conversa, UltimaMensagem: Integer): TJSONArray;
 var
   Pool: IConnection;
   Mensagem: TFDQuery;
@@ -362,6 +363,7 @@ begin
       sl +'  join usuario as u  '+
       sl +'    on u.id = m.usuario_id  '+
       sl +' where m.conversa_id = '+ Conversa.ToString +
+      sl +'   and m.id > '+ UltimaMensagem.ToString +
       sl +' order '+
       sl +'    by m.id '
     );
@@ -409,6 +411,21 @@ begin
   finally
     FreeAndNil(Mensagem);
   end;
+end;
+
+class function TConversa.NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray;
+begin
+  Result := Open(
+    sl +'select m.conversa_id '+
+    sl +'  from conversa_usuario as cu '+
+    sl +' inner '+
+    sl +'  join mensagem as m '+
+    sl +'    on m.conversa_id = cu.id '+
+    sl +' where cu.usuario_id = '+ Usuario.ToString +
+    sl +'   and m.id > '+ UltimaMensagem.ToString +
+    sl +' group '+
+    sl +'    by m.conversa_id '
+  );
 end;
 
 end.
