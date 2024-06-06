@@ -233,8 +233,26 @@ begin
           Res.Send<TJSONArray>(TConversa.NovasMensagens(Req.Headers.Field('uid').AsInteger, Req.Query.Field('ultima').AsInteger));
         end
       );
+      
+      THorse.Put(
+        '/chamada',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Headers.Field('uid').Required(True);
+          Res.Send<TJSONObject>(TConversa.ChamadaIncluir(Conteudo(Req)));
+        end
+      );
 
-      Writeln('Servidor iniciado na porta: 90 🚀');
+      THorse.Put(
+        '/chamadaevento',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Headers.Field('uid').Required(True);
+          Res.Send<TJSONObject>(TConversa.ChamadaIncluir(Conteudo(Req)));
+        end
+      );
+
+      Writeln('Servidor iniciado na porta: 90');
       THorse.Listen(90);
     finally
       TPool.Stop;

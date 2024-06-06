@@ -41,6 +41,9 @@ type
     class function AnexoIncluir(Usuario: Integer; Tipo: Integer; Dados: TStringStream): TJSONObject;
     class function Anexo(Usuario: Integer; Identificador: String): TStringStream;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray;
+
+    class function ChamadaIncluir(joParam: TJSONObject): TJSONObject;
+    class function ChamadaEventoIncluir(joParam: TJSONObject): TJSONObject;
   end;
 
 implementation
@@ -140,6 +143,14 @@ begin
     sl +'           from mensagem as m '+
     sl +'          where m.conversa_id = c.id '+
     sl +'       ) as ultima_mensagem '+
+    sl +'     , ( select conteudo '+
+    sl +'           from mensagem_conteudo mc '+
+    sl +'          where mc.mensagem_id = ( '+
+    sl +'                  select max(id) '+
+    sl +'                    from mensagem as m '+
+    sl +'                   where m.conversa_id = c.id '+
+    sl +'                )'+
+    sl +'       ) as ultima_mensagem_texto '+
     sl +'  from conversa as c '+
     sl +' inner '+
     sl +'  join conversa_usuario as cu '+
@@ -426,6 +437,60 @@ begin
     sl +' group '+
     sl +'    by m.conversa_id '
   );
+end;
+
+class function TConversa.ChamadaIncluir(joParam: TJSONObject): TJSONObject;
+var
+  iID: Integer;
+begin
+  CamposObrigatorios(joParam, ['fromuser_id', 'touser_id']);
+
+  iID := TPool.Instance.Connection.ExecSQLScalar(
+    sl +'insert '+
+    sl +'  into chamada '+
+    sl +'     ( iniciada_por '+
+    sl +'     ) '+
+    sl +'values '+
+    sl +'     ( '+ joParam.GetValue<String>('fromuser_id') +
+    sl +'     ) '+
+    sl +
+    sl +'returning id; '
+  );
+  TPool.Instance.Connection.ExecSQL(
+    sl +'insert '+
+    sl +'  into chamada_usuario '+
+    sl +'     ( chamada_id '+
+    sl +'     , usuario_id '+
+    sl +'     ) '+
+    sl +'values '+
+    sl +'     ( '+ iID.ToString +
+    sl +'     , '+ joParam.GetValue<String>('fromuser_id') +
+    sl +'     ), '+
+    sl +'     ( '+ iID.ToString +
+    sl +'     , '+ joParam.GetValue<String>('touser_id') +
+    sl +'     ) '
+  );
+  TPool.Instance.Connection.ExecSQL(
+    sl +'insert '+
+    sl +'  into chamada_evento '+
+    sl +'     ( chamada_id '+
+    sl +'     , usuario_id '+
+    sl +'     , evento_tipo_id '+
+    sl +'     ) '+
+    sl +'values '+
+    sl +'     ( '+ iID.ToString +
+    sl +'     , '+ joParam.GetValue<String>('fromuser_id') +
+    sl +'     , 1 '+
+    sl +'     ) '
+  );
+
+  Result := TJSONObject.Create.AddPair('id', iID);
+end;
+
+class function TConversa.ChamadaEventoIncluir(joParam: TJSONObject): TJSONObject;
+begin
+  CamposObrigatorios(joParam, ['chamada_id', 'usuario_id', 'evento_tipo_id']);
+  Result := InsertJSON('chamada_evento', joParam);
 end;
 
 end.
