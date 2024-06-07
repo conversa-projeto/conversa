@@ -139,18 +139,13 @@ begin
   Result := Open(
     sl +'select c.id '+
     sl +'     , case when c.descricao is null then string_agg(substring(trim(u.nome) from ''^([^ ]+)''), '', '') else c.descricao end as descricao '+
-    sl +'     , ( select max(inserida) '+
-    sl +'           from mensagem as m '+
-    sl +'          where m.conversa_id = c.id '+
-    sl +'       ) as ultima_mensagem '+
-    sl +'     , ( select conteudo '+
-    sl +'           from mensagem_conteudo mc '+
-    sl +'          where mc.mensagem_id = ( '+
-    sl +'                  select max(id) '+
-    sl +'                    from mensagem as m '+
-    sl +'                   where m.conversa_id = c.id '+
-    sl +'                )'+
-    sl +'       ) as ultima_mensagem_texto '+
+    sl +'     , m.id as ultima_mensagem_id '+
+    sl +'     , m.inserida as ultima_mensagem '+
+    sl +'     , case mc.tipo '+
+    sl +'       when 1 then mc.conteudo '+
+    sl +'       when 2 then ''imagem'' '+
+    sl +'       else ''desconhecido'' '+
+    sl +'        end as ultima_mensagem_texto '+
     sl +'  from conversa as c '+
     sl +' inner '+
     sl +'  join conversa_usuario as cu '+
@@ -158,6 +153,20 @@ begin
     sl +' inner '+
     sl +'  join usuario as u '+
     sl +'    on u.id = cu.usuario_id '+
+    sl +'  left '+
+    sl +'  join mensagem as m '+
+    sl +'    on m.id = '+
+    sl +'     ( select max(m2.id) '+
+    sl +'         from mensagem as m2 '+
+    sl +'        where m2.conversa_id = c.id '+
+    sl +'     ) '+
+    sl +'  left '+
+    sl +'  join mensagem_conteudo as mc '+
+    sl +'    on mc.id = '+
+    sl +'     ( select max(mc2.id) '+
+    sl +'         from mensagem_conteudo as mc2 '+
+    sl +'        where mc2.mensagem_id = m.id '+
+    sl +'     ) '+
     sl +' where u.id <> '+ Usuario.ToString +
     sl +'   and c.id in ( select cu.conversa_id '+
     sl +'                   from conversa_usuario as cu '+
@@ -166,8 +175,15 @@ begin
     sl +' group '+
     sl +'    by c.id '+
     sl +'     , c.descricao '+
+    sl +'     , m.id '+
+    sl +'     , m.inserida '+
+    sl +'     , case mc.tipo '+
+    sl +'       when 1 then mc.conteudo '+
+    sl +'       when 2 then ''imagem'' '+
+    sl +'       else ''desconhecido'' '+
+    sl +'        end '+
     sl +' order '+
-    sl +'    by ultima_mensagem'
+    sl +'    by ultima_mensagem desc '
   );
 end;
 

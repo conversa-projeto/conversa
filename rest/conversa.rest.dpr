@@ -252,7 +252,7 @@ begin
         end
       );
 
-      Writeln('Servidor iniciado na porta: 90');
+      Writeln('Servidor iniciado na porta: 90 🚀');
       THorse.Listen(90);
     finally
       TPool.Stop;
