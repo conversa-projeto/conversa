@@ -18,7 +18,8 @@ uses
   conversa.api in 'src\conversa\conversa.api.pas',
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
-  conversa.comum in 'src\conversa\conversa.comum.pas';
+  conversa.comum in 'src\conversa\conversa.comum.pas',
+  conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
 begin
@@ -35,15 +36,24 @@ begin
 
   ReportMemoryLeaksOnShutdown := True;
   try
+    TConfiguracao.LoadFromFile('conversa.json');
+
     THorse
       .Use(Jhonson)
       .Use(OctetStream)
       .Use(HandleException)
       .Use(CORS);
 
-    TPool.Start;
+    TPool.Start(Configuracao.PGParams);
     try
-      Migracoes(0);
+      try
+        Migracoes(0);
+      except on E: Exception do
+        begin
+          E.Message := 'Erro ao executar as migrações no banco de dados 😵 - '+ E.Message;
+          raise;
+        end;
+      end;
 
       // uid = ID do usuário logado no sistema, será obtido posteriormente usando bearer token
       // deve ser usado para validar as operações impedindo acesso a informações indevidas de outros usuárioss
@@ -252,12 +262,15 @@ begin
         end
       );
 
-      Writeln('Servidor iniciado na porta: 90 🚀');
-      THorse.Listen(90);
+      Writeln('Servidor iniciado na porta: '+ Configuracao.Porta.ToString +' 🚀');
+      THorse.Listen(Configuracao.Porta);
     finally
       TPool.Stop;
     end;
   except on E: Exception do
-    Writeln(E.ClassName, ': ', E.Message);
+    begin
+      Writeln(E.ClassName, ': ', E.Message);
+      Readln;
+    end;
   end;
 end.

@@ -17,7 +17,8 @@ uses
   FireDAC.Comp.Client,
   Horse,
   Postgres,
-  conversa.comum;
+  conversa.comum,
+  conversa.configuracoes;
 
 type
   TConversa = class
@@ -47,9 +48,6 @@ type
   end;
 
 implementation
-
-const
-  PASTA_ANEXO = 'anexos';
 
 class function TConversa.Login(oAutenticacao: TJSONObject): TJSONObject;
 begin
@@ -287,7 +285,7 @@ begin
     );
 
     Result := TJSONObject.Create;
-    Result.AddPair('existe', TJSONBool.Create(not Qry.IsEmpty and TFile.Exists(ExtractFilePath(ParamStr(0)) + PASTA_ANEXO + PathDelim + Qry.FieldByName('identificador').AsString)));
+    Result.AddPair('existe', TJSONBool.Create(not Qry.IsEmpty and TFile.Exists(IncludeTrailingPathDelimiter(Configuracao.LocalAnexos) + Qry.FieldByName('identificador').AsString)));
   finally
     FreeAndNil(Qry);
   end;
@@ -332,7 +330,7 @@ begin
     FreeAndNil(Qry);
   end;
 
-  sLocal := ExtractFilePath(ParamStr(0)) + PASTA_ANEXO;
+  sLocal := IncludeTrailingPathDelimiter(Configuracao.LocalAnexos);
 
   if not TDirectory.Exists(sLocal) then
     TDirectory.CreateDirectory(sLocal);
@@ -387,7 +385,7 @@ begin
       raise Exception.Create('Anexo não encontrado!');
 
     Result := TStringStream.Create;
-    Result.LoadFromFile(ExtractFilePath(ParamStr(0)) + PASTA_ANEXO + PathDelim + Qry.FieldByName('identificador').AsString);
+    Result.LoadFromFile(IncludeTrailingPathDelimiter(Configuracao.LocalAnexos) + Qry.FieldByName('identificador').AsString);
   finally
     FreeAndNil(Qry);
   end;

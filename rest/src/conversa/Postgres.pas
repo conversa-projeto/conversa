@@ -42,10 +42,19 @@ type
     destructor Destroy; override;
   end;
 
+  TPGParams = record
+    DriverID: String;
+    Database: String;
+    UserName: String;
+    Password: String;
+    MetaDefSchema: String;
+  end;
+
   TPoolStatus = (Iniciando, Iniciado, Parando, Parado);
 
   TPool = class
   private
+    FParams: TPGParams;
     FMaxIdle: Integer;
     FMaxConn: Integer;
     FConnetions: TObjectList<TConnection>;
@@ -54,7 +63,7 @@ type
     function NewConnection: TFDConnection;
     procedure CloseConnections;
   public
-    class procedure Start(iMaxConnections: Integer = 50; iMaxIdleTimeout: Integer = 30);
+    class procedure Start(Params: TPGParams; iMaxConnections: Integer = 50; iMaxIdleTimeout: Integer = 30);
     class procedure Stop;
     class function Instance: IConnection;
   end;
@@ -69,11 +78,11 @@ var
 function TPool.NewConnection: TFDConnection;
 begin
   Result := TFDConnection.Create(nil);
-  TFDPhysPGConnectionDefParams(Result.Params).DriverID := 'PG';
-  TFDPhysPGConnectionDefParams(Result.Params).Database := 'postgres';
-  TFDPhysPGConnectionDefParams(Result.Params).UserName := 'postgres';
-  TFDPhysPGConnectionDefParams(Result.Params).Password := 'root';
-  TFDPhysPGConnectionDefParams(Result.Params).MetaDefSchema := 'public';
+  TFDPhysPGConnectionDefParams(Result.Params).DriverID := FParams.DriverID;
+  TFDPhysPGConnectionDefParams(Result.Params).Database := FParams.Database;
+  TFDPhysPGConnectionDefParams(Result.Params).UserName := FParams.UserName;
+  TFDPhysPGConnectionDefParams(Result.Params).Password := FParams.Password;
+  TFDPhysPGConnectionDefParams(Result.Params).MetaDefSchema := FParams.MetaDefSchema;
 
   Result.Connected := True;
   Result.LoginPrompt := False;
@@ -112,7 +121,7 @@ begin
   end;
 end;
 
-class procedure TPool.Start(iMaxConnections: Integer = 50; iMaxIdleTimeout: Integer = 30);
+class procedure TPool.Start(Params: TPGParams; iMaxConnections: Integer = 50; iMaxIdleTimeout: Integer = 30);
 begin
   if Assigned(FPool) then
     raise Exception.Create('Pool já iniciado!');
@@ -128,6 +137,7 @@ begin
   FPool.FMaxConn := iMaxConnections;
   FPool.FMaxIdle := iMaxIdleTimeout;
   FPool.FStatus := Iniciando;
+  FPool.FParams := Params;
 
   FPool.FThread := TTask.Create(FPool.CloseConnections);
   FPool.FThread.Start;
