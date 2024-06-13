@@ -19,7 +19,8 @@ uses
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
   conversa.comum in 'src\conversa\conversa.comum.pas',
-  conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas';
+  conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas',
+  Conversa.WMI in 'src\conversa\Conversa.WMI.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
 begin
