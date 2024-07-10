@@ -59,6 +59,14 @@ begin
       // uid = ID do usuário logado no sistema, será obtido posteriormente usando bearer token
       // deve ser usado para validar as operações impedindo acesso a informações indevidas de outros usuárioss
 
+      THorse.Get(
+        '/status',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.Status);
+        end
+      );
+
       THorse.Post(
         '/login',
         procedure(Req: THorseRequest; Res: THorseResponse)

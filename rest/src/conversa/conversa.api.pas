@@ -22,6 +22,7 @@ uses
 
 type
   TConversa = class
+    class function Status: TJSONObject;
     class function Login(oAutenticacao: TJSONObject): TJSONObject;
     class function UsuarioIncluir(oUsuario: TJSONObject): TJSONObject;
     class function UsuarioAlterar(oUsuario: TJSONObject): TJSONObject;
@@ -482,6 +483,11 @@ begin
     sl +' group '+
     sl +'    by m.conversa_id '
   );
+end;
+
+class function TConversa.Status: TJSONObject;
+begin
+  Result := TJSONObject.Create.AddPair('ativo', True);
 end;
 
 class function TConversa.ChamadaIncluir(joParam: TJSONObject): TJSONObject;
