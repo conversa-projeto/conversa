@@ -44,6 +44,7 @@ type
 
   TPGParams = record
     DriverID: String;
+    Server: String;
     Database: String;
     UserName: String;
     Password: String;
@@ -79,6 +80,7 @@ function TPool.NewConnection: TFDConnection;
 begin
   Result := TFDConnection.Create(nil);
   TFDPhysPGConnectionDefParams(Result.Params).DriverID := FParams.DriverID;
+  TFDPhysPGConnectionDefParams(Result.Params).Server   := FParams.Server;
   TFDPhysPGConnectionDefParams(Result.Params).Database := FParams.Database;
   TFDPhysPGConnectionDefParams(Result.Params).UserName := FParams.UserName;
   TFDPhysPGConnectionDefParams(Result.Params).Password := FParams.Password;
