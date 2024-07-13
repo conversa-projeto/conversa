@@ -474,12 +474,13 @@ class function TConversa.NovasMensagens(Usuario, UltimaMensagem: Integer): TJSON
 begin
   Result := Open(
     sl +'select m.conversa_id '+
-    sl +'  from conversa_usuario as cu '+
+    sl +'  from mensagem as m '+
     sl +' inner '+
-    sl +'  join mensagem as m '+
-    sl +'    on m.conversa_id = cu.id '+
+    sl +'  join conversa_usuario as cu '+
+    sl +'    on cu.conversa_id = m.conversa_id '+
+    sl +'   and cu.usuario_id <> m.usuario_id '+
     sl +' where cu.usuario_id = '+ Usuario.ToString +
-    sl +'   and m.id > '+ UltimaMensagem.ToString +
+    sl +'   and m.id> '+ UltimaMensagem.ToString +
     sl +' group '+
     sl +'    by m.conversa_id '
   );
