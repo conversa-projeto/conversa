@@ -153,6 +153,7 @@ begin
     sl +'      , case when tc.descricao is null then substring(trim(d.nome) from ''^([^ ]+)'') else tc.descricao end as descricao '+
     sl +'      , d.nome '+
     sl +'      , d.destinatario_id '+
+    sl +'      , tcm.mensagem_id '+
     sl +'      , tcm.ultima_mensagem '+
     sl +'      , tcm.ultima_mensagem_texto '+
     sl +'   from temp_conversa tc '+
@@ -184,6 +185,7 @@ begin
     sl +'      ( select * '+
     sl +'          from '+
     sl +'             ( select tcm.conversa_id '+
+    sl +'                    , tcm.mensagem_id as mensagem_id '+
     sl +'                    , tcm.inserida as ultima_mensagem '+
     sl +'                    , case mc.tipo '+
     sl +'                      when 1 then mc.conteudo '+
