@@ -474,6 +474,7 @@ class function TConversa.NovasMensagens(Usuario, UltimaMensagem: Integer): TJSON
 begin
   Result := Open(
     sl +'select m.conversa_id '+
+    sl +'     , max(m.id) as mensagem_id '+
     sl +'  from mensagem as m '+
     sl +' inner '+
     sl +'  join conversa_usuario as cu '+
