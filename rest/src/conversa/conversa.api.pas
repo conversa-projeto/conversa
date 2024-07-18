@@ -153,7 +153,7 @@ begin
     sl +'      , case when tc.descricao is null then substring(trim(d.nome) from ''^([^ ]+)'') else tc.descricao end as descricao '+
     sl +'      , d.nome '+
     sl +'      , d.destinatario_id '+
-    sl +'      , tcm.mensagem_id '+
+    sl +'      , coalesce(tcm.mensagem_id, 0) as mensagem_id '+
     sl +'      , tcm.ultima_mensagem '+
     sl +'      , tcm.ultima_mensagem_texto '+
     sl +'   from temp_conversa tc '+
