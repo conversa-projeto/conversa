@@ -139,7 +139,7 @@ begin
     sl +'     ( '+ sCampos +
     sl +'     ) '+
     sl +'values '+
-    sl +'     ( '+ sValores +
+    sl +'     ( '+ sValores.Replace('\', '\\') +
     sl +'     ) '+
     sl +
     sl +'returning id; '
