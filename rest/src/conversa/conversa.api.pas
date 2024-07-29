@@ -38,7 +38,9 @@ type
     class function ConversaUsuarioExcluir(ConversaUsuario: Integer): TJSONObject;
     class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject;
     class function MensagemExcluir(Mensagem: Integer): TJSONObject;
-    class function Mensagens(Conversa, UltimaMensagem: Integer): TJSONArray;
+    class function Mensagens(Conversa, Usuario, UltimaMensagem: Integer): TJSONArray;
+    class function MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject;
+    class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;
     class function AnexoExiste(Identificador: String): TJSONObject;
     class function AnexoIncluir(Usuario: Integer; Tipo: Integer; Dados: TStringStream): TJSONObject;
     class function Anexo(Usuario: Integer; Identificador: String): TStringStream;
@@ -245,6 +247,24 @@ begin
   try
     Result := InsertJSON('mensagem', oMensagem);
 
+    TPool.Instance.Connection.ExecSQL(
+      sl +' insert '+
+      sl +'   into mensagem_status '+
+      sl +'      ( conversa_id  '+
+      sl +'      , usuario_id  '+
+      sl +'      , mensagem_id '+
+      sl +'      ) '+
+      sl +' select cu.conversa_id  '+
+      sl +'      , cu.usuario_id  '+
+      sl +'      , m.id '+
+      sl +'   from mensagem m '+
+      sl +'  inner '+
+      sl +'   join conversa_usuario cu '+
+      sl +'     on cu.conversa_id = m.conversa_id  '+
+      sl +'    and cu.usuario_id <> '+ Usuario.ToString +
+      sl +'  where m.id = '+ Result.GetValue<String>('id')
+    );
+
     // Insere os conteudos
     for Item in pJSON.JsonValue as TJSONArray do
     begin
@@ -394,21 +414,21 @@ begin
   end;
 end;
 
-class function TConversa.Mensagens(Conversa, UltimaMensagem: Integer): TJSONArray;
+class function TConversa.Mensagens(Conversa, Usuario, UltimaMensagem: Integer): TJSONArray;
 var
   Pool: IConnection;
   Mensagem: TFDQuery;
-  Conteudo: TFDQuery;
+  QryAux: TFDQuery;
   oMensagem: TJSONObject;
   aConteudos: TJSONArray;
   oConteudo: TJSONObject;
 begin
   Pool := TPool.Instance;
   Mensagem := TFDQuery.Create(nil);
-  Conteudo := TFDQuery.Create(nil);
+  QryAux := TFDQuery.Create(nil);
   try
     Mensagem.Connection := Pool.Connection;
-    Conteudo.Connection := Pool.Connection;
+    QryAux.Connection := Pool.Connection;
 
     Mensagem.Open(
       sl +'select m.id '+
@@ -441,10 +461,33 @@ begin
       oMensagem.AddPair('inserida', DateToISO8601(Mensagem.FieldByName('inserida').AsDateTime));
       oMensagem.AddPair('alterada', DateToISO8601(Mensagem.FieldByName('alterada').AsDateTime));
 
+      QryAux.Connection.ExecSQL(
+        sl +' update mensagem_status '+
+        sl +'    set recebida = now() '+
+        sl +'  where mensagem_id = '+ Mensagem.FieldByName('id').AsString +
+        sl +'    and usuario_id  = '+ Usuario.ToString +
+        sl +'    and recebida is null '
+      );
+
+      QryAux.Open(
+        sl +' select mensagem_id '+
+        sl +'      , sum(case when recebida is null then 0 else 1 end) as recebida '+
+        sl +'      , sum(case when visualizada is null then 0 else 1 end) as visualizada '+
+        sl +'      , sum(case when reproduzida is null then 0 else 1 end) as reproduzida '+
+        sl +'      , count(1) total '+
+        sl +'   from mensagem_status ms '+
+        sl +'  where ms.mensagem_id = '+ Mensagem.FieldByName('id').AsString +
+        sl +'  group '+
+        sl +'     by mensagem_id '
+      );
+      oMensagem.AddPair('recebida', QryAux.FieldByName('recebida').AsInteger = QryAux.FieldByName('total').AsInteger);
+      oMensagem.AddPair('visualizada', QryAux.FieldByName('visualizada').AsInteger = QryAux.FieldByName('total').AsInteger);
+      oMensagem.AddPair('reproduzida', QryAux.FieldByName('reproduzida').AsInteger = QryAux.FieldByName('total').AsInteger);
+
       aConteudos := TJSONArray.Create;
       oMensagem.AddPair('conteudos', aConteudos);
 
-      Conteudo.Open(
+      QryAux.Open(
         sl +'select id '+
         sl +'     , ordem '+
         sl +'     , tipo '+
@@ -454,21 +497,74 @@ begin
         sl +' order '+
         sl +'    by ordem '
       );
-      Conteudo.First;
-      while not Conteudo.Eof do
+      QryAux.First;
+      while not QryAux.Eof do
       begin
         oConteudo := TJSONObject.Create;
         aConteudos.Add(oConteudo);
-        oConteudo.AddPair('id', Conteudo.FieldByName('id').AsInteger);
-        oConteudo.AddPair('tipo', Conteudo.FieldByName('tipo').AsInteger);
-        oConteudo.AddPair('ordem', Conteudo.FieldByName('ordem').AsInteger);
-        oConteudo.AddPair('conteudo', Conteudo.FieldByName('conteudo').AsString);
-        Conteudo.Next;
+        oConteudo.AddPair('id', QryAux.FieldByName('id').AsInteger);
+        oConteudo.AddPair('tipo', QryAux.FieldByName('tipo').AsInteger);
+        oConteudo.AddPair('ordem', QryAux.FieldByName('ordem').AsInteger);
+        oConteudo.AddPair('conteudo', QryAux.FieldByName('conteudo').AsString);
+        QryAux.Next;
       end;
       Mensagem.Next;
     end;
   finally
+    FreeAndNil(QryAux);
     FreeAndNil(Mensagem);
+  end;
+end;
+
+class function TConversa.MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject;
+begin
+  TPool.Instance.Connection.ExecSQL(
+    sl +' update mensagem_status '+
+    sl +'    set visualizada = now() '+
+    sl +'  where conversa_id = '+ Conversa.ToString +
+    sl +'    and mensagem_id = '+ Mensagem.ToString +
+    sl +'    and usuario_id  = '+ Usuario.ToString +
+    sl +'    and visualizada is null '
+  );
+  Result := TJSONObject.Create.AddPair('sucesso', True);
+end;
+
+class function TConversa.MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;
+begin
+  Result := TJSONArray.Create;
+  with TFDQuery.Create(nil) do
+  try
+    Connection := TPool.Instance.Connection;
+    Open(
+      sl +' select mensagem_id '+
+      sl +'      , sum(case when recebida is null then 0 else 1 end) as recebida '+
+      sl +'      , sum(case when visualizada is null then 0 else 1 end) as visualizada '+
+      sl +'      , sum(case when reproduzida is null then 0 else 1 end) as reproduzida '+
+      sl +'      , count(1) total '+
+      sl +'   from mensagem_status ms '+
+      sl +'  where ms.conversa_id = '+ Conversa.ToString +
+      sl +'    and ms.mensagem_id in('+ Mensagem +') '+
+      sl +'  group '+
+      sl +'     by mensagem_id '+
+      sl +'  order '+
+      sl +'     by mensagem_id '
+    );
+    FetchAll;
+    First;
+    while not Eof do
+    try
+      Result.Add(
+        TJSONObject.Create
+          .AddPair('mensagem_id', FieldByName('mensagem_id').AsInteger)
+          .AddPair('recebida', FieldByName('recebida').AsInteger = FieldByName('total').AsInteger)
+          .AddPair('visualizada', FieldByName('visualizada').AsInteger = FieldByName('total').AsInteger)
+          .AddPair('reproduzida', FieldByName('reproduzida').AsInteger = FieldByName('total').AsInteger)
+      );
+    finally
+      Next;
+    end;
+  finally
+    Free;
   end;
 end;
 

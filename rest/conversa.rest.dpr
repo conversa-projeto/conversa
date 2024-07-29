@@ -240,7 +240,32 @@ begin
         begin
           Req.Headers.Field('uid').Required(True);
           Req.Query.Field('conversa').Required(True);
-          Res.Send<TJSONArray>(TConversa.Mensagens(Req.Query.Field('conversa').AsInteger, Req.Query.Field('ultima').AsInteger));
+          Req.Query.Field('usuario').Required(True);
+          Res.Send<TJSONArray>(TConversa.Mensagens(Req.Query.Field('conversa').AsInteger, Req.Query.Field('usuario').AsInteger, Req.Query.Field('ultima').AsInteger));
+        end
+      );
+
+      THorse.Get(
+        '/mensagem/visualizar',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Headers.Field('uid').Required(True);
+          Req.Query.Field('conversa').Required(True);
+          Req.Query.Field('mensagem').Required(True);
+          Req.Query.Field('usuario').Required(True);
+          Res.Send<TJSONObject>(TConversa.MensagemVisualizada(Req.Query.Field('conversa').AsInteger, Req.Query.Field('mensagem').AsInteger, Req.Query.Field('usuario').AsInteger));
+        end
+      );
+
+      THorse.Get(
+        '/mensagem/status',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Headers.Field('uid').Required(True);
+          Req.Query.Field('conversa').Required(True);
+          Req.Query.Field('mensagem').Required(True);
+          Req.Query.Field('usuario').Required(True);
+          Res.Send<TJSONArray>(TConversa.MensagemStatus(Req.Query.Field('conversa').AsInteger, Req.Query.Field('usuario').AsInteger, Req.Query.Field('mensagem').AsString));
         end
       );
 
