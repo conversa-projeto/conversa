@@ -157,7 +157,7 @@ begin
     sl +'      , d.destinatario_id '+
     sl +'      , coalesce(tcm.mensagem_id, 0) as mensagem_id '+
     sl +'      , tcm.ultima_mensagem '+
-    sl +'      , tcm.ultima_mensagem_texto '+
+    sl +'      , convert_from(tcm.ultima_mensagem_texto, ''utf-8'') as ultima_mensagem_texto '+
     sl +'   from temp_conversa tc '+
     sl +'   left '+
     sl +'   join '+
@@ -431,6 +431,9 @@ begin
     QryAux.Connection := Pool.Connection;
 
     Mensagem.Open(
+      sl +'select * '+
+      sl +'  from '+
+      sl +'     ( '+
       sl +'select m.id '+
       sl +'     , m.usuario_id as remetente_id '+
       sl +'     , substring(trim(u.nome) from ''^([^ ]+)'') as remetente '+
@@ -444,10 +447,22 @@ begin
       sl +' where m.conversa_id = '+ Conversa.ToString +
       sl +'   and m.id > '+ UltimaMensagem.ToString +
       sl +' order '+
-      sl +'    by m.id '
+      sl +'    by m.id desc '+
+      sl +' limit 100 '+
+      sl +'     ) as tbl '+
+      sl +' order '+
+      sl +'    by id '
     );
 
     Result := TJSONArray.Create;
+
+    QryAux.Connection.ExecSQL(
+      sl +' update mensagem_status '+
+      sl +'    set recebida = now() '+
+      sl +'  where conversa_id = '+ Conversa.ToString +
+      sl +'    and usuario_id  = '+ Usuario.ToString +
+      sl +'    and recebida is null '
+    );
 
     Mensagem.First;
     while not Mensagem.Eof do
@@ -461,13 +476,7 @@ begin
       oMensagem.AddPair('inserida', DateToISO8601(Mensagem.FieldByName('inserida').AsDateTime));
       oMensagem.AddPair('alterada', DateToISO8601(Mensagem.FieldByName('alterada').AsDateTime));
 
-      QryAux.Connection.ExecSQL(
-        sl +' update mensagem_status '+
-        sl +'    set recebida = now() '+
-        sl +'  where mensagem_id = '+ Mensagem.FieldByName('id').AsString +
-        sl +'    and usuario_id  = '+ Usuario.ToString +
-        sl +'    and recebida is null '
-      );
+
 
       QryAux.Open(
         sl +' select mensagem_id '+
