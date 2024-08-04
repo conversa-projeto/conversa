@@ -142,6 +142,7 @@ begin
     sl +' create temp table temp_conversa as '+
     sl +' select c.id '+
     sl +'      , c.descricao '+
+    sl +'      , c.tipo '+
     sl +'   from '+
     sl +'      ( select conversa_id '+
     sl +'          from conversa_usuario '+
@@ -153,6 +154,7 @@ begin
     sl +
     sl +' select tc.id '+
     sl +'      , case when tc.descricao is null then substring(trim(d.nome) from ''^([^ ]+)'') else tc.descricao end as descricao '+
+    sl +'      , tc.tipo '+
     sl +'      , d.nome '+
     sl +'      , d.destinatario_id '+
     sl +'      , coalesce(tcm.mensagem_id, 0) as mensagem_id '+
