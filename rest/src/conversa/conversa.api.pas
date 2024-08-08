@@ -13,6 +13,7 @@ uses
   System.NetEncoding,
   System.Hash,
   System.IOUtils,
+  System.Math,
   Data.DB,
   FireDAC.Comp.Client,
   Horse,
@@ -38,7 +39,7 @@ type
     class function ConversaUsuarioExcluir(ConversaUsuario: Integer): TJSONObject;
     class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject;
     class function MensagemExcluir(Mensagem: Integer): TJSONObject;
-    class function Mensagens(Conversa, Usuario, UltimaMensagem: Integer): TJSONArray;
+    class function Mensagens(Conversa, Usuario, MensagemReferencia, OffsetAnterior, OffsetPosterior: Integer): TJSONArray;
     class function MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject;
     class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;
     class function AnexoExiste(Identificador: String): TJSONObject;
@@ -143,6 +144,7 @@ begin
     sl +' select c.id '+
     sl +'      , c.descricao '+
     sl +'      , c.tipo '+
+    sl +'      , c.inserida '+
     sl +'   from '+
     sl +'      ( select conversa_id '+
     sl +'          from conversa_usuario '+
@@ -155,6 +157,7 @@ begin
     sl +' select tc.id '+
     sl +'      , case when tc.descricao is null then substring(trim(d.nome) from ''^([^ ]+)'') else tc.descricao end as descricao '+
     sl +'      , tc.tipo '+
+    sl +'      , tc.inserida '+
     sl +'      , d.nome '+
     sl +'      , d.destinatario_id '+
     sl +'      , coalesce(tcm.mensagem_id, 0) as mensagem_id '+
@@ -416,7 +419,7 @@ begin
   end;
 end;
 
-class function TConversa.Mensagens(Conversa, Usuario, UltimaMensagem: Integer): TJSONArray;
+class function TConversa.Mensagens(Conversa, Usuario, MensagemReferencia, OffsetAnterior, OffsetPosterior: Integer): TJSONArray;
 var
   Pool: IConnection;
   Mensagem: TFDQuery;
@@ -425,6 +428,13 @@ var
   aConteudos: TJSONArray;
   oConteudo: TJSONObject;
 begin
+  // Validação apenas para alertar de erro de chamada!
+  Assert(MensagemReferencia >= 0, 'MensagemReferencia inválida!');
+  Assert(OffsetAnterior >= 0, 'OffsetAnterior inválido!');
+  Assert(OffsetAnterior <= 1000, 'OffsetAnterior acima do limite permitido!');
+  Assert(OffsetPosterior >= 0, 'OffsetPosterior inválido!');
+  Assert(OffsetPosterior <= 1000, 'OffsetPosterior acima do limite permitido!');
+
   Pool := TPool.Instance;
   Mensagem := TFDQuery.Create(nil);
   QryAux := TFDQuery.Create(nil);
@@ -442,12 +452,52 @@ begin
       sl +'     , m.conversa_id '+
       sl +'     , m.inserida '+
       sl +'     , m.alterada '+
-      sl +'  from mensagem as m '+
+      sl +'  from '+
+      sl +'     ( select m.* '+
+      sl +'         from '+
+      sl +'            ( '+
+      IfThen((OffsetAnterior > 0) or (OffsetPosterior = 0),
+      sl +'              /* Retorna mensagens anterioes */ '+
+      sl +'              select id '+
+      sl +'                from '+
+      sl +'                   ( select id '+
+      sl +'                       from mensagem m '+
+      sl +'                      where m.conversa_id = '+ Conversa.ToString +
+      IfThen(MensagemReferencia > 0,
+      sl +'                        and m.id <= '+ MensagemReferencia.ToString)+
+      sl +'                      order '+
+      sl +'                         by id desc '+
+      // Se não informou Offset anterior
+      // obtém apenas 1 mensagem caso não esteja solicitando mensagem posterior
+      IfThen(OffsetAnterior > 0,
+      sl +'                      limit '+ OffsetAnterior.ToString,
+      sl +'                      limit '+ IfThen(OffsetPosterior = 0, '1', '0')) +
+      sl +'                   ) as tbl ')+
+
+      IfThen((OffsetAnterior > 0) and (OffsetPosterior > 0),
+      sl +'               union ')+
+
+      IfThen(OffsetPosterior > 0,
+      sl +'              /* Retorna mensagens posteriores */ '+
+      sl +'              select id '+
+      sl +'                from '+
+      sl +'                   ( select id '+
+      sl +'                       from mensagem m '+
+      sl +'                      where m.conversa_id = '+ Conversa.ToString +
+      IfThen(MensagemReferencia > 0,
+      sl +'                        and m.id >= '+ MensagemReferencia.ToString)+
+      sl +'                      order '+
+      sl +'                         by id '+
+      sl +'                      limit '+ OffsetPosterior.ToString +
+      sl +'                   ) as tbl ')+
+      sl +'            ) as tm '+
+      sl +'        inner '+
+      sl +'         join mensagem m '+
+      sl +'           on m.id = tm.id '+
+      sl +'     ) as m'+
       sl +' inner  '+
       sl +'  join usuario as u  '+
       sl +'    on u.id = m.usuario_id  '+
-      sl +' where m.conversa_id = '+ Conversa.ToString +
-      sl +'   and m.id > '+ UltimaMensagem.ToString +
       sl +' order '+
       sl +'    by m.id desc '+
       sl +' limit 100 '+

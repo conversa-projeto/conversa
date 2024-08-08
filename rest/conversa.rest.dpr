@@ -241,7 +241,14 @@ begin
           Req.Headers.Field('uid').Required(True);
           Req.Query.Field('conversa').Required(True);
           Req.Query.Field('usuario').Required(True);
-          Res.Send<TJSONArray>(TConversa.Mensagens(Req.Query.Field('conversa').AsInteger, Req.Query.Field('usuario').AsInteger, Req.Query.Field('ultima').AsInteger));
+          Res.Send<TJSONArray>(
+            TConversa.Mensagens(
+              Req.Query.Field('conversa').AsInteger,
+              Req.Query.Field('usuario').AsInteger,
+              Req.Query.Field('mensagemreferencia').AsInteger,
+              Req.Query.Field('offsetanterior').AsInteger,
+              Req.Query.Field('offsetposterior').AsInteger
+          ));
         end
       );
 
