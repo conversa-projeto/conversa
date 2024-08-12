@@ -85,6 +85,8 @@ begin
   TFDPhysPGConnectionDefParams(Result.Params).UserName := FParams.UserName;
   TFDPhysPGConnectionDefParams(Result.Params).Password := FParams.Password;
   TFDPhysPGConnectionDefParams(Result.Params).MetaDefSchema := FParams.MetaDefSchema;
+  Result.ResourceOptions.MacroCreate := False;
+  Result.ResourceOptions.MacroExpand := False;
 
   Result.Connected := True;
   Result.LoginPrompt := False;
