@@ -163,6 +163,7 @@ begin
     sl +'      , coalesce(tcm.mensagem_id, 0) as mensagem_id '+
     sl +'      , tcm.ultima_mensagem '+
     sl +'      , convert_from(tcm.ultima_mensagem_texto, ''utf-8'') as ultima_mensagem_texto '+
+    sl +'      , coalesce(mensagens_sem_visualizar, 0) as mensagens_sem_visualizar '+
     sl +'   from temp_conversa tc '+
     sl +'   left '+
     sl +'   join '+
@@ -221,6 +222,20 @@ begin
     sl +'         where tcm.rid_conteudo = 1 '+
     sl +'      ) as tcm '+
     sl +'     on tcm.conversa_id = tc.id '+
+    sl +'   left '+
+    sl +'   join '+
+    sl +'      ( select ms.conversa_id '+
+    sl +'             , count(1) as mensagens_sem_visualizar '+
+    sl +'          from conversa c '+
+    sl +'         inner '+
+    sl +'          join mensagem_status ms '+
+    sl +'            on ms.conversa_id = c.id '+
+    sl +'           and (ms.recebida is null or ms.visualizada is null) '+
+    sl +'           and ms.usuario_id = '+ Usuario.ToString +
+    sl +'         group '+
+    sl +'            by ms.conversa_id '+
+    sl +'      ) as msg_count '+
+    sl +'     on msg_count.conversa_id = tc.id '+
     sl +'  order '+
     sl +'     by tcm.ultima_mensagem desc '
   );
