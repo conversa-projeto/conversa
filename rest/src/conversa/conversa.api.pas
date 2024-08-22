@@ -553,6 +553,8 @@ begin
         sl +'      , count(1) total '+
         sl +'   from mensagem_status ms '+
         sl +'  where ms.mensagem_id = '+ Mensagem.FieldByName('id').AsString +
+        IfThen(Mensagem.FieldByName('remetente_id').AsInteger <> Usuario,
+        sl +'    and ms.usuario_id = '+ Usuario.ToString)+
         sl +'  group '+
         sl +'     by mensagem_id '
       );
