@@ -15,6 +15,7 @@ uses
   Horse.HandleException,
   Horse.CORS,
   Horse.OctetStream,
+  System.Math,
   conversa.api in 'src\conversa\conversa.api.pas',
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
@@ -246,8 +247,8 @@ begin
               Req.Query.Field('conversa').AsInteger,
               Req.Query.Field('usuario').AsInteger,
               Req.Query.Field('mensagemreferencia').AsInteger,
-              Req.Query.Field('offsetanterior').AsInteger,
-              Req.Query.Field('offsetposterior').AsInteger
+              IfThen(Req.Query.Field('mensagensprevias').AsInteger > 0, Req.Query.Field('mensagensprevias').AsInteger, Req.Query.Field('offsetanterior').AsInteger),
+              IfThen(Req.Query.Field('mensagensseguintes').AsInteger > 0, Req.Query.Field('mensagensseguintes').AsInteger, Req.Query.Field('offsetposterior').AsInteger)
           ));
         end
       );
@@ -300,6 +301,20 @@ begin
         begin
           Req.Headers.Field('uid').Required(True);
           Res.Send<TJSONObject>(TConversa.ChamadaIncluir(Conteudo(Req)));
+        end
+      );
+
+      THorse.Get(
+        '/pesquisar',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Headers.Field('uid').Required(True);
+          Req.Query.Field('usuario').Required(True);
+          Res.Send<TJSONArray>(
+            TConversa.Pesquisar(
+              Req.Query.Field('usuario').AsInteger,
+              Req.Query.Field('texto').AsString
+          ));
         end
       );
 

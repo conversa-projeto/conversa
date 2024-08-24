@@ -39,14 +39,15 @@ type
     class function ConversaUsuarioExcluir(ConversaUsuario: Integer): TJSONObject;
     class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject;
     class function MensagemExcluir(Mensagem: Integer): TJSONObject;
-    class function Mensagens(Conversa, Usuario, MensagemReferencia, OffsetAnterior, OffsetPosterior: Integer): TJSONArray;
+    class function Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray;
+    class function Pesquisar(Usuario: Integer; Texto: String): TJSONArray;
+    class function GetMensagens(Conversa, Usuario: Integer; Script: String; MarcarComoRecebida: Boolean): TJSONArray;
     class function MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject;
     class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;
     class function AnexoExiste(Identificador: String): TJSONObject;
     class function AnexoIncluir(Usuario: Integer; Tipo: Integer; Dados: TStringStream): TJSONObject;
     class function Anexo(Usuario: Integer; Identificador: String): TStringStream;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray;
-
     class function ChamadaIncluir(joParam: TJSONObject): TJSONObject;
     class function ChamadaEventoIncluir(joParam: TJSONObject): TJSONObject;
   end;
@@ -434,7 +435,118 @@ begin
   end;
 end;
 
-class function TConversa.Mensagens(Conversa, Usuario, MensagemReferencia, OffsetAnterior, OffsetPosterior: Integer): TJSONArray;
+class function TConversa.Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray;
+var
+  Script: String;
+begin
+  // Validação apenas para alertar de erro de chamada!
+  Assert(MensagemReferencia >= 0, 'MensagemReferencia inválida!');
+  Assert(MensagensPrevias >= 0, 'MensagensPrevias inválido!');
+  Assert(MensagensPrevias <= 1000, 'MensagensPrevias acima do limite permitido!');
+  Assert(MensagensSeguintes >= 0, 'MensagensSeguintes inválido!');
+  Assert(MensagensSeguintes <= 1000, 'MensagensSeguintes acima do limite permitido!');
+
+  Script := EmptyStr;
+
+  // Se vai obter apenas 1 Mensagem
+  if (MensagensPrevias = 0) and (MensagensSeguintes = 0) then
+  begin
+    if MensagemReferencia > 0 then
+      Script := sl +'                        and m.id = '+ MensagemReferencia.ToString;
+
+    Script :=
+    sl +'              /* Apenas a mensagem solicitada */ '+
+    sl +'              select id '+
+    sl +'                from '+
+    sl +'                   ( select id '+
+    sl +'                       from mensagem m '+
+    sl +'                      where m.conversa_id = '+ Conversa.ToString +
+    Script +
+    sl +'                      order '+
+    sl +'                         by id desc '+
+    sl +'                      limit 1'+
+    sl +'                   ) as tbl '
+  end
+  else
+  begin
+    // Se vai obter menssagens Anteriores
+    if MensagensPrevias > 0 then
+    begin
+      Script := Script +
+      sl +'              /* Retorna mensagens anterioes */ '+
+      sl +'              select id '+
+      sl +'                from '+
+      sl +'                   ( select id '+
+      sl +'                       from mensagem m '+
+      sl +'                      where m.conversa_id = '+ Conversa.ToString +
+      IfThen(MensagemReferencia > 0,
+      sl +'                        and m.id <= '+ MensagemReferencia.ToString)+
+      sl +'                      order '+
+      sl +'                         by id desc '+
+      sl +'                      limit '+ MensagensPrevias.ToString +
+      sl +'                   ) as tbl ';
+    end;
+
+    // Se vai obter menssagens Posteriores
+    if MensagensSeguintes > 0 then
+    begin
+      if not Script.Trim.IsEmpty then
+        Script := Script + sl +'               union ';
+
+      Script := Script +
+      sl +'              /* Retorna mensagens posteriores */ '+
+      sl +'              select id '+
+      sl +'                from '+
+      sl +'                   ( select id '+
+      sl +'                       from mensagem m '+
+      sl +'                      where m.conversa_id = '+ Conversa.ToString +
+      IfThen(MensagemReferencia > 0,
+      sl +'                        and m.id >= '+ MensagemReferencia.ToString)+
+      sl +'                      order '+
+      sl +'                         by id '+
+      sl +'                      limit '+ MensagensSeguintes.ToString +
+      sl +'                   ) as tbl '
+    end;
+  end;
+
+  Result := GetMensagens(Conversa, Usuario, Script, True);
+end;
+
+class function TConversa.Pesquisar(Usuario: Integer; Texto: String): TJSONArray;
+var
+  Script: String;
+begin
+  // Validação apenas para alertar de erro de chamada!
+  Assert(Usuario > 0, 'Usuário inválido!');
+  Assert(not Texto.Trim.IsEmpty, 'Texto inválido!');
+  Texto := '%'+ Texto.Replace(' ', ' ').Replace(' ', '%') +'%';
+
+  Script :=
+  sl +'              /* Retorna mensagens posteriores */ '+
+  sl +'              select id '+
+  sl +'                from '+
+  sl +'                   ( select m.id '+
+  sl +'                       from mensagem m '+
+  sl +'                      inner '+
+  sl +'                       join '+
+  sl +'                          ( select conversa_id '+
+  sl +'                              from conversa_usuario '+
+  sl +'                             where usuario_id = '+ Usuario.ToString +
+  sl +'                          ) as c '+
+  sl +'                         on c.conversa_id = m.conversa_id '+
+  sl +'                      inner '+
+  sl +'                       join mensagem_conteudo mc '+
+  sl +'                         on mc.mensagem_id = m.id '+
+  sl +'                        and mc.tipo = 1 /* 1-Texto */ '+
+  sl +'                        and mc.conteudo like '+ Texto.QuotedString +
+  sl +'                      order '+
+  sl +'                         by m.id '+
+  sl +'                   ) as tbl ';
+
+  Result := GetMensagens(0, Usuario, Script, False);
+end;
+
+class function TConversa.GetMensagens(Conversa, Usuario: Integer; Script: String; MarcarComoRecebida: Boolean): TJSONArray;
 var
   Pool: IConnection;
   Mensagem: TFDQuery;
@@ -443,13 +555,6 @@ var
   aConteudos: TJSONArray;
   oConteudo: TJSONObject;
 begin
-  // Validação apenas para alertar de erro de chamada!
-  Assert(MensagemReferencia >= 0, 'MensagemReferencia inválida!');
-  Assert(OffsetAnterior >= 0, 'OffsetAnterior inválido!');
-  Assert(OffsetAnterior <= 1000, 'OffsetAnterior acima do limite permitido!');
-  Assert(OffsetPosterior >= 0, 'OffsetPosterior inválido!');
-  Assert(OffsetPosterior <= 1000, 'OffsetPosterior acima do limite permitido!');
-
   Pool := TPool.Instance;
   Mensagem := TFDQuery.Create(nil);
   QryAux := TFDQuery.Create(nil);
@@ -471,40 +576,7 @@ begin
       sl +'     ( select m.* '+
       sl +'         from '+
       sl +'            ( '+
-      IfThen((OffsetAnterior > 0) or (OffsetPosterior = 0),
-      sl +'              /* Retorna mensagens anterioes */ '+
-      sl +'              select id '+
-      sl +'                from '+
-      sl +'                   ( select id '+
-      sl +'                       from mensagem m '+
-      sl +'                      where m.conversa_id = '+ Conversa.ToString +
-      IfThen(MensagemReferencia > 0,
-      sl +'                        and m.id <= '+ MensagemReferencia.ToString)+
-      sl +'                      order '+
-      sl +'                         by id desc '+
-      // Se não informou Offset anterior
-      // obtém apenas 1 mensagem caso não esteja solicitando mensagem posterior
-      IfThen(OffsetAnterior > 0,
-      sl +'                      limit '+ OffsetAnterior.ToString,
-      sl +'                      limit '+ IfThen(OffsetPosterior = 0, '1', '0')) +
-      sl +'                   ) as tbl ')+
-
-      IfThen((OffsetAnterior > 0) and (OffsetPosterior > 0),
-      sl +'               union ')+
-
-      IfThen(OffsetPosterior > 0,
-      sl +'              /* Retorna mensagens posteriores */ '+
-      sl +'              select id '+
-      sl +'                from '+
-      sl +'                   ( select id '+
-      sl +'                       from mensagem m '+
-      sl +'                      where m.conversa_id = '+ Conversa.ToString +
-      IfThen(MensagemReferencia > 0,
-      sl +'                        and m.id >= '+ MensagemReferencia.ToString)+
-      sl +'                      order '+
-      sl +'                         by id '+
-      sl +'                      limit '+ OffsetPosterior.ToString +
-      sl +'                   ) as tbl ')+
+      sl + Script +
       sl +'            ) as tm '+
       sl +'        inner '+
       sl +'         join mensagem m '+
@@ -523,13 +595,14 @@ begin
 
     Result := TJSONArray.Create;
 
-    QryAux.Connection.ExecSQL(
-      sl +' update mensagem_status '+
-      sl +'    set recebida = now() '+
-      sl +'  where conversa_id = '+ Conversa.ToString +
-      sl +'    and usuario_id  = '+ Usuario.ToString +
-      sl +'    and recebida is null '
-    );
+    if MarcarComoRecebida then
+      QryAux.Connection.ExecSQL(
+        sl +' update mensagem_status '+
+        sl +'    set recebida = now() '+
+        sl +'  where conversa_id = '+ Conversa.ToString +
+        sl +'    and usuario_id  = '+ Usuario.ToString +
+        sl +'    and recebida is null '
+      );
 
     Mensagem.First;
     while not Mensagem.Eof do
