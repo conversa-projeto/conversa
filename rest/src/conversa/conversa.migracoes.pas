@@ -65,7 +65,7 @@ const v0 =
   sl +'     ( id serial4 not null '+
   sl +'     , usuario_id int4 not null '+
   sl +'     , conversa_id int4 not null '+
-  sl +'     , inserida timestamp not null '+
+  sl +'     , inserida timestamp default current_timestamp not null'+
   sl +'     , alterada timestamp null '+
   sl +'     , constraint mensagem_pk primary key (id) '+
   sl +'     , constraint mensagem_conversa_fk foreign key (conversa_id) references conversa(id) '+
