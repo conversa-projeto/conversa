@@ -260,9 +260,7 @@ var
   oConteudo: TJSONObject;
 begin
   CamposObrigatorios(oMensagem, ['conversa_id', 'conteudos']);
-
   oMensagem.AddPair('usuario_id', TJSONNumber.Create(Usuario));
-  oMensagem.AddPair('inserida', DateToISO8601(Now));
 
   pJSON := oMensagem.RemovePair('conteudos');
   try
