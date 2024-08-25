@@ -6,22 +6,23 @@ program conversa.rest;
 {$R *.res}
 
 uses
+  {$IF DEFINED(MSWINDOWS)}
+  Winapi.Windows,
+  {$ENDIF}
   System.SysUtils,
   System.Classes,
   System.JSON,
-  Winapi.Windows,
+  System.Math,
   Horse,
   Horse.Jhonson,
   Horse.HandleException,
   Horse.CORS,
   Horse.OctetStream,
-  System.Math,
   conversa.api in 'src\conversa\conversa.api.pas',
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
   conversa.comum in 'src\conversa\conversa.comum.pas',
-  conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas',
-  Conversa.WMI in 'src\conversa\Conversa.WMI.pas';
+  conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
 begin
@@ -33,12 +34,14 @@ end;
 const
   sl = sLineBreak;
 begin
+  {$IF DEFINED(MSWINDOWS)}
   // Habilita caracteres UTF8 no terminal
   SetConsoleOutputCP(CP_UTF8);
+  {$ENDIF}
 
   ReportMemoryLeaksOnShutdown := True;
   try
-    TConfiguracao.LoadFromFile('conversa.json');
+    TConfiguracao.LoadFromEnvironment;
 
     THorse
       .Use(Jhonson)
