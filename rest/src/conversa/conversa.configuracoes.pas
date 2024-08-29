@@ -5,8 +5,7 @@ interface
 
 uses
   System.SysUtils,
-  Postgres,
-  Conversa.AES;
+  Postgres;
 
 type
   TConfiguracao = record
@@ -24,14 +23,8 @@ implementation
 { TConfiguracao }
 
 class procedure TConfiguracao.LoadFromEnvironment;
-var
-  sKey: String;
 begin
   try
-    sKey := GetEnvironmentVariable('CONVERSA_KEY');
-    if sKey.Trim.IsEmpty then
-      raise Exception.Create('Variável de ambiente 🔑 "CONVERSA_KEY" não definida!');
-
     Configuracao                        := Default(TConfiguracao);
     Configuracao.Porta                  := GetEnvironmentVariable('CONVERSA_PORTA').ToInteger;
     Configuracao.LocalAnexos            := GetEnvironmentVariable('CONVERSA_LOCALANEXOS');
@@ -40,7 +33,7 @@ begin
     Configuracao.PGParams.MetaDefSchema := GetEnvironmentVariable('CONVERSA_METADEFSCHEMA');
     Configuracao.PGParams.Database      := GetEnvironmentVariable('CONVERSA_DATABASE');
     Configuracao.PGParams.UserName      := GetEnvironmentVariable('CONVERSA_USERNAME');
-    Configuracao.PGParams.Password      := Decrypt(sKey, GetEnvironmentVariable('CONVERSA_PASSWORD'));
+    Configuracao.PGParams.Password      := GetEnvironmentVariable('CONVERSA_PASSWORD');
   except on E: Exception do
     begin
       E.Message := 'Erro ao carregar as configurações! ☠️ - '+ E.Message;
