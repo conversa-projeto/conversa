@@ -4,19 +4,15 @@ unit conversa.configuracoes;
 interface
 
 uses
-  System.Classes,
   System.SysUtils,
-  System.IOUtils,
-  System.JSON.Serializers,
-  Postgres,
-  Conversa.AES;
+  Postgres;
 
 type
   TConfiguracao = record
     Porta: Word;
     PGParams: TPGParams;
     LocalAnexos: String;
-    class procedure LoadFromFile(sArquivo: String); static;
+    class procedure LoadFromEnvironment; static;
   end;
 
 var
@@ -26,28 +22,18 @@ implementation
 
 { TConfiguracao }
 
-class procedure TConfiguracao.LoadFromFile(sArquivo: String);
-var
-  ss: TStringStream;
-  js: TJsonSerializer;
+class procedure TConfiguracao.LoadFromEnvironment;
 begin
-  if not TFile.Exists(sArquivo) then
-    raise Exception.Create('Arquivo de configurações "'+ sArquivo +'" não encontrado! 👎');
-
   try
-    ss := TStringStream.Create;
-    try
-      ss.LoadFromFile(sArquivo);
-      js := TJsonSerializer.Create;
-      try
-        Configuracao := js.Deserialize<TConfiguracao>(ss.DataString);
-        Configuracao.PGParams.Password := Decrypt(Configuracao.PGParams.Password);
-      finally
-        js.Free;
-      end;
-    finally
-      ss.Free;
-    end;
+    Configuracao                        := Default(TConfiguracao);
+    Configuracao.Porta                  := GetEnvironmentVariable('CONVERSA_PORTA').ToInteger;
+    Configuracao.LocalAnexos            := GetEnvironmentVariable('CONVERSA_LOCALANEXOS');
+    Configuracao.PGParams.DriverID      := GetEnvironmentVariable('CONVERSA_DRIVERID');
+    Configuracao.PGParams.Server        := GetEnvironmentVariable('CONVERSA_SERVER');
+    Configuracao.PGParams.MetaDefSchema := GetEnvironmentVariable('CONVERSA_METADEFSCHEMA');
+    Configuracao.PGParams.Database      := GetEnvironmentVariable('CONVERSA_DATABASE');
+    Configuracao.PGParams.UserName      := GetEnvironmentVariable('CONVERSA_USERNAME');
+    Configuracao.PGParams.Password      := GetEnvironmentVariable('CONVERSA_PASSWORD');
   except on E: Exception do
     begin
       E.Message := 'Erro ao carregar as configurações! ☠️ - '+ E.Message;

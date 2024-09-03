@@ -11,6 +11,7 @@ uses
   System.Generics.Collections,
   FireDAC.Phys.PG,
   FireDAC.Phys.PGDef,
+  FireDAC.ConsoleUI.Wait,
   FireDAC.Comp.Client,
   FireDAC.Stan.Def,
   FireDAC.DApt,
