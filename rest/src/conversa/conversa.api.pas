@@ -45,7 +45,7 @@ type
     class function MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject;
     class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;
     class function AnexoExiste(Identificador: String): TJSONObject;
-    class function AnexoIncluir(Usuario: Integer; Tipo: Integer; Dados: TStringStream): TJSONObject;
+    class function AnexoIncluir(Usuario: Integer; Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject;
     class function Anexo(Usuario: Integer; Identificador: String): TStringStream;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray;
     class function ChamadaIncluir(joParam: TJSONObject): TJSONObject;
@@ -333,7 +333,7 @@ begin
   end;
 end;
 
-class function TConversa.AnexoIncluir(Usuario: Integer; Tipo: Integer; Dados: TStringStream): TJSONObject;
+class function TConversa.AnexoIncluir(Usuario: Integer; Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject;
 var
   iID: Integer;
   sIdentificador: String;
@@ -385,11 +385,15 @@ begin
     sl +'     ( identificador '+
     sl +'     , tipo '+
     sl +'     , tamanho '+
+    sl +'     , nome '+
+    sl +'     , extensao '+
     sl +'     ) '+
     sl +'values '+
     sl +'     ( '+ Qt(sIdentificador) +
     sl +'     , '+ Tipo.ToString +
     sl +'     , '+ Dados.Size.ToString +
+    sl +'     , '+ IfThen(Nome.Trim.IsEmpty, 'null', Qt(Nome)) +
+    sl +'     , '+ IfThen(Extensao.Trim.IsEmpty, 'null', Qt(Extensao)) +
     sl +'     ) '+
     sl +
     sl +'returning id; '
@@ -640,9 +644,44 @@ begin
         sl +'select id '+
         sl +'     , ordem '+
         sl +'     , tipo '+
-        sl +'     , convert_from(conteudo, ''utf-8'') as conteudo '+
-        sl +'  from mensagem_conteudo '+
-        sl +' where mensagem_id = '+ Mensagem.FieldByName('id').AsString +
+        sl +'     , conteudo '+
+        sl +'     , nome '+
+        sl +'     , extensao '+
+        sl +'  from '+
+        sl +'     ( /* Retorna conteúdo de texto */ '+
+        sl +'       select id '+
+        sl +'            , ordem '+
+        sl +'            , tipo '+
+        sl +'            , convert_from(conteudo, ''utf-8'') as conteudo '+
+        sl +'            , null as nome '+
+        sl +'            , null as extensao '+
+        sl +'         from mensagem_conteudo '+
+        sl +'        where mensagem_id = '+ Mensagem.FieldByName('id').AsString +
+        sl +'          and tipo = 1 /* 1-Texto */ '+
+        sl +
+        sl +'        union '+
+        sl +
+        sl +'       /* Retorna arquivos */ '+
+        sl +'       select tbl.id '+
+        sl +'            , tbl.ordem '+
+        sl +'            , tbl.tipo '+
+        sl +'            , tbl.conteudo '+
+        sl +'            , a.nome '+
+        sl +'            , a.extensao '+
+        sl +'         from '+
+        sl +'            ( '+
+        sl +'              select id '+
+        sl +'                   , ordem '+
+        sl +'                   , tipo '+
+        sl +'                   , convert_from(conteudo, ''utf-8'') as conteudo '+
+        sl +'                from mensagem_conteudo '+
+        sl +'               where mensagem_id = '+ Mensagem.FieldByName('id').AsString +
+        sl +'                 and tipo in(2, 3) /* 2-Imagem, 3-Arquivo */ '+
+        sl +'            ) as tbl '+
+        sl +'        inner '+
+        sl +'         join anexo a '+
+        sl +'           on a.identificador = tbl.conteudo '+
+        sl +'     ) as tbl '+
         sl +' order '+
         sl +'    by ordem '
       );
@@ -655,6 +694,8 @@ begin
         oConteudo.AddPair('tipo', QryAux.FieldByName('tipo').AsInteger);
         oConteudo.AddPair('ordem', QryAux.FieldByName('ordem').AsInteger);
         oConteudo.AddPair('conteudo', QryAux.FieldByName('conteudo').AsString);
+        oConteudo.AddPair('nome', QryAux.FieldByName('nome').AsString);
+        oConteudo.AddPair('extensao', QryAux.FieldByName('extensao').AsString);
         QryAux.Next;
       end;
       Mensagem.Next;

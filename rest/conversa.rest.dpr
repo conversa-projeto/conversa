@@ -231,7 +231,15 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Headers.Field('uid').Required(True);
-          Res.Send<TJSONObject>(TConversa.AnexoIncluir(Req.Headers.Field('uid').AsInteger, Req.Query.Field('tipo').AsInteger, Req.Body<TStringStream>));
+          Res.Send<TJSONObject>(
+            TConversa.AnexoIncluir(
+              Req.Headers.Field('uid').AsInteger,
+              Req.Query.Field('tipo').AsInteger,
+              Req.Headers.Field('nome').AsString,
+              Req.Headers.Field('extensao').AsString,
+              Req.Body<TStringStream>
+            )
+          );
         end
       );
 

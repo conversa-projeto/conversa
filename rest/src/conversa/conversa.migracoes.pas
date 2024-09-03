@@ -109,6 +109,12 @@ const v0 =
   sl +'   set valor = ''0'' '+
   sl +' where nome  = ''versao'' ';
 
+const
+  v0_1 =
+  sl +'ALTER TABLE public.anexo ADD nome varchar(255) NULL;'+
+  sl +'ALTER TABLE public.anexo ADD extensao varchar(10) NULL;';
+
+
 procedure Migracoes(iVersao: Integer);
 var
   Pool: IConnection;
