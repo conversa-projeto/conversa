@@ -13,11 +13,16 @@ uses
   System.Classes,
   System.JSON,
   System.Math,
+  System.DateUtils,
   Horse,
   Horse.Jhonson,
   Horse.HandleException,
   Horse.CORS,
   Horse.OctetStream,
+  Horse.JWT,
+  JOSE.Core.JWT,
+  JOSE.Core.Builder,
+  JOSE.Types.Bytes,
   conversa.api in 'src\conversa\conversa.api.pas',
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
@@ -47,7 +52,15 @@ begin
       .Use(Jhonson)
       .Use(OctetStream)
       .Use(HandleException)
-      .Use(CORS);
+      .Use(CORS)
+      .Use(
+        HorseJWT(
+          Configuracao.JWTKEY,
+          THorseJWTConfig.New
+            .SessionClass(TJWTClaims)
+            .SkipRoutes(['status', 'login'])
+        )
+      );
 
     TPool.Start(Configuracao.PGParams);
     try
@@ -60,9 +73,6 @@ begin
         end;
       end;
 
-      // uid = ID do usuário logado no sistema, será obtido posteriormente usando bearer token
-      // deve ser usado para validar as operações impedindo acesso a informações indevidas de outros usuárioss
-
       THorse.Get(
         '/status',
         procedure(Req: THorseRequest; Res: THorseResponse)
@@ -74,8 +84,24 @@ begin
       THorse.Post(
         '/login',
         procedure(Req: THorseRequest; Res: THorseResponse)
+        var
+          LJWT: TJWT;
+          Resposta: TJSONObject;
         begin
-          Res.Send<TJSONObject>(TConversa.Login(Conteudo(Req)));
+          Resposta := TConversa.Login(Conteudo(Req));
+
+          LJWT := TJWT.Create;
+          try
+            LJWT.Claims.Subject    := Resposta.GetValue<String>('id');
+            LJWT.Claims.Issuer     := 'conversa.login';
+            LJWT.Claims.IssuedAt   := Now;
+            LJWT.Claims.Expiration := IncHour(Now, 12);
+            Resposta.AddPair('token', TJOSE.SHA256CompactToken(Configuracao.JWTKEY, LJWT).AsString);
+          finally
+            FreeAndNil(LJWT);
+          end;
+
+          Res.Send<TJSONObject>(Resposta);
         end
       );
 
@@ -83,7 +109,6 @@ begin
         '/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Res.Send<TJSONObject>(TConversa.UsuarioIncluir(Conteudo(Req)));
         end
       );
@@ -92,7 +117,6 @@ begin
         '/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Res.Send<TJSONObject>(TConversa.UsuarioAlterar(Conteudo(Req)));
         end
       );
@@ -101,7 +125,6 @@ begin
         '/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Req.Query.Field('id').Required(True);
           Res.Send<TJSONObject>(TConversa.UsuarioExcluir(Req.Query.Field('id').AsInteger));
         end
@@ -111,8 +134,7 @@ begin
         '/usuario/contato',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
-          Res.Send<TJSONObject>(TConversa.UsuarioContatoIncluir(Req.Headers.Field('uid').AsInteger, Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.UsuarioContatoIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
@@ -120,7 +142,6 @@ begin
         '/usuario/contato',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Req.Query.Field('id').Required(True);
           Res.Send<TJSONObject>(TConversa.UsuarioContatoExcluir(Req.Query.Field('id').AsInteger));
         end
@@ -130,8 +151,7 @@ begin
         '/usuario/contatos',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
-          Res.Send<TJSONArray>(TConversa.UsuarioContatos(Req.Headers.Field('uid').AsInteger));
+          Res.Send<TJSONArray>(TConversa.UsuarioContatos(Req.Session<TJWTClaims>.Subject.ToInteger));
         end
       );
 
@@ -139,7 +159,6 @@ begin
         '/conversa',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Res.Send<TJSONObject>(TConversa.ConversaIncluir(Conteudo(Req)));
         end
       );
@@ -148,7 +167,6 @@ begin
         '/conversa',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Res.Send<TJSONObject>(TConversa.ConversaAlterar(Conteudo(Req)));
         end
       );
@@ -157,7 +175,6 @@ begin
         '/conversa',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Req.Query.Field('id').Required(True);
           Res.Send<TJSONObject>(TConversa.ConversaExcluir(Req.Query.Field('id').AsInteger));
         end
@@ -167,8 +184,7 @@ begin
         '/conversas',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
-          Res.Send<TJSONArray>(TConversa.Conversas(Req.Headers.Field('uid').AsInteger));
+          Res.Send<TJSONArray>(TConversa.Conversas(Req.Session<TJWTClaims>.Subject.ToInteger));
         end
       );
 
@@ -176,7 +192,6 @@ begin
         '/conversa/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Res.Send<TJSONObject>(TConversa.ConversaUsuarioIncluir(Conteudo(Req)));
         end
       );
@@ -185,7 +200,6 @@ begin
         '/conversa/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Req.Query.Field('id').Required(True);
           Res.Send<TJSONObject>(TConversa.ConversaUsuarioExcluir(Req.Query.Field('id').AsInteger));
         end
@@ -195,8 +209,7 @@ begin
         '/mensagem',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
-          Res.Send<TJSONObject>(TConversa.MensagemIncluir(Req.Headers.Field('uid').AsInteger, Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.MensagemIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
@@ -204,7 +217,6 @@ begin
         '/mensagem',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Req.Query.Field('id').Required(True);
           Res.Send<TJSONObject>(TConversa.MensagemExcluir(Req.Query.Field('id').AsInteger));
         end
@@ -223,9 +235,8 @@ begin
         '/anexo',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Req.Headers.Field('identificador').Required(True);
-          Res.Send<TStringStream>(TConversa.Anexo(Req.Headers.Field('uid').AsInteger, Req.Query.Field('identificador').AsString));
+          Res.Send<TStringStream>(TConversa.Anexo(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('identificador').AsString));
         end
       );
 
@@ -233,10 +244,9 @@ begin
         '/anexo',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Res.Send<TJSONObject>(
             TConversa.AnexoIncluir(
-              Req.Headers.Field('uid').AsInteger,
+              Req.Session<TJWTClaims>.Subject.ToInteger,
               Req.Query.Field('tipo').AsInteger,
               Req.Headers.Field('nome').AsString,
               Req.Headers.Field('extensao').AsString,
@@ -250,7 +260,6 @@ begin
         '/mensagens',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Req.Query.Field('conversa').Required(True);
           Req.Query.Field('usuario').Required(True);
           Res.Send<TJSONArray>(
@@ -268,7 +277,6 @@ begin
         '/mensagem/visualizar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Req.Query.Field('conversa').Required(True);
           Req.Query.Field('mensagem').Required(True);
           Req.Query.Field('usuario').Required(True);
@@ -280,7 +288,6 @@ begin
         '/mensagem/status',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Req.Query.Field('conversa').Required(True);
           Req.Query.Field('mensagem').Required(True);
           Req.Query.Field('usuario').Required(True);
@@ -292,8 +299,7 @@ begin
         '/mensagens/novas',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
-          Res.Send<TJSONArray>(TConversa.NovasMensagens(Req.Headers.Field('uid').AsInteger, Req.Query.Field('ultima').AsInteger));
+          Res.Send<TJSONArray>(TConversa.NovasMensagens(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('ultima').AsInteger));
         end
       );
       
@@ -301,7 +307,6 @@ begin
         '/chamada',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Res.Send<TJSONObject>(TConversa.ChamadaIncluir(Conteudo(Req)));
         end
       );
@@ -310,7 +315,6 @@ begin
         '/chamadaevento',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Res.Send<TJSONObject>(TConversa.ChamadaIncluir(Conteudo(Req)));
         end
       );
@@ -319,7 +323,6 @@ begin
         '/pesquisar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('uid').Required(True);
           Req.Query.Field('usuario').Required(True);
           Res.Send<TJSONArray>(
             TConversa.Pesquisar(

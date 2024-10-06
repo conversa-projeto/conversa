@@ -12,6 +12,7 @@ type
     Porta: Word;
     PGParams: TPGParams;
     LocalAnexos: String;
+    JWTKEY: String;
     class procedure LoadFromEnvironment; static;
   end;
 
@@ -28,6 +29,7 @@ begin
     Configuracao                        := Default(TConfiguracao);
     Configuracao.Porta                  := GetEnvironmentVariable('CONVERSA_PORTA').ToInteger;
     Configuracao.LocalAnexos            := GetEnvironmentVariable('CONVERSA_LOCALANEXOS');
+    Configuracao.JWTKEY                 := GetEnvironmentVariable('CONVERSA_JWTKEY');
     Configuracao.PGParams.DriverID      := GetEnvironmentVariable('CONVERSA_DRIVERID');
     Configuracao.PGParams.Server        := GetEnvironmentVariable('CONVERSA_SERVER');
     Configuracao.PGParams.MetaDefSchema := GetEnvironmentVariable('CONVERSA_METADEFSCHEMA');

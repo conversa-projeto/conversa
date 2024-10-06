@@ -15,7 +15,8 @@ uses
 
 type
   EHorseCallbackInterrupted = class(Exception)
-    constructor Create; reintroduce;
+    constructor Create; reintroduce; overload;
+    constructor Create(const AMessage: string); reintroduce; overload;
   end;
 
 implementation
@@ -23,6 +24,11 @@ implementation
 constructor EHorseCallbackInterrupted.Create;
 begin
   inherited Create(EmptyStr);
+end;
+
+constructor EHorseCallbackInterrupted.Create(const AMessage: string);
+begin
+  inherited Create(AMessage);
 end;
 
 end.

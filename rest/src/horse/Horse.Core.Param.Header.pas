@@ -134,9 +134,13 @@ begin
 {$IF DEFINED(HORSE_ISAPI)}
     Result.Text := AWebRequest.GetFieldByName('ALL_RAW');
 {$ELSEIF DEFINED(HORSE_APACHE)}
-    LHeadersArray := papr_array_header_t(Prequest_rec(TApacheRequest(AWebRequest).HTTPDRequest)^.headers_in);
-    LHeadersEntry := Papr_table_entry_t(LHeadersArray^.elts);
-
+    {$IF COMPILERVERSION <= 32}
+      LHeadersArray := papr_array_header_t(Prequest_rec(TWebResponse(AWebRequest).HTTPRequest)^.headers_in);
+      LHeadersEntry := Papr_table_entry_t(LHeadersArray^.elts);
+    {$ELSE}
+      LHeadersArray := papr_array_header_t(Prequest_rec(TApacheRequest(AWebRequest).HTTPDRequest)^.headers_in);
+      LHeadersEntry := Papr_table_entry_t(LHeadersArray^.elts);
+    {$IFEND}
     for I := 0 to Pred(LHeadersArray^.nelts) do
     begin
       Result.Add(string(LHeadersEntry^.key) + Result.NameValueSeparator + string(LHeadersEntry^.val));
@@ -148,10 +152,17 @@ begin
       for LEnvVarIndex := 0 to Pred(LEnvironmentVariables.Count) do
       begin
         if (LEnvironmentVariables.Strings[LEnvVarIndex].StartsWith('HTTP_')) then
-          Result.AddPair(
-            NormalizeEnvVarHeaderName(LEnvironmentVariables.KeyNames[LEnvVarIndex]),
-            LEnvironmentVariables.ValueFromIndex[LEnvVarIndex]
-          );
+        begin
+          {$IF COMPILERVERSION <= 32}
+            Result.Add(NormalizeEnvVarHeaderName(LEnvironmentVariables.Names[LEnvVarIndex]));
+            Result.Values[LEnvironmentVariables.Names[LEnvVarIndex]] := LEnvironmentVariables.ValueFromIndex[LEnvVarIndex];
+          {$ELSE}
+            Result.AddPair(
+              NormalizeEnvVarHeaderName(LEnvironmentVariables.KeyNames[LEnvVarIndex]),
+              LEnvironmentVariables.ValueFromIndex[LEnvVarIndex]
+            );
+          {$IFEND}
+        end;
       end;
     finally
       LEnvironmentVariables.Free;

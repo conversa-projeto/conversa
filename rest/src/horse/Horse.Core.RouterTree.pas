@@ -1,7 +1,7 @@
 unit Horse.Core.RouterTree;
 
 {$IF DEFINED(FPC)}
-{$MODE DELPHI}{$H+}
+  {$MODE DELPHI}{$H+}
 {$ENDIF}
 
 interface
@@ -136,16 +136,28 @@ end;
 
 function THorseRouterTree.Execute(const ARequest: THorseRequest; const AResponse: THorseResponse): Boolean;
 var
-  LQueue: TQueue<string>;
   LPathInfo: string;
+  LQueue, LQueueNotFound: TQueue<string>;
+  LMethodType: TMethodType;
 begin
   LPathInfo := {$IF DEFINED(FPC)}ARequest.RawWebRequest.PathInfo{$ELSE}ARequest.RawWebRequest.RawPathInfo{$ENDIF};
   if LPathInfo.IsEmpty then
     LPathInfo := '/';
   LQueue := GetQueuePath(LPathInfo, False);
   try
-    Result := ExecuteInternal(LQueue, {$IF DEFINED(FPC)} StringCommandToMethodType(ARequest.RawWebRequest.Method)
-{$ELSE} ARequest.RawWebRequest.MethodType{$ENDIF}, ARequest, AResponse);
+    LMethodType := {$IF DEFINED(FPC)} StringCommandToMethodType(ARequest.RawWebRequest.Method){$ELSE}ARequest.RawWebRequest.MethodType{$ENDIF};
+    Result := ExecuteInternal(LQueue, LMethodType, ARequest, AResponse);
+    if not Result then
+    begin
+      LQueueNotFound := GetQueuePath('/*', False);
+      try
+        Result := ExecuteInternal(LQueueNotFound, LMethodType, ARequest, AResponse);
+        if Result and (AResponse.Status = THTTPStatus.MethodNotAllowed.ToInteger) then
+          AResponse.Send('Not Found').Status(THTTPStatus.NotFound);
+      finally
+        LQueueNotFound.Free;
+      end;
+    end;
   finally
     LQueue.Free;
   end;

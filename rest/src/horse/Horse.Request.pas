@@ -45,22 +45,23 @@ type
     function IsFormURLEncoded: Boolean;
     function CanLoadContentFields: Boolean;
   public
-    function Body: string; overload;
+    function Body: string; overload; virtual;
     function Body<T: class>: T; overload;
-    function Body(const ABody: TObject): THorseRequest; overload;
+    function Body(const ABody: TObject): THorseRequest; overload; virtual;
+    function Body(const Encoding: TEncoding): string; overload; virtual;
     function Session<T: class>: T; overload;
-    function Session(const ASession: TObject): THorseRequest; overload;
-    function Headers: THorseCoreParam;
-    function Query: THorseCoreParam;
-    function Params: THorseCoreParam;
-    function Cookie: THorseCoreParam;
-    function ContentFields: THorseCoreParam;
-    function MethodType: TMethodType;
-    function ContentType: string;
-    function Host: string;
-    function PathInfo: string;
-    function RawWebRequest: {$IF DEFINED(FPC)}TRequest{$ELSE}TWebRequest{$ENDIF};
-    property Sessions: THorseSessions read FSessions;
+    function Session(const ASession: TObject): THorseRequest; overload; virtual;
+    function Headers: THorseCoreParam; virtual;
+    function Query: THorseCoreParam; virtual;
+    function Params: THorseCoreParam; virtual;
+    function Cookie: THorseCoreParam; virtual;
+    function ContentFields: THorseCoreParam; virtual;
+    function Sessions: THorseSessions; virtual;
+    function MethodType: TMethodType; virtual;
+    function ContentType: string; virtual;
+    function Host: string; virtual;
+    function PathInfo: string; virtual;
+    function RawWebRequest: {$IF DEFINED(FPC)}TRequest{$ELSE}TWebRequest{$ENDIF}; virtual;
     constructor Create(const AWebRequest: {$IF DEFINED(FPC)}TRequest{$ELSE}TWebRequest{$ENDIF});
     destructor Destroy; override;
   end;
@@ -75,7 +76,31 @@ end;
 function THorseRequest.Body(const ABody: TObject): THorseRequest;
 begin
   Result := Self;
+  if Assigned(FBody) then
+    FBody.Free;
   FBody := ABody;
+end;
+
+function THorseRequest.Body(const Encoding: TEncoding): string;
+{$IF DEFINED(FPC)}
+var
+  lContent: TStringStream;
+{$ENDIF}
+begin
+  {$IF DEFINED(FPC)}
+  try
+    lContent := TStringStream.Create(FWebRequest.Content, Encoding);
+    Result   := lContent.DataString;
+  finally
+    lContent.Free;
+  end;
+  {$ELSE}
+  {$IF CompilerVersion <= 31.0}
+  Result := Encoding.GetString(BytesOf(FWebRequest.RawContent));
+  {$ELSE}
+  Result := Encoding.GetString(FWebRequest.RawContent);
+  {$ENDIF}
+  {$ENDIF}
 end;
 
 function THorseRequest.Body<T>: T;
@@ -244,7 +269,10 @@ begin
     LEqualFirstPos := Pos('=', LItem);
     LKey := Copy(LItem, 1, LEqualFirstPos - 1);
     LValue := Copy(LItem, LEqualFirstPos + 1, Length(LItem));
-    FQuery.Dictionary.AddOrSetValue(LKey, LValue);
+    if not FQuery.Dictionary.ContainsKey(LKey) then
+      FQuery.Dictionary.AddOrSetValue(LKey, LValue)
+    else
+      FQuery.Dictionary[LKey] := FQuery.Dictionary[LKey] +','+ LValue;
   end;
 end;
 
@@ -315,6 +343,11 @@ end;
 function THorseRequest.Session<T>: T;
 begin
   Result := T(FSession);
+end;
+
+function THorseRequest.Sessions: THorseSessions;
+begin
+  Result := FSessions;
 end;
 
 end.

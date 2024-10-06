@@ -9,9 +9,6 @@
         <Projects Include="socket\conversa.socket.dproj">
             <Dependencies/>
         </Projects>
-        <Projects Include="pass\cript.dproj">
-            <Dependencies/>
-        </Projects>
     </ItemGroup>
     <ProjectExtensions>
         <Borland.Personality>Default.Personality.12</Borland.Personality>
@@ -38,23 +35,14 @@
     <Target Name="conversa_socket:Make">
         <MSBuild Projects="socket\conversa.socket.dproj" Targets="Make"/>
     </Target>
-    <Target Name="cript">
-        <MSBuild Projects="pass\cript.dproj"/>
-    </Target>
-    <Target Name="cript:Clean">
-        <MSBuild Projects="pass\cript.dproj" Targets="Clean"/>
-    </Target>
-    <Target Name="cript:Make">
-        <MSBuild Projects="pass\cript.dproj" Targets="Make"/>
-    </Target>
     <Target Name="Build">
-        <CallTarget Targets="conversa_rest;conversa_socket;cript"/>
+        <CallTarget Targets="conversa_rest;conversa_socket"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="conversa_rest:Clean;conversa_socket:Clean;cript:Clean"/>
+        <CallTarget Targets="conversa_rest:Clean;conversa_socket:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="conversa_rest:Make;conversa_socket:Make;cript:Make"/>
+        <CallTarget Targets="conversa_rest:Make;conversa_socket:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>
