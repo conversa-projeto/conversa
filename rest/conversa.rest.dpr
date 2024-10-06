@@ -143,7 +143,7 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('id').Required(True);
-          Res.Send<TJSONObject>(TConversa.UsuarioContatoExcluir(Req.Query.Field('id').AsInteger));
+          Res.Send<TJSONObject>(TConversa.UsuarioContatoExcluir(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('id').AsInteger));
         end
       );
 
@@ -159,7 +159,7 @@ begin
         '/conversa',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.ConversaIncluir(Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.ConversaIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
@@ -167,7 +167,7 @@ begin
         '/conversa',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.ConversaAlterar(Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.ConversaAlterar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
@@ -176,7 +176,7 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('id').Required(True);
-          Res.Send<TJSONObject>(TConversa.ConversaExcluir(Req.Query.Field('id').AsInteger));
+          Res.Send<TJSONObject>(TConversa.ConversaExcluir(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('id').AsInteger));
         end
       );
 
@@ -192,7 +192,7 @@ begin
         '/conversa/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.ConversaUsuarioIncluir(Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.ConversaUsuarioIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
@@ -201,7 +201,7 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('id').Required(True);
-          Res.Send<TJSONObject>(TConversa.ConversaUsuarioExcluir(Req.Query.Field('id').AsInteger));
+          Res.Send<TJSONObject>(TConversa.ConversaUsuarioExcluir(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('id').AsInteger));
         end
       );
 
@@ -218,7 +218,7 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('id').Required(True);
-          Res.Send<TJSONObject>(TConversa.MensagemExcluir(Req.Query.Field('id').AsInteger));
+          Res.Send<TJSONObject>(TConversa.MensagemExcluir(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('id').AsInteger));
         end
       );
 
@@ -236,7 +236,7 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Headers.Field('identificador').Required(True);
-          Res.Send<TStringStream>(TConversa.Anexo(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('identificador').AsString));
+          Res.Send<TStringStream>(TConversa.Anexo(Req.Query.Field('identificador').AsString));
         end
       );
 
@@ -246,7 +246,6 @@ begin
         begin
           Res.Send<TJSONObject>(
             TConversa.AnexoIncluir(
-              Req.Session<TJWTClaims>.Subject.ToInteger,
               Req.Query.Field('tipo').AsInteger,
               Req.Headers.Field('nome').AsString,
               Req.Headers.Field('extensao').AsString,

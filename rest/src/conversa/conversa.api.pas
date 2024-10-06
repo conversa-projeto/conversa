@@ -29,24 +29,24 @@ type
     class function UsuarioAlterar(oUsuario: TJSONObject): TJSONObject;
     class function UsuarioExcluir(Usuario: Integer): TJSONObject;
     class function UsuarioContatoIncluir(Usuario: Integer; oUsuarioContato: TJSONObject): TJSONObject;
-    class function UsuarioContatoExcluir(UsuarioContato: Integer): TJSONObject;
+    class function UsuarioContatoExcluir(Usuario, UsuarioContato: Integer): TJSONObject;
     class function UsuarioContatos(Usuario: Integer): TJSONArray; 
-    class function ConversaIncluir(oConversa: TJSONObject): TJSONObject;
-    class function ConversaAlterar(oConversa: TJSONObject): TJSONObject;
-    class function ConversaExcluir(Conversa: Integer): TJSONObject;
+    class function ConversaIncluir(Usuario: Integer; oConversa: TJSONObject): TJSONObject;
+    class function ConversaAlterar(Usuario: Integer; oConversa: TJSONObject): TJSONObject;
+    class function ConversaExcluir(Usuario: Integer; Conversa: Integer): TJSONObject;
     class function Conversas(Usuario: Integer): TJSONArray;
-    class function ConversaUsuarioIncluir(oConversaUsuario: TJSONObject): TJSONObject;
-    class function ConversaUsuarioExcluir(ConversaUsuario: Integer): TJSONObject;
+    class function ConversaUsuarioIncluir(Usuario: Integer; oConversaUsuario: TJSONObject): TJSONObject;
+    class function ConversaUsuarioExcluir(Usuario: Integer; ConversaUsuario: Integer): TJSONObject;
     class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject;
-    class function MensagemExcluir(Mensagem: Integer): TJSONObject;
+    class function MensagemExcluir(Usuario, Mensagem: Integer): TJSONObject;
     class function Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray;
     class function Pesquisar(Usuario: Integer; Texto: String): TJSONArray;
     class function GetMensagens(Conversa, Usuario: Integer; Script: String; MarcarComoRecebida: Boolean): TJSONArray;
     class function MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject;
     class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;
     class function AnexoExiste(Identificador: String): TJSONObject;
-    class function AnexoIncluir(Usuario: Integer; Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject;
-    class function Anexo(Usuario: Integer; Identificador: String): TStringStream;
+    class function AnexoIncluir(Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject;
+    class function Anexo(Identificador: String): TStringStream;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray;
     class function ChamadaIncluir(joParam: TJSONObject): TJSONObject;
     class function ChamadaEventoIncluir(joParam: TJSONObject): TJSONObject;
@@ -100,8 +100,9 @@ begin
   Result := InsertJSON('usuario_contato', oUsuarioContato);
 end;
 
-class function TConversa.UsuarioContatoExcluir(UsuarioContato: Integer): TJSONObject;
+class function TConversa.UsuarioContatoExcluir(Usuario, UsuarioContato: Integer): TJSONObject;
 begin
+  {TODO -oEduardo -cSegurança : não pode deletar contato de outro usuário, adicionar validação}
   Result := Delete('usuario_contato', UsuarioContato);
 end;
 
@@ -121,19 +122,22 @@ begin
   );
 end;
 
-class function TConversa.ConversaIncluir(oConversa: TJSONObject): TJSONObject;
+class function TConversa.ConversaIncluir(Usuario: Integer; oConversa: TJSONObject): TJSONObject;
 begin
+  {TODO -oEduardo -cSegurança : não pode incluir conversa para outro usuário, adicionar validação}
   Result := InsertJSON('conversa', oConversa);
 end;
 
-class function TConversa.ConversaAlterar(oConversa: TJSONObject): TJSONObject;
+class function TConversa.ConversaAlterar(Usuario: Integer; oConversa: TJSONObject): TJSONObject;
 begin
+  {TODO -oEduardo -cSegurança : não pode alterar conversa de outro usuário, adicionar validação}
   CamposObrigatorios(oConversa, ['descricao']);
   Result := UpdateJSON('conversa', oConversa);
 end;
 
-class function TConversa.ConversaExcluir(Conversa: Integer): TJSONObject;
+class function TConversa.ConversaExcluir(Usuario: Integer; Conversa: Integer): TJSONObject;
 begin
+  {TODO -oEduardo -cSegurança : não pode excluir conversa de outro usuário, adicionar validação}
   Result := Delete('conversa', Conversa);
 end;
 
@@ -242,14 +246,16 @@ begin
   );
 end;
 
-class function TConversa.ConversaUsuarioIncluir(oConversaUsuario: TJSONObject): TJSONObject;
+class function TConversa.ConversaUsuarioIncluir(Usuario: Integer; oConversaUsuario: TJSONObject): TJSONObject;
 begin
+  {TODO -oEduardo -cSegurança : não pode incluir usuario em uma conversa de outro usuário, adicionar validação}
   CamposObrigatorios(oConversaUsuario, ['usuario_id', 'conversa_id']);
   Result := InsertJSON('conversa_usuario', oConversaUsuario);
 end;
 
-class function TConversa.ConversaUsuarioExcluir(ConversaUsuario: Integer): TJSONObject;
+class function TConversa.ConversaUsuarioExcluir(Usuario, ConversaUsuario: Integer): TJSONObject;
 begin
+  {TODO -oEduardo -cSegurança : não pode excluir usuario de uma conversa de outro usuário, adicionar validação}
   Result := Delete('conversa_usuario', ConversaUsuario);
 end;
 
@@ -299,10 +305,11 @@ begin
   end;
 end;
 
-class function TConversa.MensagemExcluir(Mensagem: Integer): TJSONObject;
+class function TConversa.MensagemExcluir(Usuario, Mensagem: Integer): TJSONObject;
 var
   oConteudo: TJSONObject;
 begin
+  {TODO -oEduardo -cSegurança : não pode excluir mensagem de outro usuário, adicionar validação}
   oConteudo := Delete('mensagem_conteudo', Mensagem, 'mensagem_id');
   Result := Delete('mensagem', Mensagem);
   Result.AddPair('conteudo', oConteudo);
@@ -333,7 +340,7 @@ begin
   end;
 end;
 
-class function TConversa.AnexoIncluir(Usuario: Integer; Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject;
+class function TConversa.AnexoIncluir(Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject;
 var
   iID: Integer;
   sIdentificador: String;
@@ -409,7 +416,7 @@ begin
   );
 end;
 
-class function TConversa.Anexo(Usuario: Integer; Identificador: String): TStringStream;
+class function TConversa.Anexo(Identificador: String): TStringStream;
 var
   Pool: IConnection;
   Qry: TFDQuery;
@@ -441,6 +448,8 @@ class function TConversa.Mensagens(Conversa, Usuario, MensagemReferencia, Mensag
 var
   Script: String;
 begin
+  {TODO -oEduardo -cSegurança : não pode retornar mensagem de conversa que o usuário não está, adicionar validação}
+
   // Validação apenas para alertar de erro de chamada!
   Assert(MensagemReferencia >= 0, 'MensagemReferencia inválida!');
   Assert(MensagensPrevias >= 0, 'MensagensPrevias inválido!');
@@ -618,8 +627,6 @@ begin
       oMensagem.AddPair('inserida', DateToISO8601(Mensagem.FieldByName('inserida').AsDateTime));
       oMensagem.AddPair('alterada', DateToISO8601(Mensagem.FieldByName('alterada').AsDateTime));
 
-
-
       QryAux.Open(
         sl +' select mensagem_id '+
         sl +'      , sum(case when recebida is null then 0 else 1 end) as recebida '+
@@ -708,6 +715,7 @@ end;
 
 class function TConversa.MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject;
 begin
+  {TODO -oEduardo -cSegurança : não pode marcar como visualizada mensagem de outro o usuário, adicionar validação}
   TPool.Instance.Connection.ExecSQL(
     sl +' update mensagem_status '+
     sl +'    set visualizada = now() '+
@@ -721,6 +729,7 @@ end;
 
 class function TConversa.MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;
 begin
+  {TODO -oEduardo -cSegurança : não pode retornar status de mensagem de outro o usuário, adicionar validação}
   Result := TJSONArray.Create;
   with TFDQuery.Create(nil) do
   try
