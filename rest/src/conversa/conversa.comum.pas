@@ -53,6 +53,9 @@ begin
       if Qry.Fields[I].IsNull then
         Result.AddPair(Qry.Fields[I].FieldName, TJSONNull.Create)
       else
+      if Qry.Fields[I] is TIntegerField then
+        Result.AddPair(Qry.Fields[I].FieldName, TJSONNumber.Create(Qry.Fields[I].AsInteger))
+      else
       if Qry.Fields[I] is TNumericField then
         Result.AddPair(Qry.Fields[I].FieldName, TJSONNumber.Create(Qry.Fields[I].AsExtended))
       else
@@ -88,6 +91,9 @@ begin
       begin
         if Qry.Fields[I].IsNull then
           oRow.AddPair(Qry.Fields[I].FieldName, TJSONNull.Create)
+        else
+        if Qry.Fields[I] is TIntegerField then
+          oRow.AddPair(Qry.Fields[I].FieldName, TJSONNumber.Create(Qry.Fields[I].AsInteger))
         else
         if Qry.Fields[I] is TNumericField then
           oRow.AddPair(Qry.Fields[I].FieldName, TJSONNumber.Create(Qry.Fields[I].AsExtended))
