@@ -22,37 +22,65 @@ uses
   conversa.configuracoes;
 
 type
-  TConversa = class
-    class function Status: TJSONObject;
-    class function Login(oAutenticacao: TJSONObject): TJSONObject;
-    class function UsuarioIncluir(oUsuario: TJSONObject): TJSONObject;
-    class function UsuarioAlterar(oUsuario: TJSONObject): TJSONObject;
-    class function UsuarioExcluir(Usuario: Integer): TJSONObject;
-    class function UsuarioContatoIncluir(Usuario: Integer; oUsuarioContato: TJSONObject): TJSONObject;
-    class function UsuarioContatoExcluir(Usuario, UsuarioContato: Integer): TJSONObject;
-    class function UsuarioContatos(Usuario: Integer): TJSONArray; 
-    class function ConversaIncluir(Usuario: Integer; oConversa: TJSONObject): TJSONObject;
-    class function ConversaAlterar(Usuario: Integer; oConversa: TJSONObject): TJSONObject;
-    class function ConversaExcluir(Usuario: Integer; Conversa: Integer): TJSONObject;
-    class function Conversas(Usuario: Integer): TJSONArray;
-    class function ConversaUsuarioIncluir(Usuario: Integer; oConversaUsuario: TJSONObject): TJSONObject;
-    class function ConversaUsuarioExcluir(Usuario: Integer; ConversaUsuario: Integer): TJSONObject;
-    class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject;
-    class function MensagemExcluir(Usuario, Mensagem: Integer): TJSONObject;
-    class function Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray;
-    class function Pesquisar(Usuario: Integer; Texto: String): TJSONArray;
-    class function GetMensagens(Conversa, Usuario: Integer; Script: String; MarcarComoRecebida: Boolean): TJSONArray;
-    class function MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject;
-    class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;
-    class function AnexoExiste(Identificador: String): TJSONObject;
-    class function AnexoIncluir(Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject;
-    class function Anexo(Identificador: String): TStringStream;
-    class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray;
-    class function ChamadaIncluir(joParam: TJSONObject): TJSONObject;
-    class function ChamadaEventoIncluir(joParam: TJSONObject): TJSONObject;
+  TConversa = record
+    class function Status: TJSONObject; static;
+    class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
+    class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivio: String): TStringStream; static;
+    class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
+    class function UsuarioIncluir(oUsuario: TJSONObject): TJSONObject; static;
+    class function UsuarioAlterar(oUsuario: TJSONObject): TJSONObject; static;
+    class function UsuarioExcluir(Usuario: Integer): TJSONObject; static;
+    class function UsuarioContatoIncluir(Usuario: Integer; oUsuarioContato: TJSONObject): TJSONObject; static;
+    class function UsuarioContatoExcluir(Usuario, UsuarioContato: Integer): TJSONObject; static;
+    class function UsuarioContatos(Usuario: Integer): TJSONArray; static;
+    class function ConversaIncluir(Usuario: Integer; oConversa: TJSONObject): TJSONObject; static;
+    class function ConversaAlterar(Usuario: Integer; oConversa: TJSONObject): TJSONObject; static;
+    class function ConversaExcluir(Usuario: Integer; Conversa: Integer): TJSONObject; static;
+    class function Conversas(Usuario: Integer): TJSONArray; static;
+    class function ConversaUsuarioIncluir(Usuario: Integer; oConversaUsuario: TJSONObject): TJSONObject; static;
+    class function ConversaUsuarioExcluir(Usuario: Integer; ConversaUsuario: Integer): TJSONObject; static;
+    class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject; static;
+    class function MensagemExcluir(Usuario, Mensagem: Integer): TJSONObject; static;
+    class function Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray; static;
+    class function Pesquisar(Usuario: Integer; Texto: String): TJSONArray; static;
+    class function GetMensagens(Conversa, Usuario: Integer; Script: String; MarcarComoRecebida: Boolean): TJSONArray; static;
+    class function MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject; static;
+    class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray; static;
+    class function AnexoExiste(Identificador: String): TJSONObject; static;
+    class function AnexoIncluir(Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject; static;
+    class function Anexo(Identificador: String): TStringStream; static;
+    class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray; static;
+    class function ChamadaIncluir(joParam: TJSONObject): TJSONObject; static;
+    class function ChamadaEventoIncluir(joParam: TJSONObject): TJSONObject; static;
   end;
 
 implementation
+
+class function TConversa.Status: TJSONObject;
+begin
+  Result := TJSONObject.Create.AddPair('ativo', True);
+end;
+
+class function TConversa.ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject;
+begin
+  Result := TJSONObject.Create
+    .AddPair('name', 'v0.0.2')
+    .AddPair('created_at', DateToISO8601(Now))
+    .AddPair('body', '### Melhorias\r\n- Adiciona Skia para visualização de outros formatos de imagem\r\n- Ajusta inicialização para a do [Lançador](https://github.com/e-delphi/lancador)\r\n- Altera diretório inicial das configurações e cache do aplicativo')
+    .AddPair('assets',
+      TJSONArray.Create
+        .Add(TJSONObject.Create
+          .AddPair('name', 'conversa.zip')
+          .AddPair('browser_download_url', '/'+ sRepositorio +'/'+ sProjeto +'/releases/download/v0.0.2/conversa.zip')
+        )
+    );
+end;
+
+class function TConversa.DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivio: String): TStringStream;
+begin
+  Result := TStringStream.Create;
+  Result.LoadFromFile(IncludeTrailingPathDelimiter(Configuracao.LocalAnexos) +'???');
+end;
 
 class function TConversa.Login(oAutenticacao: TJSONObject): TJSONObject;
 begin
@@ -782,11 +810,6 @@ begin
     sl +' group '+
     sl +'    by m.conversa_id '
   );
-end;
-
-class function TConversa.Status: TJSONObject;
-begin
-  Result := TJSONObject.Create.AddPair('ativo', True);
 end;
 
 class function TConversa.ChamadaIncluir(joParam: TJSONObject): TJSONObject;

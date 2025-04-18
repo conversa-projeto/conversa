@@ -27,7 +27,8 @@ uses
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
   conversa.comum in 'src\conversa\conversa.comum.pas',
-  conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas';
+  conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas',
+  FCM in 'src\conversa\FCM.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
 begin
@@ -58,7 +59,7 @@ begin
           Configuracao.JWTKEY,
           THorseJWTConfig.New
             .SessionClass(TJWTClaims)
-            .SkipRoutes(['status', 'login'])
+            .SkipRoutes(['favicon.ico', 'status', 'repos/+.+/releases/latest', '.+/releases/download/+.*', 'login'])
         )
       );
 
@@ -78,6 +79,30 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.Status);
+        end
+      );
+
+      THorse.Get(
+        'repos/:repo/:project/releases/latest',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.ConsultarVersao(
+            Req.Params.Field('repo').AsString,
+            Req.Params.Field('project').AsString
+          ));
+        end
+      );
+
+      THorse.Get(
+        '/:repo/:project/releases/download/:version/:file',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TStringStream>(TConversa.DownloadVersao(
+            Req.Params.Field('repo').AsString,
+            Req.Params.Field('project').AsString,
+            Req.Params.Field('version').AsString,
+            Req.Params.Field('file').AsString
+          ));
         end
       );
 
