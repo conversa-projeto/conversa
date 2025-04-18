@@ -27,8 +27,7 @@ uses
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
   conversa.comum in 'src\conversa\conversa.comum.pas',
-  conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas',
-  FCM in 'src\conversa\FCM.pas';
+  conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
 begin
