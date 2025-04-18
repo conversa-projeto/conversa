@@ -107,11 +107,31 @@ begin
 end;
 
 class function TConversa.DispositivoIncluir(oDispositivo: TJSONObject): TJSONObject;
+var
+  oClone: TJSONObject;
 begin
   CamposObrigatorios(oDispositivo, ['nome', 'modelo', 'versao_so', 'plataforma']);
-  Result := InsertJSON('dispositivo', oDispositivo);
-  oDispositivo.AddPair('dispositivo_id', Result.GetValue<Integer>('id'));
-  InsertJSON('dispositivo_usuario', oDispositivo);
+
+  oClone := TJSONObject(oDispositivo.Clone);
+  try
+    if Assigned(oClone.FindValue('usuario_id')) then
+      oClone.RemovePair('usuario_id').Free;
+    Result := InsertJSON('dispositivo', oClone);
+  finally
+    FreeAndNil(oClone);
+  end;
+
+  if not Assigned(oDispositivo.FindValue('usuario_id')) then
+    Exit;
+
+  oClone := TJSONObject.Create;
+  try
+    oClone.AddPair('dispositivo_id', Result.GetValue<Integer>('id'));
+    oClone.AddPair('usuario_id', oDispositivo.GetValue<Integer>('usuario_id'));
+    InsertJSON('dispositivo_usuario', oClone);
+  finally
+    FreeAndNil(oClone);
+  end;
 end;
 
 class function TConversa.DispositivoAlterar(oDispositivo: TJSONObject): TJSONObject;
