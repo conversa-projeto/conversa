@@ -27,6 +27,8 @@ type
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
     class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivio: String): TStringStream; static;
     class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
+    class function DispositivoIncluir(oDispositivo: TJSONObject): TJSONObject; static;
+    class function DispositivoUsuarioIncluir(oDispositivoUsuario: TJSONObject): TJSONObject; static;
     class function UsuarioIncluir(oUsuario: TJSONObject): TJSONObject; static;
     class function UsuarioAlterar(oUsuario: TJSONObject): TJSONObject; static;
     class function UsuarioExcluir(Usuario: Integer): TJSONObject; static;
@@ -101,6 +103,20 @@ begin
 
   if not Assigned(Result) then
     raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Acesso negado!');
+end;
+
+class function TConversa.DispositivoIncluir(oDispositivo: TJSONObject): TJSONObject;
+begin
+  CamposObrigatorios(oDispositivo, ['nome', 'modelo', 'versao_so', 'plataforma']);
+  Result := InsertJSON('dispositivo', oDispositivo);
+  oDispositivo.AddPair('dispositivo_id', Result.GetValue<Integer>('id'));
+  InsertJSON('dispositivo_usuario', oDispositivo);
+end;
+
+class function TConversa.DispositivoUsuarioIncluir(oDispositivoUsuario: TJSONObject): TJSONObject;
+begin
+  CamposObrigatorios(oDispositivoUsuario, ['dispositivo_id', 'usuario_id']);
+  Result := InsertJSON('dispositivo_usuario', oDispositivoUsuario);
 end;
 
 class function TConversa.UsuarioIncluir(oUsuario: TJSONObject): TJSONObject;

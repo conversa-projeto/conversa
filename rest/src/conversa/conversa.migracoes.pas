@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..1] of String = (
+  Versoes: Array[0..2] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -107,7 +107,28 @@ const
     sl +'     ); ',
 
     sl +'ALTER TABLE public.anexo ADD nome varchar(255) NULL; '+
-    sl +'ALTER TABLE public.anexo ADD extensao varchar(10) NULL; '
+    sl +'ALTER TABLE public.anexo ADD extensao varchar(10) NULL; ',
+
+    sl +'create '+
+    sl +' table dispositivo '+
+    sl +'     ( id serial4 not null '+
+    sl +'     , nome varchar(50) not null '+
+    sl +'     , modelo varchar(50) not null '+
+    sl +'     , versao_so varchar(15) not null '+
+    sl +'     , plataforma varchar(15) not null '+
+    sl +'     , constraint dispositivo_pk primary key (id) '+
+    sl +'     ); '+
+    sl +
+    sl +'create '+
+    sl +' table dispositivo_usuario '+
+    sl +'     ( id serial4 not null '+
+    sl +'     , dispositivo_id int4 not null '+
+    sl +'     , usuario_id int4 not null '+
+    sl +'     , online_em timestamp '+
+    sl +'     , constraint dispositivo_usuario_pk primary key (id) '+
+    sl +'     , constraint dispositivo_usuario_dispositivo_fk foreign key (dispositivo_id) references dispositivo(id) '+
+    sl +'     , constraint dispositivo_usuario_usuario_fk foreign key (usuario_id) references usuario(id) '+
+    sl +'     ); '
   );
 
 procedure Migracoes(iVersao: Integer);

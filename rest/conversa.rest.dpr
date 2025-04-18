@@ -130,6 +130,22 @@ begin
       );
 
       THorse.Put(
+        '/dispositivo',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.DispositivoIncluir(Conteudo(Req)));
+        end
+      );
+
+      THorse.Put(
+        '/dispositivo/usuario',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.DispositivoUsuarioIncluir(Conteudo(Req)));
+        end
+      );
+
+      THorse.Put(
         '/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
