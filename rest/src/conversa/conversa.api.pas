@@ -683,7 +683,7 @@ begin
         sl +'                   , convert_from(conteudo, ''utf-8'') as conteudo '+
         sl +'                from mensagem_conteudo '+
         sl +'               where mensagem_id = '+ Mensagem.FieldByName('id').AsString +
-        sl +'                 and tipo in(2, 3) /* 2-Imagem, 3-Arquivo */ '+
+        sl +'                 and tipo in(2, 3, 4) /* 2-Imagem, 3-Arquivo, 4-Mensagem de Audio */ '+
         sl +'            ) as tbl '+
         sl +'        inner '+
         sl +'         join anexo a '+
