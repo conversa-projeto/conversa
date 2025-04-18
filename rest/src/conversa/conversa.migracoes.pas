@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..3] of String = (
+  Versoes: Array[0..4] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -130,7 +130,10 @@ const
     sl +'     , constraint dispositivo_usuario_usuario_fk foreign key (usuario_id) references usuario(id) '+
     sl +'     ); ',
 
-    sl +'alter table public.dispositivo_usuario add token_fcm varchar(255);'
+    sl +'alter table public.dispositivo_usuario add token_fcm varchar(255);',
+
+    sl +'alter table public.dispositivo_usuario drop token_fcm;'+
+    sl +'alter table public.dispositivo add token_fcm varchar(255);'
   );
 
 procedure Migracoes(iVersao: Integer);

@@ -137,6 +137,14 @@ begin
         end
       );
 
+      THorse.Patch(
+        '/dispositivo',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.DispositivoAlterar(Conteudo(Req)));
+        end
+      );
+
       THorse.Put(
         '/dispositivo/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)

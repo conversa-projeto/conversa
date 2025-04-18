@@ -28,6 +28,7 @@ type
     class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivio: String): TStringStream; static;
     class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
     class function DispositivoIncluir(oDispositivo: TJSONObject): TJSONObject; static;
+    class function DispositivoAlterar(oDispositivo: TJSONObject): TJSONObject; static;
     class function DispositivoUsuarioIncluir(oDispositivoUsuario: TJSONObject): TJSONObject; static;
     class function UsuarioIncluir(oUsuario: TJSONObject): TJSONObject; static;
     class function UsuarioAlterar(oUsuario: TJSONObject): TJSONObject; static;
@@ -111,6 +112,11 @@ begin
   Result := InsertJSON('dispositivo', oDispositivo);
   oDispositivo.AddPair('dispositivo_id', Result.GetValue<Integer>('id'));
   InsertJSON('dispositivo_usuario', oDispositivo);
+end;
+
+class function TConversa.DispositivoAlterar(oDispositivo: TJSONObject): TJSONObject;
+begin
+  Result := UpdateJSON('dispositivo', oDispositivo);
 end;
 
 class function TConversa.DispositivoUsuarioIncluir(oDispositivoUsuario: TJSONObject): TJSONObject;
