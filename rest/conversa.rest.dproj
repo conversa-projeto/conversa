@@ -4,7 +4,7 @@
         <ProjectVersion>19.5</ProjectVersion>
         <FrameworkType>None</FrameworkType>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <TargetedPlatforms>3</TargetedPlatforms>
         <AppType>Console</AppType>
@@ -163,6 +163,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\conversa\Postgres.pas"/>
         <DCCReference Include="src\conversa\conversa.comum.pas"/>
         <DCCReference Include="src\conversa\conversa.configuracoes.pas"/>
+        <DCCReference Include="src\conversa\FCMNotification.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

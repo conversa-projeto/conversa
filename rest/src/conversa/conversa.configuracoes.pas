@@ -13,6 +13,7 @@ type
     PGParams: TPGParams;
     LocalAnexos: String;
     JWTKEY: String;
+    FCM: String;
     class procedure LoadFromEnvironment; static;
   end;
 
@@ -36,6 +37,7 @@ begin
     Configuracao.PGParams.Database      := GetEnvironmentVariable('CONVERSA_DATABASE');
     Configuracao.PGParams.UserName      := GetEnvironmentVariable('CONVERSA_USERNAME');
     Configuracao.PGParams.Password      := GetEnvironmentVariable('CONVERSA_PASSWORD');
+    Configuracao.FCM                    := GetEnvironmentVariable('CONVERSA_FCM');
   except on E: Exception do
     begin
       E.Message := 'Erro ao carregar as configurações! ☠️ - '+ E.Message;

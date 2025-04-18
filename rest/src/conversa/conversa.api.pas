@@ -19,10 +19,14 @@ uses
   Horse,
   Postgres,
   conversa.comum,
-  conversa.configuracoes;
+  conversa.configuracoes,
+  FCMNotification;
 
 type
   TConversa = record
+  private
+    class procedure EnviarNotificacao(Usuario, Conversa: Integer; sConteudo: String); static;
+  public
     class function Status: TJSONObject; static;
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
     class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivio: String): TStringStream; static;
@@ -329,11 +333,49 @@ begin
   Result := Delete('conversa_usuario', ConversaUsuario);
 end;
 
+class procedure TConversa.EnviarNotificacao(Usuario, Conversa: Integer; sConteudo: String);
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+begin
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    Qry.Open(
+      sl +'select u.nome '+
+      sl +'     , d.token_fcm '+
+      sl +'  from conversa_usuario as cu '+
+      sl +' inner '+
+      sl +'  join dispositivo_usuario as du '+
+      sl +'    on du.usuario_id = cu.usuario_id '+
+      sl +' inner '+
+      sl +'  join dispositivo as d '+
+      sl +'    on d.id = du.dispositivo_id '+
+      sl +' inner '+
+      sl +'  join usuario as u '+
+      sl +'    on u.id = '+ Usuario.ToString +
+      sl +' where cu.conversa_id = '+ Conversa.ToString +
+      sl +'   and cu.usuario_id <> '+ Usuario.ToString +
+      sl +'   and coalesce(d.token_fcm, '''') <> '''' '
+    );
+    Qry.First;
+    while not Qry.Eof do
+    begin
+      FCM.EnviarNotificacao(Qry.FieldByName('token_fcm').AsString, Qry.FieldByName('nome').AsString, sConteudo);
+      Qry.Next;
+    end;
+  finally
+    FreeAndNil(Qry);
+  end;
+end;
+
 class function TConversa.MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject;
 var
   Item: TJSONValue;
   pJSON: TJSONPair;
   oConteudo: TJSONObject;
+  sNotificacao: String;
 begin
   CamposObrigatorios(oMensagem, ['conversa_id', 'conteudos']);
   oMensagem.AddPair('usuario_id', TJSONNumber.Create(Usuario));
@@ -369,9 +411,22 @@ begin
       oConteudo.AddPair('tipo', Item.GetValue<Integer>('tipo'));
       oConteudo.AddPair('conteudo', Item.GetValue<String>('conteudo'));
       InsertJSON('mensagem_conteudo', oConteudo);
+
+      case Item.GetValue<Integer>('tipo') of
+        1: sNotificacao := sNotificacao +' '+ Item.GetValue<String>('conteudo');
+        2: sNotificacao := sNotificacao +' imagem';
+        3: sNotificacao := sNotificacao +' arquivo';
+      end
     end;
+
+    sNotificacao := sNotificacao.Trim.Replace(' ', ' | ');
   finally
     FreeAndNil(pJSON);
+  end;
+
+  try
+    EnviarNotificacao(Usuario, oMensagem.GetValue<Integer>('conversa_id'), sNotificacao);
+  except
   end;
 end;
 
