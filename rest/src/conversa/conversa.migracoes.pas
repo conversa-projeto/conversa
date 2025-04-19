@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..4] of String = (
+  Versoes: Array[0..5] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -106,8 +106,8 @@ const
     sl +'     , constraint anexo_pk primary key (id) '+
     sl +'     ); ',
 
-    sl +'ALTER TABLE public.anexo ADD nome varchar(255) NULL; '+
-    sl +'ALTER TABLE public.anexo ADD extensao varchar(10) NULL; ',
+    sl +'alter table public.anexo add nome varchar(255) null; '+
+    sl +'alter table public.anexo add extensao varchar(10) null; ',
 
     sl +'create '+
     sl +' table dispositivo '+
@@ -130,10 +130,12 @@ const
     sl +'     , constraint dispositivo_usuario_usuario_fk foreign key (usuario_id) references usuario(id) '+
     sl +'     ); ',
 
-    sl +'alter table public.dispositivo_usuario add token_fcm varchar(255);',
+    sl +'alter table public.dispositivo_usuario add token_fcm varchar(255); ',
 
-    sl +'alter table public.dispositivo_usuario drop token_fcm;'+
-    sl +'alter table public.dispositivo add token_fcm varchar(255);'
+    sl +'alter table public.dispositivo_usuario drop token_fcm; '+
+    sl +'alter table public.dispositivo add token_fcm varchar(255); ',
+
+    sl +'alter table public.parametros alter column valor type varchar(5000) using valor::varchar(5000); '
   );
 
 procedure Migracoes(iVersao: Integer);

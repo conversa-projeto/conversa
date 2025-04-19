@@ -19,9 +19,14 @@ uses
   JOSE.Types.JSON;
 
 type
+  TFCMConfig = record
+    ProjectID: String;
+    ClientEmail: String;
+    PrivateKey: String;
+  end;
+
   TFCMNotification = class
   private
-    FServiceAccountKey: TJSONObject;
     FProjectID: string;
     FPrivateKey: string;
     FClientEmail: string;
@@ -34,7 +39,7 @@ type
     function ObterTokenAcesso: string;
     function IsTokenValido: Boolean;
   public
-    constructor Create(const sFileJSON: string);
+    constructor Create(const Config: TFCMConfig);
     destructor Destroy; override;
     procedure EnviarNotificacao(const ATokenDispositivo, ATitulo, AMensagem: string; ADadosExtras: TJSONObject = nil);
   end;
@@ -56,16 +61,12 @@ const
 
 { TFCMNotification }
 
-constructor TFCMNotification.Create(const sFileJSON: string);
+constructor TFCMNotification.Create(const Config: TFCMConfig);
 begin
-  FServiceAccountKey := TJSONObject.ParseJSONValue(TFile.ReadAllText(sFileJSON)) as TJSONObject;
-  if not Assigned(FServiceAccountKey) then
-    raise Exception.Create('JSON da Service Account inválido');
-    
-  FProjectID := FServiceAccountKey.GetValue('project_id').Value;
-  FPrivateKey := FServiceAccountKey.GetValue('private_key').Value.Replace('\n', sLineBreak);
-  FClientEmail := FServiceAccountKey.GetValue('client_email').Value;
-  
+  FProjectID   := Config.ProjectID;
+  FPrivateKey  := Config.PrivateKey.Replace('\n', sLineBreak);
+  FClientEmail := Config.ClientEmail;
+
   ConfigurarHTTP;
 end;
 
@@ -73,7 +74,6 @@ destructor TFCMNotification.Destroy;
 begin
   FreeAndNil(FHttp);
   FreeAndNil(FSSLHandler);
-  FreeAndNil(FServiceAccountKey);
   inherited;
 end;
 

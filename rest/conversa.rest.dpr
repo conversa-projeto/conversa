@@ -49,22 +49,24 @@ begin
   try
     TConfiguracao.LoadFromEnvironment;
 
-    THorse
-      .Use(Jhonson)
-      .Use(OctetStream)
-      .Use(HandleException)
-      .Use(CORS)
-      .Use(
-        HorseJWT(
-          Configuracao.JWTKEY,
-          THorseJWTConfig.New
-            .SessionClass(TJWTClaims)
-            .SkipRoutes(['favicon.ico', 'status', 'repos/+.+/releases/latest', '.+/releases/download/+.*', 'login'])
-        )
-      );
-
     TPool.Start(Configuracao.PGParams);
     try
+      TConfiguracao.LoadFromDataBase;
+
+      THorse
+        .Use(Jhonson)
+        .Use(OctetStream)
+        .Use(HandleException)
+        .Use(CORS)
+        .Use(
+          HorseJWT(
+            Configuracao.JWTKEY,
+            THorseJWTConfig.New
+              .SessionClass(TJWTClaims)
+              .SkipRoutes(['favicon.ico', 'status', 'repos/+.+/releases/latest', '.+/releases/download/+.*', 'login'])
+          )
+        );
+
       FCM := TFCMNotification.Create(Configuracao.FCM);
       try
         try
