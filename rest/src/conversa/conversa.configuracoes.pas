@@ -15,6 +15,7 @@ type
     Porta: Word;
     PGParams: TPGParams;
     LocalAnexos: String;
+    LocalVersoes: String;
     JWTKEY: String;
     FCM: TFCMConfig;
     class procedure LoadFromEnvironment; static;
@@ -63,6 +64,7 @@ begin
       Qry.Connection := Pool.Connection;
       Qry.Open(
         sl +'select max(local_anexos) as local_anexos '+
+        sl +'     , max(local_versoes) as local_versoes '+
         sl +'     , max(jwt_token) as jwt_token '+
         sl +'     , max(fcm_project_id) as fcm_project_id '+
         sl +'     , max(fcm_client_email) as fcm_client_email '+
@@ -72,6 +74,10 @@ begin
         sl +'              when ''local_anexos'' then valor '+
         sl +'              else null '+
         sl +'               end as local_anexos '+
+        sl +'            , case nome '+
+        sl +'              when ''local_versoes'' then valor '+
+        sl +'              else null '+
+        sl +'               end as local_versoes '+
         sl +'            , case nome '+
         sl +'              when ''jwt_token'' then valor '+
         sl +'              else null '+
@@ -89,7 +95,7 @@ begin
         sl +'              else null '+
         sl +'               end as fcm_private_key '+
         sl +'         from parametros '+
-        sl +'        where nome in (''local_anexos'', ''jwt_token'', ''fcm_project_id'', ''fcm_client_email'', ''fcm_private_key'') '+
+        sl +'        where nome in (''local_anexos'', ''local_versoes'', ''jwt_token'', ''fcm_project_id'', ''fcm_client_email'', ''fcm_private_key'') '+
         sl +'     ) as t '
       );
 
@@ -98,6 +104,7 @@ begin
           raise Exception.Create('"'+ Qry.Fields[I].FieldName +'" não configurado nos parâmetros!');
 
       Configuracao.LocalAnexos     := Qry.FieldByName('local_anexos').AsString;
+      Configuracao.LocalVersoes    := Qry.FieldByName('local_versoes').AsString;
       Configuracao.JWTKEY          := Qry.FieldByName('jwt_token').AsString;
       Configuracao.FCM             := Default(TFCMConfig);
       Configuracao.FCM.ProjectID   := Qry.FieldByName('fcm_project_id').AsString;

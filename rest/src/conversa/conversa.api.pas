@@ -29,7 +29,7 @@ type
   public
     class function Status: TJSONObject; static;
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
-    class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivio: String): TStringStream; static;
+    class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivo: String): TStringStream; static;
     class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
     class function DispositivoIncluir(oDispositivo: TJSONObject): TJSONObject; static;
     class function DispositivoAlterar(oDispositivo: TJSONObject): TJSONObject; static;
@@ -69,24 +69,51 @@ begin
 end;
 
 class function TConversa.ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject;
+var
+  oJSON: TJSONObject;
 begin
-  Result := TJSONObject.Create
-    .AddPair('name', 'v0.0.2')
-    .AddPair('created_at', DateToISO8601(Now))
-    .AddPair('body', '### Melhorias\r\n- Adiciona Skia para visualização de outros formatos de imagem\r\n- Ajusta inicialização para a do [Lançador](https://github.com/e-delphi/lancador)\r\n- Altera diretório inicial das configurações e cache do aplicativo')
-    .AddPair('assets',
-      TJSONArray.Create
-        .Add(TJSONObject.Create
-          .AddPair('name', 'conversa.zip')
-          .AddPair('browser_download_url', '/'+ sRepositorio +'/'+ sProjeto +'/releases/download/v0.0.2/conversa.zip')
-        )
-    );
+  oJSON := OpenKey(
+    sl +'select nome '+
+    sl +'     , criada '+
+    sl +'     , descricao '+
+    sl +'     , arquivo '+
+    sl +'     , url '+
+    sl +'  from versao '+
+    sl +' where repositorio = '+ sRepositorio.QuotedString +
+    sl +'   and projeto = '+ sProjeto.QuotedString +
+    sl +' order '+
+    sl +'    by id desc '+
+    sl +' limit 1 '
+  );
+  try
+    Result := TJSONObject.Create
+      .AddPair('name', oJSON.GetValue<String>('nome'))
+      .AddPair('created_at', oJSON.GetValue<String>('criada'))
+      .AddPair('body', oJSON.GetValue<String>('descricao'))
+      .AddPair('assets',
+        TJSONArray.Create
+          .Add(TJSONObject.Create
+            .AddPair('name', oJSON.GetValue<String>('arquivo'))
+            .AddPair('browser_download_url', oJSON.GetValue<String>('url'))
+          )
+      );
+  finally
+    FreeAndNil(oJSON);
+  end;
 end;
 
-class function TConversa.DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivio: String): TStringStream;
+class function TConversa.DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivo: String): TStringStream;
 begin
   Result := TStringStream.Create;
-  Result.LoadFromFile(IncludeTrailingPathDelimiter(Configuracao.LocalAnexos) +'???');
+  Result.LoadFromFile(
+    IncludeTrailingPathDelimiter(Configuracao.LocalVersoes) +
+    sRepositorio + PathDelim +
+    sProjeto + PathDelim +
+    'releases'+ PathDelim +
+    'download'+ PathDelim +
+    sVersao + PathDelim +
+    sArquivo
+  );
 end;
 
 class function TConversa.Login(oAutenticacao: TJSONObject): TJSONObject;

@@ -9,7 +9,7 @@ uses
   Postgres,
   conversa.comum;
 
-procedure Migracoes(iVersao: Integer);
+procedure Migracoes;
 
 implementation
 
@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..5] of String = (
+  Versoes: Array[0..6] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -39,7 +39,7 @@ const
     sl +'     , constraint conversa_pk primary key (id) '+
     sl +'     ); '+
     sl +
-    sl +'comment on column public.conversa.tipo is ''1-Chat; 2-Grupo''; '+
+    sl +'comment on column conversa.tipo is ''1-Chat; 2-Grupo''; '+
     sl +
     sl +'create '+
     sl +' table usuario_contato  '+
@@ -106,8 +106,8 @@ const
     sl +'     , constraint anexo_pk primary key (id) '+
     sl +'     ); ',
 
-    sl +'alter table public.anexo add nome varchar(255) null; '+
-    sl +'alter table public.anexo add extensao varchar(10) null; ',
+    sl +'alter table anexo add nome varchar(255) null; '+
+    sl +'alter table anexo add extensao varchar(10) null; ',
 
     sl +'create '+
     sl +' table dispositivo '+
@@ -130,15 +130,27 @@ const
     sl +'     , constraint dispositivo_usuario_usuario_fk foreign key (usuario_id) references usuario(id) '+
     sl +'     ); ',
 
-    sl +'alter table public.dispositivo_usuario add token_fcm varchar(255); ',
+    sl +'alter table dispositivo_usuario add token_fcm varchar(255); ',
 
-    sl +'alter table public.dispositivo_usuario drop token_fcm; '+
-    sl +'alter table public.dispositivo add token_fcm varchar(255); ',
+    sl +'alter table dispositivo_usuario drop token_fcm; '+
+    sl +'alter table dispositivo add token_fcm varchar(255); ',
 
-    sl +'alter table public.parametros alter column valor type varchar(5000) using valor::varchar(5000); '
+    sl +'alter table parametros alter column valor type varchar(5000) using valor::varchar(5000); ',
+
+    sl +'create '+
+    sl +' table versao '+
+    sl +'     ( id serial4 not null '+
+    sl +'     , repositorio varchar(50) null '+
+    sl +'     , projeto varchar(50) null '+
+    sl +'     , nome varchar(50) null '+
+    sl +'     , criada timestamp null '+
+    sl +'     , descricao varchar(1000) null '+
+    sl +'     , arquivo varchar(50) null '+
+    sl +'     , url varchar(500) null '+
+    sl +'     ); '
   );
 
-procedure Migracoes(iVersao: Integer);
+procedure Migracoes;
 var
   Pool: IConnection;
   Qry: TFDQuery;
