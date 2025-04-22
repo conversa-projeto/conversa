@@ -1,0 +1,9 @@
+*.exe
+*.local
+*.identcache
+*.res
+*.dcu
+anexos/
+__history/
+__recovery/
+*.json
