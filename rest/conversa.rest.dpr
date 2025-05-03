@@ -23,6 +23,7 @@ uses
   JOSE.Core.JWT,
   JOSE.Core.Builder,
   JOSE.Types.Bytes,
+  Horse.SocketIO,
   conversa.api in 'src\conversa\conversa.api.pas',
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
@@ -72,9 +73,18 @@ begin
             Configuracao.JWTKEY,
             THorseJWTConfig.New
               .SessionClass(TJWTClaims)
-              .SkipRoutes(['favicon.ico', 'status', 'repos/+.+/releases/latest', '.+/releases/download/+.*', 'login'])
+              .SkipRoutes([
+                'favicon.ico',
+                'status',
+                'repos/+.+/releases/latest',
+                '.+/releases/download/+.*',
+                'login',
+                'socket_clients',
+                'socket',
+                'socket/+.*'
+              ])
           )
-        );
+        ).Use(SocketIO(Configuracao.Porta + 1000));
 
       THorse.Get(
         '/status',
