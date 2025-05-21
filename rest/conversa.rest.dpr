@@ -321,11 +321,10 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('conversa').Required(True);
-          Req.Query.Field('usuario').Required(True);
           Res.Send<TJSONArray>(
             TConversa.Mensagens(
               Req.Query.Field('conversa').AsInteger,
-              Req.Query.Field('usuario').AsInteger,
+              Req.Session<TJWTClaims>.Subject.ToInteger,
               Req.Query.Field('mensagemreferencia').AsInteger,
               IfThen(Req.Query.Field('mensagensprevias').AsInteger > 0, Req.Query.Field('mensagensprevias').AsInteger, Req.Query.Field('offsetanterior').AsInteger),
               IfThen(Req.Query.Field('mensagensseguintes').AsInteger > 0, Req.Query.Field('mensagensseguintes').AsInteger, Req.Query.Field('offsetposterior').AsInteger)
@@ -339,8 +338,13 @@ begin
         begin
           Req.Query.Field('conversa').Required(True);
           Req.Query.Field('mensagem').Required(True);
-          Req.Query.Field('usuario').Required(True);
-          Res.Send<TJSONObject>(TConversa.MensagemVisualizada(Req.Query.Field('conversa').AsInteger, Req.Query.Field('mensagem').AsInteger, Req.Query.Field('usuario').AsInteger));
+          Res.Send<TJSONObject>(
+            TConversa.MensagemVisualizada(
+              Req.Query.Field('conversa').AsInteger,
+              Req.Query.Field('mensagem').AsInteger,
+              Req.Session<TJWTClaims>.Subject.ToInteger
+            )
+          );
         end
       );
 
@@ -350,8 +354,13 @@ begin
         begin
           Req.Query.Field('conversa').Required(True);
           Req.Query.Field('mensagem').Required(True);
-          Req.Query.Field('usuario').Required(True);
-          Res.Send<TJSONArray>(TConversa.MensagemStatus(Req.Query.Field('conversa').AsInteger, Req.Query.Field('usuario').AsInteger, Req.Query.Field('mensagem').AsString));
+          Res.Send<TJSONArray>(
+            TConversa.MensagemStatus(
+              Req.Query.Field('conversa').AsInteger,
+              Req.Session<TJWTClaims>.Subject.ToInteger,
+              Req.Query.Field('mensagem').AsString
+            )
+          );
         end
       );
 

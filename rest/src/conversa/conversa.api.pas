@@ -270,7 +270,7 @@ begin
     sl +'      , coalesce(tcm.mensagem_id, 0) as mensagem_id '+
     sl +'      , tcm.ultima_mensagem '+
     sl +'      , convert_from(tcm.ultima_mensagem_texto, ''utf-8'') as ultima_mensagem_texto '+
-    sl +'      , coalesce(mensagens_sem_visualizar, 0) as mensagens_sem_visualizar '+
+    sl +'      , cast(coalesce(mensagens_sem_visualizar, 0) as int) as mensagens_sem_visualizar '+
     sl +'   from temp_conversa tc '+
     sl +'   left '+
     sl +'   join '+
@@ -895,7 +895,8 @@ begin
   try
     Connection := TPool.Instance.Connection;
     Open(
-      sl +' select mensagem_id '+
+      sl +' select conversa_id '+
+      sl +'      , mensagem_id '+
       sl +'      , sum(case when recebida is null then 0 else 1 end) as recebida '+
       sl +'      , sum(case when visualizada is null then 0 else 1 end) as visualizada '+
       sl +'      , sum(case when reproduzida is null then 0 else 1 end) as reproduzida '+
@@ -904,7 +905,8 @@ begin
       sl +'  where ms.conversa_id = '+ Conversa.ToString +
       sl +'    and ms.mensagem_id in('+ Mensagem +') '+
       sl +'  group '+
-      sl +'     by mensagem_id '+
+      sl +'     by conversa_id '+
+      sl +'      , mensagem_id '+
       sl +'  order '+
       sl +'     by mensagem_id '
     );
@@ -914,6 +916,7 @@ begin
     try
       Result.Add(
         TJSONObject.Create
+          .AddPair('conversa_id', FieldByName('conversa_id').AsInteger)
           .AddPair('mensagem_id', FieldByName('mensagem_id').AsInteger)
           .AddPair('recebida', FieldByName('recebida').AsInteger = FieldByName('total').AsInteger)
           .AddPair('visualizada', FieldByName('visualizada').AsInteger = FieldByName('total').AsInteger)
