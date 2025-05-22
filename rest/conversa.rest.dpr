@@ -29,7 +29,8 @@ uses
   Postgres in 'src\conversa\Postgres.pas',
   conversa.comum in 'src\conversa\conversa.comum.pas',
   conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas',
-  FCMNotification in 'src\conversa\FCMNotification.pas';
+  FCMNotification in 'src\conversa\FCMNotification.pas',
+  Thread.Queue in 'src\conversa\Thread.Queue.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
 begin
@@ -84,7 +85,7 @@ begin
                 'socket/+.*'
               ])
           )
-        ).Use(SocketIO(Configuracao.Porta + 1000));
+        ).Use(SocketIO(55888));
 
       THorse.Get(
         '/status',
@@ -146,7 +147,7 @@ begin
         '/dispositivo',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.DispositivoIncluir(Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.DispositivoIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
@@ -162,7 +163,8 @@ begin
         '/dispositivo/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.DispositivoUsuarioIncluir(Conteudo(Req)));
+          Req.Query.Field('dispositivo_id').Required(True);
+          Res.Send<TJSONObject>(TConversa.DispositivoUsuarioIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('dispositivo_id').AsInteger));
         end
       );
 
@@ -195,7 +197,8 @@ begin
         '/usuario/contato',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.UsuarioContatoIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+          Req.Query.Field('relacionamento_id').Required(True);
+          Res.Send<TJSONObject>(TConversa.UsuarioContatoIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('relacionamento_id').AsInteger));
         end
       );
 
@@ -287,7 +290,7 @@ begin
         '/anexo/existe',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('identificador').Required(True);
+          Req.Query.Field('identificador').Required(True);
           Res.Send<TJSONObject>(TConversa.AnexoExiste(Req.Query.Field('identificador').AsString));
         end
       );
@@ -296,7 +299,7 @@ begin
         '/anexo',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Headers.Field('identificador').Required(True);
+          Req.Query.Field('identificador').Required(True);
           Res.Send<TStringStream>(TConversa.Anexo(Req.Query.Field('identificador').AsString));
         end
       );
@@ -308,8 +311,8 @@ begin
           Res.Send<TJSONObject>(
             TConversa.AnexoIncluir(
               Req.Query.Field('tipo').AsInteger,
-              Req.Headers.Field('nome').AsString,
-              Req.Headers.Field('extensao').AsString,
+              Req.Query.Field('nome').AsString,
+              Req.Query.Field('extensao').AsString,
               Req.Body<TStringStream>
             )
           );
@@ -326,8 +329,8 @@ begin
               Req.Query.Field('conversa').AsInteger,
               Req.Session<TJWTClaims>.Subject.ToInteger,
               Req.Query.Field('mensagemreferencia').AsInteger,
-              IfThen(Req.Query.Field('mensagensprevias').AsInteger > 0, Req.Query.Field('mensagensprevias').AsInteger, Req.Query.Field('offsetanterior').AsInteger),
-              IfThen(Req.Query.Field('mensagensseguintes').AsInteger > 0, Req.Query.Field('mensagensseguintes').AsInteger, Req.Query.Field('offsetposterior').AsInteger)
+              Req.Query.Field('mensagensprevias').AsInteger,
+              Req.Query.Field('mensagensseguintes').AsInteger
           ));
         end
       );
@@ -401,17 +404,29 @@ begin
         end
       );
 
-      FCM := TFCMNotification.Create(Configuracao.FCM);
+      TThreadQueue.Create;
       try
-        THorse.Listen(
-          Configuracao.Porta,
-          procedure
+        TThreadQueue.OnError(
+          procedure(sMessage: String)
           begin
-            Writeln('Servidor iniciado na porta: '+ Configuracao.Porta.ToString +' 🚀');
+            Writeln(sMessage);
           end
         );
+
+        FCM := TFCMNotification.Create(Configuracao.FCM);
+        try
+          THorse.Listen(
+            Configuracao.Porta,
+            procedure
+            begin
+              Writeln('Servidor iniciado na porta: '+ Configuracao.Porta.ToString +' 🚀');
+            end
+          );
+        finally
+          FreeAndNil(FCM);
+        end;
       finally
-        FreeAndNil(FCM);
+        TThreadQueue.Destroy;
       end;
     finally
       TPool.Stop;

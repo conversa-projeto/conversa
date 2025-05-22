@@ -21,7 +21,8 @@ uses
   conversa.comum,
   conversa.configuracoes,
   FCMNotification,
-  Horse.SocketIO.ServerSocket;
+  Horse.SocketIO.ServerSocket,
+  Thread.Queue;
 
 type
   TConversa = record
@@ -32,13 +33,13 @@ type
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
     class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivo: String): TStringStream; static;
     class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
-    class function DispositivoIncluir(oDispositivo: TJSONObject): TJSONObject; static;
+    class function DispositivoIncluir(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject; static;
     class function DispositivoAlterar(oDispositivo: TJSONObject): TJSONObject; static;
-    class function DispositivoUsuarioIncluir(oDispositivoUsuario: TJSONObject): TJSONObject; static;
+    class function DispositivoUsuarioIncluir(Usuario, Dispositivo: Integer): TJSONObject; static;
     class function UsuarioIncluir(oUsuario: TJSONObject): TJSONObject; static;
     class function UsuarioAlterar(oUsuario: TJSONObject): TJSONObject; static;
     class function UsuarioExcluir(Usuario: Integer): TJSONObject; static;
-    class function UsuarioContatoIncluir(Usuario: Integer; oUsuarioContato: TJSONObject): TJSONObject; static;
+    class function UsuarioContatoIncluir(Usuario, Relacionamento: Integer): TJSONObject; static;
     class function UsuarioContatoExcluir(Usuario, UsuarioContato: Integer): TJSONObject; static;
     class function UsuarioContatos(Usuario: Integer): TJSONArray; static;
     class function ConversaIncluir(Usuario: Integer; oConversa: TJSONObject): TJSONObject; static;
@@ -138,7 +139,7 @@ begin
     raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Acesso negado!');
 end;
 
-class function TConversa.DispositivoIncluir(oDispositivo: TJSONObject): TJSONObject;
+class function TConversa.DispositivoIncluir(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject;
 var
   oClone: TJSONObject;
 begin
@@ -146,20 +147,15 @@ begin
 
   oClone := TJSONObject(oDispositivo.Clone);
   try
-    if Assigned(oClone.FindValue('usuario_id')) then
-      oClone.RemovePair('usuario_id').Free;
     Result := InsertJSON('dispositivo', oClone);
   finally
     FreeAndNil(oClone);
   end;
 
-  if not Assigned(oDispositivo.FindValue('usuario_id')) then
-    Exit;
-
   oClone := TJSONObject.Create;
   try
     oClone.AddPair('dispositivo_id', Result.GetValue<Integer>('id'));
-    oClone.AddPair('usuario_id', oDispositivo.GetValue<Integer>('usuario_id'));
+    oClone.AddPair('usuario_id', Usuario);
     InsertJSON('dispositivo_usuario', oClone);
   finally
     FreeAndNil(oClone);
@@ -171,15 +167,23 @@ begin
   Result := UpdateJSON('dispositivo', oDispositivo);
 end;
 
-class function TConversa.DispositivoUsuarioIncluir(oDispositivoUsuario: TJSONObject): TJSONObject;
+class function TConversa.DispositivoUsuarioIncluir(Usuario, Dispositivo: Integer): TJSONObject;
+var
+  oDispositivoUsuario: TJSONObject;
 begin
-  CamposObrigatorios(oDispositivoUsuario, ['dispositivo_id', 'usuario_id']);
-  Result := InsertJSON('dispositivo_usuario', oDispositivoUsuario);
+  oDispositivoUsuario := TJSONObject.Create;
+  try
+    oDispositivoUsuario.AddPair('usuario_id', Usuario);
+    oDispositivoUsuario.AddPair('dispositivo_id', Dispositivo);
+    Result := InsertJSON('dispositivo_usuario', oDispositivoUsuario);
+  finally
+    FreeAndNil(oDispositivoUsuario);
+  end;
 end;
 
 class function TConversa.UsuarioIncluir(oUsuario: TJSONObject): TJSONObject;
 begin
-  CamposObrigatorios(oUsuario, ['nome', 'email', 'senha']);
+  CamposObrigatorios(oUsuario, ['nome', 'login', 'email', 'senha']);
   Result := InsertJSON('usuario', oUsuario);
 end;
 
@@ -193,13 +197,18 @@ begin
   Result := Delete('usuario', Usuario);
 end;
 
-class function TConversa.UsuarioContatoIncluir(Usuario: Integer; oUsuarioContato: TJSONObject): TJSONObject;
+class function TConversa.UsuarioContatoIncluir(Usuario, Relacionamento: Integer): TJSONObject;
+var
+  oUsuarioContato: TJSONObject;
 begin
-  if (oUsuarioContato.Count <> 1) or not Assigned(oUsuarioContato.FindValue('relacionamento_id')) then
-    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Só é permitido inserir o contato relacionado!');
-
-  oUsuarioContato.AddPair('usuario_id', TJSONNumber.Create(Usuario));
-  Result := InsertJSON('usuario_contato', oUsuarioContato);
+  oUsuarioContato := TJSONObject.Create;
+  try
+    oUsuarioContato.AddPair('usuario_id', Usuario);
+    oUsuarioContato.AddPair('relacionamento_id', Relacionamento);
+    Result := InsertJSON('usuario_contato', oUsuarioContato);
+  finally
+    FreeAndNil(oUsuarioContato);
+  end;
 end;
 
 class function TConversa.UsuarioContatoExcluir(Usuario, UsuarioContato: Integer): TJSONObject;
@@ -216,7 +225,6 @@ begin
     sl +'     , u.login '+
     sl +'     , u.email '+
     sl +'     , u.telefone '+
-    sl +'     , u.senha '+
     sl +'  from usuario as u '+
     sl +' where u.id <> '+ Usuario.ToString +
     sl +' order '+
@@ -361,6 +369,19 @@ begin
   Result := Delete('conversa_usuario', ConversaUsuario);
 end;
 
+procedure EnviaNotificacoes(const AUsuarioID: Integer; const ATokenDispositivo, ATitulo, AMensagem: String; ADadosExtras: TJSONObject = nil);
+begin
+  _ServerSocket.Send(AUsuarioID.ToString, 'mensagem', ATitulo +' - '+ AMensagem);
+
+  if not ATokenDispositivo.IsEmpty then
+    TThreadQueue.Add(
+      procedure
+      begin
+        FCM.EnviarNotificacao(ATokenDispositivo, ATitulo, AMensagem, ADadosExtras);
+      end
+    );
+end;
+
 class procedure TConversa.EnviarNotificacao(Usuario, Conversa: Integer; sConteudo: String);
 var
   Pool: IConnection;
@@ -390,17 +411,7 @@ begin
     Qry.First;
     while not Qry.Eof do
     begin
-      if not Qry.FieldByName('token_fcm').AsString.IsEmpty then
-      try
-        FCM.EnviarNotificacao(Qry.FieldByName('token_fcm').AsString, Qry.FieldByName('nome').AsString, sConteudo);
-      except
-      end;
-
-      try
-        _ServerSocket.Send(Qry.FieldByName('usuario_id').AsString, 'mensagem', Qry.FieldByName('nome').AsString +' - '+ sConteudo);
-      except
-      end;
-
+      EnviaNotificacoes(Qry.FieldByName('usuario_id').AsInteger, Qry.FieldByName('token_fcm').AsString, Qry.FieldByName('nome').AsString, sConteudo);
       Qry.Next;
     end;
   finally
@@ -900,10 +911,10 @@ begin
       sl +'      , sum(case when recebida is null then 0 else 1 end) as recebida '+
       sl +'      , sum(case when visualizada is null then 0 else 1 end) as visualizada '+
       sl +'      , sum(case when reproduzida is null then 0 else 1 end) as reproduzida '+
-      sl +'      , count(1) total '+
+      sl +'      , count(*) total '+
       sl +'   from mensagem_status ms '+
       sl +'  where ms.conversa_id = '+ Conversa.ToString +
-      sl +'    and ms.mensagem_id in('+ Mensagem +') '+
+      sl +'    and ms.mensagem_id in ('+ Mensagem +') '+
       sl +'  group '+
       sl +'     by conversa_id '+
       sl +'      , mensagem_id '+

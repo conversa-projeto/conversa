@@ -16,7 +16,8 @@ uses
   JOSE.Core.JWK,
   JOSE.Core.JWS,
   JOSE.Core.JWA,
-  JOSE.Types.JSON;
+  JOSE.Types.JSON,
+  Thread.Queue;
 
 type
   TFCMConfig = record
@@ -58,6 +59,9 @@ uses
 const
   GOOGLE_AUTH_URL = 'https://oauth2.googleapis.com/token';
   FCM_API_URL = 'https://fcm.googleapis.com/v1/projects/%s/messages:send';
+
+  // Em caso de erro: https://firebase.google.com/docs/reference/fcm/rest/v1/ErrorCode?hl=pt-br
+  // As vezes é necessário gerar outra chave de acesso
 
 { TFCMNotification }
 
@@ -132,7 +136,7 @@ begin
   try
     LParams.Add('grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer');
     LParams.Add('assertion=' + GerarJWT);
-    
+
     FHttp.Request.ContentType := 'application/x-www-form-urlencoded';
     LResponse := FHttp.Post(GOOGLE_AUTH_URL, LParams);
     
@@ -165,9 +169,9 @@ var
 begin
   if not IsTokenValido then
     ObterTokenAcesso;
-    
+
   LURL := Format(FCM_API_URL, [FProjectID]);
-  
+
   LRequest := TJSONObject.Create;
   LMessage := TJSONObject.Create;
   LNotification := TJSONObject.Create;

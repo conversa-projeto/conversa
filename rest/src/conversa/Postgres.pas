@@ -1,4 +1,8 @@
 ﻿// Eduardo - 02/03/2024
+// Baixe "Version 12.22" (Win x86-64) de https://www.enterprisedb.com/download-postgresql-binaries
+// Copie as dll's da pasta: postgresql-12.22-1-windows-x64-binaries.zip\pgsql\bin
+// Baixe também o OpenSSL de: https://github.com/IndySockets/OpenSSL-Binaries/blob/master/openssl-1.0.2u-x64_86-win64.zip
+// Copie as dll's para a pasta da aplicação
 unit Postgres;
 
 interface
