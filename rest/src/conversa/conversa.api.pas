@@ -235,6 +235,8 @@ end;
 class function TConversa.ConversaIncluir(Usuario: Integer; oConversa: TJSONObject): TJSONObject;
 begin
   {TODO -oEduardo -cSegurança : não pode incluir conversa para outro usuário, adicionar validação}
+  {TODO -oDaniel -cSegurança : O usuário que está criando, será adicionado como proprietário do chat}
+  {TODO -oDaniel -cSegurança : Se for chat comum, deve informar o destinatário}
   Result := InsertJSON('conversa', oConversa);
 end;
 
@@ -359,6 +361,8 @@ end;
 class function TConversa.ConversaUsuarioIncluir(Usuario: Integer; oConversaUsuario: TJSONObject): TJSONObject;
 begin
   {TODO -oEduardo -cSegurança : não pode incluir usuario em uma conversa de outro usuário, adicionar validação}
+  {TODO -oDaniel -cSegurança : Não pode incluir usuário se não tiver permissão}
+  {TODO -oDaniel -cSegurança : Não pode incluir usuário em um chat comum (1:1)}
   CamposObrigatorios(oConversaUsuario, ['usuario_id', 'conversa_id']);
   Result := InsertJSON('conversa_usuario', oConversaUsuario);
 end;
@@ -426,6 +430,7 @@ var
   oConteudo: TJSONObject;
   sNotificacao: String;
 begin
+  {TODO -oDaniel -cSegurança : Validar usuário e conversa}
   CamposObrigatorios(oMensagem, ['conversa_id', 'conteudos']);
   oMensagem.AddPair('usuario_id', TJSONNumber.Create(Usuario));
 
