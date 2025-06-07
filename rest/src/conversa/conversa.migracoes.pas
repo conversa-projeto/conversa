@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..6] of String = (
+  Versoes: Array[0..7] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -147,7 +147,11 @@ const
     sl +'     , descricao varchar(1000) null '+
     sl +'     , arquivo varchar(50) null '+
     sl +'     , url varchar(500) null '+
-    sl +'     ); '
+    sl +'     ); ',
+
+    sl +'alter table dispositivo add usuario_id int4 not null; '+
+    sl +'alter table dispositivo add constraint dispositivo_usuario_fk foreign key(usuario_id) references usuario(id);'+
+    sl +'alter table dispositivo add ativo bool default true not null;'
   );
 
 procedure Migracoes;

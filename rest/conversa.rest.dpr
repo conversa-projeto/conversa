@@ -143,19 +143,11 @@ begin
         end
       );
 
-      THorse.Put(
-        '/dispositivo',
-        procedure(Req: THorseRequest; Res: THorseResponse)
-        begin
-          Res.Send<TJSONObject>(TConversa.DispositivoIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
-        end
-      );
-
       THorse.Patch(
         '/dispositivo',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.DispositivoAlterar(Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.DispositivoAlterar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 

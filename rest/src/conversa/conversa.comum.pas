@@ -185,7 +185,7 @@ begin
     if Par.JsonValue is TJSONString then
       sValor := Qt(Par.JsonValue.Value);
 
-    sCampos := sCampos + Par.JsonString.Value +' = '+ sValor;
+    sCampos := sCampos + IfThen(not sCampos.IsEmpty, ',') + Par.JsonString.Value +' = '+ sValor;
   end;
 
   Result := OpenKey(
@@ -220,7 +220,7 @@ var
 begin
   for sCampo in aCamposObrigatorios do
     if not Assigned(oJSON.FindValue(sCampo)) then
-      EHorseException.New.Status(THTTPStatus.BadRequest).Error('Campo "'+ sCampo +'" é obrigatório e não foi informado!');
+      raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Campo "'+ sCampo +'" é obrigatório e não foi informado!');
 end;
 
 end.

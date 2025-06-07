@@ -33,8 +33,7 @@ type
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
     class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivo: String): TStringStream; static;
     class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
-    class function DispositivoIncluir(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject; static;
-    class function DispositivoAlterar(oDispositivo: TJSONObject): TJSONObject; static;
+    class function DispositivoAlterar(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject; static;
     class function DispositivoUsuarioIncluir(Usuario, Dispositivo: Integer): TJSONObject; static;
     class function UsuarioIncluir(oUsuario: TJSONObject): TJSONObject; static;
     class function UsuarioAlterar(oUsuario: TJSONObject): TJSONObject; static;
@@ -119,6 +118,9 @@ begin
 end;
 
 class function TConversa.Login(oAutenticacao: TJSONObject): TJSONObject;
+var
+  iDispositivoId: Integer;
+  oDispositivo: TJSONObject;
 begin
   CamposObrigatorios(oAutenticacao, ['login', 'senha']);
 
@@ -135,36 +137,87 @@ begin
   if Result.Count = 0 then
     FreeAndNil(Result);
 
+  iDispositivoId := oAutenticacao.GetValue<Integer>('dispositivo_id', -1);
+  if iDispositivoId > 0 then
+    Result.AddPair(
+      'dispositivo',
+      OpenKey(
+        sl +' select id '+
+        sl +'      , nome '+
+        sl +'      , modelo '+
+        sl +'      , versao_so '+
+        sl +'      , plataforma '+
+        sl +'      , ativo '+
+        sl +'   from dispositivo '+
+        sl +'  where id = '+ iDispositivoId.ToString
+      )
+    );
+
+  if not Assigned(Result.GetValue<TJSONObject>('dispositivo', nil)) then
+  begin
+    oDispositivo := TJSONObject.Create;
+    try
+      oDispositivo.AddPair('nome', 'desconhecido');
+      oDispositivo.AddPair('modelo', 'desconhecido');
+      oDispositivo.AddPair('versao_so', 'desconhecido');
+      oDispositivo.AddPair('plataforma', 'desconhecido');
+      oDispositivo.AddPair('usuario_id', Result.GetValue<Integer>('id'));
+      Result.AddPair('dispositivo', InsertJSON('dispositivo', oDispositivo));
+    finally
+      FreeAndNil(oDispositivo);
+    end;
+  end;
+
+  if not Result.GetValue<Boolean>('dispositivo.ativo', False) then
+    raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Seção Encerrada!');
+
   if not Assigned(Result) then
     raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Acesso negado!');
 end;
 
-class function TConversa.DispositivoIncluir(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject;
+class function TConversa.DispositivoAlterar(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject;
 var
-  oClone: TJSONObject;
+  sCampos: String;
+  sValor: String;
+  Par: TJSONPair;
+  iID: Integer;
 begin
-  CamposObrigatorios(oDispositivo, ['nome', 'modelo', 'versao_so', 'plataforma']);
+  CamposObrigatorios(oDispositivo, ['id']);
+  sCampos := EmptyStr;
+  for Par in oDispositivo do
+  begin
+    if Par.JsonString.Value.Equals('id') then
+    begin
+      iID := TJSONNumber(Par.JsonValue).AsInt;
+      Continue;
+    end;
 
-  oClone := TJSONObject(oDispositivo.Clone);
-  try
-    Result := InsertJSON('dispositivo', oClone);
-  finally
-    FreeAndNil(oClone);
+    if Par.JsonValue is TJSONNull then
+      sValor := 'null'
+    else
+    if Par.JsonValue is TJSONNumber then
+      sValor := Par.JsonValue.Value
+    else
+    if Par.JsonValue is TJSONString then
+      sValor := Qt(Par.JsonValue.Value);
+
+    sCampos := sCampos + IfThen(not sCampos.IsEmpty, ',') + Par.JsonString.Value +' = '+ sValor;
   end;
 
-  oClone := TJSONObject.Create;
-  try
-    oClone.AddPair('dispositivo_id', Result.GetValue<Integer>('id'));
-    oClone.AddPair('usuario_id', Usuario);
-    InsertJSON('dispositivo_usuario', oClone);
-  finally
-    FreeAndNil(oClone);
-  end;
-end;
+  if sCampos.Trim.IsEmpty then
+    Exit(TJSONObject(oDispositivo.Clone));
 
-class function TConversa.DispositivoAlterar(oDispositivo: TJSONObject): TJSONObject;
-begin
-  Result := UpdateJSON('dispositivo', oDispositivo);
+  TPool.Instance.Connection.ExecSQL(
+    sl +'update dispositivo '+
+    sl +'   set '+ sCampos +
+    sl +' where id = '+ iID.ToString +';'
+  );
+
+  Result := OpenKey(
+    sl +'select * '+
+    sl +'  from dispositivo'+
+    sl +' where id = '+ iID.ToString
+  );
 end;
 
 class function TConversa.DispositivoUsuarioIncluir(Usuario, Dispositivo: Integer): TJSONObject;
@@ -272,7 +325,7 @@ begin
     sl +'     on c.id = cu.conversa_id; '+
     sl +
     sl +' select tc.id '+
-    sl +'      , case when tc.descricao is null then substring(trim(d.nome) from ''^([^ ]+)'') else tc.descricao end as descricao '+
+    sl +'      , coalesce(nullif(trim(tc.descricao), ''''), d.nome) as descricao '+
     sl +'      , tc.tipo '+
     sl +'      , tc.inserida '+
     sl +'      , d.nome '+
@@ -391,6 +444,7 @@ var
   Pool: IConnection;
   Qry: TFDQuery;
 begin
+  Exit;
   Pool := TPool.Instance;
   Qry := TFDQuery.Create(nil);
   try
