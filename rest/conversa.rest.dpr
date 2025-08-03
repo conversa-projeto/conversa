@@ -8,7 +8,7 @@ program conversa.rest;
 uses
   {$IF DEFINED(MSWINDOWS)}
   Winapi.Windows,
-  {$ENDIF}
+  {$ENDIF }
   System.SysUtils,
   System.Classes,
   System.JSON,
@@ -23,14 +23,14 @@ uses
   JOSE.Core.JWT,
   JOSE.Core.Builder,
   JOSE.Types.Bytes,
-  Horse.SocketIO,
   conversa.api in 'src\conversa\conversa.api.pas',
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
   conversa.comum in 'src\conversa\conversa.comum.pas',
   conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas',
   FCMNotification in 'src\conversa\FCMNotification.pas',
-  Thread.Queue in 'src\conversa\Thread.Queue.pas';
+  Thread.Queue in 'src\conversa\Thread.Queue.pas',
+  WebSocket in 'src\conversa\WebSocket.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
 begin
@@ -79,13 +79,10 @@ begin
                 'status',
                 'repos/+.+/releases/latest',
                 '.+/releases/download/+.*',
-                'login',
-                'socket_clients',
-                'socket',
-                'socket/+.*'
+                'login'
               ])
           )
-        ).Use(SocketIO(55888));
+        );
 
       THorse.Get(
         '/status',
@@ -127,6 +124,8 @@ begin
           Resposta: TJSONObject;
         begin
           Resposta := TConversa.Login(Conteudo(Req));
+          if not Assigned(Resposta) then
+            Exit;
 
           LJWT := TJWT.Create;
           try
@@ -396,29 +395,34 @@ begin
         end
       );
 
-      TThreadQueue.Create;
+      TWebSocket.Iniciar(8000 + Configuracao.Porta, Configuracao.JWTKEY);
       try
-        TThreadQueue.OnError(
-          procedure(sMessage: String)
-          begin
-            Writeln(sMessage);
-          end
-        );
-
-        FCM := TFCMNotification.Create(Configuracao.FCM);
+        TThreadQueue.Create;
         try
-          THorse.Listen(
-            Configuracao.Porta,
-            procedure
+          TThreadQueue.OnError(
+            procedure(sMessage: String)
             begin
-              Writeln('Servidor iniciado na porta: '+ Configuracao.Porta.ToString +' 🚀');
+              Writeln(sMessage);
             end
           );
+
+          FCM := TFCMNotification.Create(Configuracao.FCM);
+          try
+            THorse.Listen(
+              Configuracao.Porta,
+              procedure
+              begin
+                Writeln('Servidor iniciado na porta: '+ Configuracao.Porta.ToString +' 🚀');
+              end
+            );
+          finally
+            FreeAndNil(FCM);
+          end;
         finally
-          FreeAndNil(FCM);
+          TThreadQueue.Destroy;
         end;
       finally
-        TThreadQueue.Destroy;
+        TWebSocket.Parar;
       end;
     finally
       TPool.Stop;

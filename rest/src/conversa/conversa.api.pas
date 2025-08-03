@@ -21,13 +21,14 @@ uses
   conversa.comum,
   conversa.configuracoes,
   FCMNotification,
-  Horse.SocketIO.ServerSocket,
-  Thread.Queue;
+  Thread.Queue,
+  WebSocket;
 
 type
   TConversa = record
   private
     class procedure EnviarNotificacao(Usuario, Conversa: Integer; sConteudo: String); static;
+    class procedure AtualizaMensagemSocket(const Usuario, Conversa: Integer; const Mensagens: String); static;
   public
     class function Status: TJSONObject; static;
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
@@ -135,7 +136,10 @@ begin
   );
 
   if Result.Count = 0 then
+  begin
     FreeAndNil(Result);
+    raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Acesso negado!');
+  end;
 
   iDispositivoId := oAutenticacao.GetValue<Integer>('dispositivo_id', -1);
   if iDispositivoId > 0 then
@@ -170,9 +174,6 @@ begin
 
   if not Result.GetValue<Boolean>('dispositivo.ativo', False) then
     raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Seção Encerrada!');
-
-  if not Assigned(Result) then
-    raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Acesso negado!');
 end;
 
 class function TConversa.DispositivoAlterar(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject;
@@ -428,7 +429,10 @@ end;
 
 procedure EnviaNotificacoes(const AUsuarioID: Integer; const ATokenDispositivo, ATitulo, AMensagem: String; ADadosExtras: TJSONObject = nil);
 begin
-  _ServerSocket.Send(AUsuarioID.ToString, 'mensagem', ATitulo +' - '+ AMensagem);
+  TWebSocket.NovaMensagem(AUsuarioID.ToString, ATitulo, AMensagem);
+
+  // Desabilitado envio de mensagens FCM por enquanto
+  Exit;
 
   if not ATokenDispositivo.IsEmpty then
     TThreadQueue.Add(
@@ -444,7 +448,6 @@ var
   Pool: IConnection;
   Qry: TFDQuery;
 begin
-  Exit;
   Pool := TPool.Instance;
   Qry := TFDQuery.Create(nil);
   try
@@ -791,16 +794,20 @@ class function TConversa.GetMensagens(Conversa, Usuario: Integer; Script: String
 var
   Pool: IConnection;
   Mensagem: TFDQuery;
+  Qry: TFDQuery;
   QryAux: TFDQuery;
   oMensagem: TJSONObject;
   aConteudos: TJSONArray;
   oConteudo: TJSONObject;
+  sMensagens: String;
 begin
   Pool := TPool.Instance;
   Mensagem := TFDQuery.Create(nil);
+  Qry := TFDQuery.Create(nil);
   QryAux := TFDQuery.Create(nil);
   try
     Mensagem.Connection := Pool.Connection;
+    Qry.Connection := Pool.Connection;
     QryAux.Connection := Pool.Connection;
 
     Mensagem.Open(
@@ -833,17 +840,34 @@ begin
       sl +' order '+
       sl +'    by id '
     );
+    Mensagem.FetchAll;
 
     Result := TJSONArray.Create;
 
     if MarcarComoRecebida then
-      QryAux.Connection.ExecSQL(
+    begin
+      sMensagens := EmptyStr;
+      Qry.Open(
         sl +' update mensagem_status '+
         sl +'    set recebida = now() '+
         sl +'  where conversa_id = '+ Conversa.ToString +
         sl +'    and usuario_id  = '+ Usuario.ToString +
-        sl +'    and recebida is null '
+        sl +'    and recebida is null '+
+        sl +'returning mensagem_id '
       );
+      Qry.FetchAll;
+      Qry.First;
+      while not Qry.Eof do
+      begin
+        sMensagens := sMensagens + Qry.FieldByName('mensagem_id').AsString +' ';
+        Qry.Next;
+      end;
+
+      sMensagens := sMensagens.Trim.Replace(' ', ',');
+
+      if not sMensagens.IsEmpty then
+        AtualizaMensagemSocket(Usuario, Conversa, sMensagens);
+    end;
 
     Mensagem.First;
     while not Mensagem.Eof do
@@ -922,6 +946,7 @@ begin
         sl +' order '+
         sl +'    by ordem '
       );
+      QryAux.FetchAll;
       QryAux.First;
       while not QryAux.Eof do
       begin
@@ -938,6 +963,7 @@ begin
       Mensagem.Next;
     end;
   finally
+    FreeAndNil(Qry);
     FreeAndNil(QryAux);
     FreeAndNil(Mensagem);
   end;
@@ -955,6 +981,8 @@ begin
     sl +'    and visualizada is null '
   );
   Result := TJSONObject.Create.AddPair('sucesso', True);
+
+  AtualizaMensagemSocket(Usuario, Conversa, Mensagem.ToString);
 end;
 
 class function TConversa.MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;
@@ -1069,6 +1097,33 @@ class function TConversa.ChamadaEventoIncluir(joParam: TJSONObject): TJSONObject
 begin
   CamposObrigatorios(joParam, ['chamada_id', 'usuario_id', 'evento_tipo_id']);
   Result := InsertJSON('chamada_evento', joParam);
+end;
+
+class procedure TConversa.AtualizaMensagemSocket(const Usuario, Conversa: Integer; const Mensagens: String);
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+begin
+  // Notifica os usuários da conversa que a mensagem foi atualizada
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    Qry.Open(
+      sl +'select usuario_id '+
+      sl +'  from conversa_usuario '+
+      sl +' where conversa_id = '+ Conversa.ToString +
+      sl +'   and usuario_id <> '+ Usuario.ToString
+    );
+    Qry.First;
+    while not Qry.Eof do
+    begin
+      TWebSocket.AtualizarStatusMensagem(Qry.FieldByName('usuario_id').AsString, Conversa, Mensagens);
+      Qry.Next;
+    end;
+  finally
+    FreeAndNil(Qry);
+  end;
 end;
 
 end.
