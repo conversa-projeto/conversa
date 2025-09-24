@@ -370,7 +370,7 @@ begin
         '/chamada',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.ChamadaIncluir(Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.ChamadaIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
@@ -378,7 +378,7 @@ begin
         '/chamadaevento',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.ChamadaIncluir(Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.ChamadaEventoIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 

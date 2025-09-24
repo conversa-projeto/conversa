@@ -59,8 +59,8 @@ type
     class function AnexoIncluir(Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject; static;
     class function Anexo(Identificador: String): TStringStream; static;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray; static;
-    class function ChamadaIncluir(joParam: TJSONObject): TJSONObject; static;
-    class function ChamadaEventoIncluir(joParam: TJSONObject): TJSONObject; static;
+    class function ChamadaIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
+    class function ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
   end;
 
 implementation
@@ -1045,55 +1045,74 @@ begin
   );
 end;
 
-class function TConversa.ChamadaIncluir(joParam: TJSONObject): TJSONObject;
+class function TConversa.ChamadaIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject;
 var
   iID: Integer;
+  jvUsuario: TJSONValue;
 begin
-  CamposObrigatorios(joParam, ['fromuser_id', 'touser_id']);
-
+  // Apenas para gerar um id
   iID := TPool.Instance.Connection.ExecSQLScalar(
-    sl +'insert '+
-    sl +'  into chamada '+
-    sl +'     ( iniciada_por '+
-    sl +'     ) '+
-    sl +'values '+
-    sl +'     ( '+ joParam.GetValue<String>('fromuser_id') +
-    sl +'     ) '+
+    sl +' insert '+
+    sl +'   into chamada '+
+    sl +'default '+
+    sl +' values '+
     sl +
     sl +'returning id; '
   );
-  TPool.Instance.Connection.ExecSQL(
-    sl +'insert '+
-    sl +'  into chamada_usuario '+
-    sl +'     ( chamada_id '+
-    sl +'     , usuario_id '+
-    sl +'     ) '+
-    sl +'values '+
-    sl +'     ( '+ iID.ToString +
-    sl +'     , '+ joParam.GetValue<String>('fromuser_id') +
-    sl +'     ), '+
-    sl +'     ( '+ iID.ToString +
-    sl +'     , '+ joParam.GetValue<String>('touser_id') +
-    sl +'     ) '
-  );
+
   TPool.Instance.Connection.ExecSQL(
     sl +'insert '+
     sl +'  into chamada_evento '+
     sl +'     ( chamada_id '+
     sl +'     , usuario_id '+
-    sl +'     , evento_tipo_id '+
+    sl +'     , tipo '+
+    sl +'     , criado_por '+
     sl +'     ) '+
     sl +'values '+
     sl +'     ( '+ iID.ToString +
-    sl +'     , '+ joParam.GetValue<String>('fromuser_id') +
-    sl +'     , 1 '+
+    sl +'     , '+ Usuario.ToString +
+    sl +'     , 1 /* 1-Chamada Iniciada */ '+
+    sl +'     , '+ Usuario.ToString +
     sl +'     ) '
   );
 
+  for jvUsuario in joParam.GetValue<TJSONArray>('usuarios') do
+  begin
+    TPool.Instance.Connection.ExecSQL(
+      sl +'insert '+
+      sl +'  into chamada_usuario '+
+      sl +'     ( chamada_id '+
+      sl +'     , usuario_id '+
+      sl +'     , adicionado_por '+
+      sl +'     ) '+
+      sl +'values '+
+      sl +'     ( '+ iID.ToString +
+      sl +'     , '+ jvUsuario.GetValue<String>('id') +
+      sl +'     , '+ Usuario.ToString +
+      sl +'     ) '
+    );
+
+    if jvUsuario.GetValue<Integer>('id') <> Usuario then
+      TPool.Instance.Connection.ExecSQL(
+        sl +'insert '+
+        sl +'  into chamada_evento '+
+        sl +'     ( chamada_id '+
+        sl +'     , usuario_id '+
+        sl +'     , tipo '+
+        sl +'     , criado_por '+
+        sl +'     ) '+
+        sl +'values '+
+        sl +'     ( '+ iID.ToString +
+        sl +'     , '+ jvUsuario.GetValue<String>('id') +
+        sl +'     , 1 /* 1-Chamada Iniciada */ '+
+        sl +'     , '+ Usuario.ToString +
+        sl +'     ) '
+      );
+  end;
   Result := TJSONObject.Create.AddPair('id', iID);
 end;
 
-class function TConversa.ChamadaEventoIncluir(joParam: TJSONObject): TJSONObject;
+class function TConversa.ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject;
 begin
   CamposObrigatorios(joParam, ['chamada_id', 'usuario_id', 'evento_tipo_id']);
   Result := InsertJSON('chamada_evento', joParam);
