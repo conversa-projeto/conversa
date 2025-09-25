@@ -365,12 +365,52 @@ begin
           Res.Send<TJSONArray>(TConversa.NovasMensagens(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('ultima').AsInteger));
         end
       );
-      
+
       THorse.Put(
-        '/chamada',
+        '/chamada/iniciar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.ChamadaIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.ChamadaIniciar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
+      THorse.Post(
+        '/chamada/cancelar',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.ChamadaCancelar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
+      THorse.Post(
+        '/chamada/entrar',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.ChamadaEntrar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
+      THorse.Post(
+        '/chamada/rejeitar',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.ChamadaRejeitar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
+      THorse.Post(
+        '/chamada/sair',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.ChamadaSair(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
+      THorse.Post(
+        '/chamada/finalizar',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.ChamadaFinalizar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
