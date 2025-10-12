@@ -391,10 +391,10 @@ begin
       );
 
       THorse.Post(
-        '/chamada/rejeitar',
+        '/chamada/recusar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONObject>(TConversa.ChamadaRejeitar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+          Res.Send<TJSONObject>(TConversa.ChamadaRecusar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
@@ -411,6 +411,14 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaFinalizar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
+      THorse.Get(
+        '/chamada/dados',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.ChamadaDados(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('id').AsInteger));
         end
       );
 

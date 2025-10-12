@@ -1,4 +1,4 @@
-// Eduardo - 31/07/2025
+Ôªø// Eduardo - 31/07/2025
 unit WebSocket;
 
 interface
@@ -14,10 +14,20 @@ uses
 type
   TBirdSocketConnectionHack = class
   private
-    FIdContext: TIdContext; // Mesmo layout de memÛria
+    FIdContext: TIdContext; // Mesmo layout de mem√≥ria
   end;
 
-  TSocketMessageType = (Erro, Login, NovaMensagem, AtualizacaoStatusMensagem);
+  TSocketMessageType = (
+    Erro,
+    Login,
+    NovaMensagem,
+    AtualizacaoStatusMensagem,
+    ChamadaRecebida = 51, // Usu√°rio inicia uma chamada
+    ChamadaFinalizada = 52, // Usu√°rio que criou, cancela a chamada antes mesmo de algum usu√°rio entrar ou finaliza a chamada de modo for√ßado
+    UsuarioRecusou = 53,
+    UsuarioEntrou = 54,
+    UsuarioSaiu = 55
+  );
 
   TWebSocket = record
   private
@@ -27,6 +37,8 @@ type
     class procedure Parar; static;
     class procedure NovaMensagem(const sUsuario, sTitulo, sMensagem: String); static;
     class procedure AtualizarStatusMensagem(const sUsuario: String; const iGrupo: Integer; const sMensagens: String); static;
+
+    class procedure ChamadaNotificar(const Chamada, Remetente, Destinatario: Integer; const Msg: TSocketMessageType); static;
   end;
 
   TWSUser = class
@@ -69,9 +81,9 @@ begin
       try
         oErro.AddPair('tipo', 9);
         if not Assigned(oJSON) then
-          oErro.AddPair('message', 'Erro ao ler os dados do WebSocket: JSON inv·lido!')
+          oErro.AddPair('message', 'Erro ao ler os dados do WebSocket: JSON inv√°lido!')
         else
-          oErro.AddPair('message', 'Erro ao ler os dados do WebSocket: Par "tipo" n„o encontrado!');
+          oErro.AddPair('message', 'Erro ao ler os dados do WebSocket: Par "tipo" n√£o encontrado!');
         ABird.Send(oErro.ToJSON);
       finally
         oErro.Free;
@@ -113,7 +125,7 @@ begin
 
           FWebSocket.Contexts.LockList;
           try
-            // Acessa o campo FIdContext protegido da outra classe mapeando a mesma posiÁ„o na classe hack
+            // Acessa o campo FIdContext protegido da outra classe mapeando a mesma posi√ß√£o na classe hack
             Context := TBirdSocketConnectionHack(ABird).FIdContext;
             if Assigned(Context) and not Assigned(Context.Data) then
               Context.Data := User;
@@ -152,7 +164,7 @@ begin
   try
     for Bird in Birds do
     begin
-      // Acessa o campo FIdContext protegido da outra classe mapeando a mesma posiÁ„o na classe hack
+      // Acessa o campo FIdContext protegido da outra classe mapeando a mesma posi√ß√£o na classe hack
       Context := TBirdSocketConnectionHack(Bird).FIdContext;
       if not Assigned(Context) then
         Continue;
@@ -197,6 +209,21 @@ begin
     TWebSocket.Enviar(sUsuario, oJSON);
   finally
     oJSON.Free;
+  end;
+end;
+
+class procedure TWebSocket.ChamadaNotificar(const Chamada, Remetente, Destinatario: Integer; const Msg: TSocketMessageType);
+var
+  jo: TJSONObject;
+begin
+  jo := TJSONObject.Create;
+  try
+    jo.AddPair('tipo', Integer(Msg));
+    jo.AddPair('chamada_id', Chamada);
+    jo.AddPair('usuario_id', Remetente);
+    TWebSocket.Enviar(Destinatario.ToString, jo);
+  finally
+    jo.Free;
   end;
 end;
 
