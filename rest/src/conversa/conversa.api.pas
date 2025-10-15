@@ -31,6 +31,7 @@ type
     class procedure EnviarNotificacao(Usuario, Conversa: Integer; sConteudo: String); static;
     class procedure AtualizaMensagemSocket(const Usuario, Conversa: Integer; const Mensagens: String); static;
     class procedure ChamadaNotificar(const Chamada, Usuario: Integer; Msg: TSocketMessageType); static;
+    class procedure AtualizarStatusChamada(const Chamada: Integer; Status: Integer = 0); static;
   public
     class function Status: TJSONObject; static;
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
@@ -1144,18 +1145,7 @@ begin
     sl +'     , '+ Usuario.ToString +
     sl +'     , 1 /* 1-Chamada Iniciada */ '+
     sl +'     , '+ Usuario.ToString +
-    sl +'     ), '+
-    sl +'     ( '+ iID.ToString +
-    sl +'     , '+ Usuario.ToString +
-    sl +'     , 5 /* 5-Usuário Entrou */ '+
-    sl +'     , '+ Usuario.ToString +
-    sl +'     ); '+
-    sl +
-    sl +'update chamada_usuario '+
-    sl +'   set entrou_em = CURRENT_TIMESTAMP '+
-    sl +' where chamada_id = '+ iID.ToString +
-    sl +'   and usuario_id = '+ Usuario.ToString +
-    sl +'   and entrou_em is null '
+    sl +'     ); '
   );
 
   for jvUsuario in joParam.GetValue<TJSONArray>('usuarios') do
@@ -1166,30 +1156,33 @@ begin
       sl +'     ( chamada_id '+
       sl +'     , usuario_id '+
       sl +'     , adicionado_por '+
+      sl +'     , status '+
       sl +'     ) '+
       sl +'values '+
       sl +'     ( '+ iID.ToString +
       sl +'     , '+ jvUsuario.GetValue<String>('id') +
       sl +'     , '+ Usuario.ToString +
-      sl +'     ) '
+      IfThen(jvUsuario.GetValue<Integer>('id') <> Usuario,
+      sl +'     , 1 /* 1-Pendente */ '{ Usuário Convidado },
+      sl +'     , 3 /* 3-Entrou */ '{ Usuário Que iniciou a chamada}) +
+      sl +'     ); '+
+      sl +
+      sl +'insert '+
+      sl +'  into chamada_evento '+
+      sl +'     ( chamada_id '+
+      sl +'     , usuario_id '+
+      sl +'     , tipo '+
+      sl +'     , criado_por '+
+      sl +'     ) '+
+      sl +'values '+
+      sl +'     ( '+ iID.ToString +
+      sl +'     , '+ jvUsuario.GetValue<String>('id') +
+      IfThen(jvUsuario.GetValue<Integer>('id') <> Usuario,
+      sl +'     , 3 /* 3-Usuário Convidado */ '{ Usuário Convidado },
+      sl +'     , 5 /* 5-Entrou */ '{ Usuário Que iniciou a chamada}) +
+      sl +'     , '+ Usuario.ToString +
+      sl +'     ); '
     );
-
-    if jvUsuario.GetValue<Integer>('id') <> Usuario then
-      TPool.Instance.Connection.ExecSQL(
-        sl +'insert '+
-        sl +'  into chamada_evento '+
-        sl +'     ( chamada_id '+
-        sl +'     , usuario_id '+
-        sl +'     , tipo '+
-        sl +'     , criado_por '+
-        sl +'     ) '+
-        sl +'values '+
-        sl +'     ( '+ iID.ToString +
-        sl +'     , '+ jvUsuario.GetValue<String>('id') +
-        sl +'     , 3 /* 3-Usuário Convidado */ '+
-        sl +'     , '+ Usuario.ToString +
-        sl +'     ) '
-      );
   end;
   Result := TJSONObject.Create.AddPair('id', iID);
 
@@ -1198,15 +1191,10 @@ end;
 
 class function TConversa.ChamadaCancelar(Usuario: Integer; joParam: TJSONObject): TJSONObject;
 begin
+  Result := TJSONObject.Create.AddPair('id', joParam.GetValue<Integer>('id', 0));
   ValidarChamada(Usuario, joParam.GetValue<Integer>('id', 0));
 
   TPool.Instance.Connection.ExecSQL(
-    sl +'update chamada_usuario '+
-    sl +'   set recusou_em = CURRENT_TIMESTAMP '+
-    sl +' where chamada_id = '+ joParam.GetValue<String>('id') +
-    sl +'   and usuario_id = '+ Usuario.ToString +
-    sl +'   and entrou_em is null; '+
-    sl +
     sl +'insert '+
     sl +'  into chamada_evento '+
     sl +'     ( chamada_id '+
@@ -1226,11 +1214,12 @@ end;
 
 class function TConversa.ChamadaRecusar(Usuario: Integer; joParam: TJSONObject): TJSONObject;
 begin
+  Result := TJSONObject.Create.AddPair('id', joParam.GetValue<Integer>('id', 0));
   ValidarChamada(Usuario, joParam.GetValue<Integer>('id', 0));
 
   TPool.Instance.Connection.ExecSQL(
     sl +'update chamada_usuario '+
-    sl +'   set recusou_em = CURRENT_TIMESTAMP '+
+    sl +'   set status = 2 /* 2-Recusou */'+
     sl +' where chamada_id = '+ joParam.GetValue<String>('id') +
     sl +'   and usuario_id = '+ Usuario.ToString +
     sl +'   and entrou_em is null; '+
@@ -1247,7 +1236,25 @@ begin
     sl +'     , '+ Usuario.ToString +
     sl +'     , 4 /* 4-Usuário Recusou */ '+
     sl +'     , '+ Usuario.ToString +
-    sl +'     ) '
+    sl +'     ); '+
+    sl +
+    sl +'update chamada '+
+    sl +'   set status = 2 /* 2-Recusada */ '+
+    sl +' where id = 151 '+
+    sl +'   and exists( '+
+    sl +'         select * '+
+    sl +'           from '+
+    sl +'              ( select count(1) as usuarios '+
+    sl +'                     , sum(case when cu.status = 2 then 1 else 0 end) recusaram '+
+    sl +'                  from chamada c  '+
+    sl +'                 inner '+
+    sl +'                  join chamada_usuario cu '+
+    sl +'                    on cu.chamada_id  = c.id '+
+    sl +'                 where c.id = 151 '+
+    sl +'              ) as t '+
+    sl +'          where usuarios - 1 = recusaram '+
+    sl +'       ); '
+
   );
 
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.UsuarioRecusou);
@@ -1255,11 +1262,11 @@ end;
 
 class function TConversa.ChamadaEntrar(Usuario: Integer; joParam: TJSONObject): TJSONObject;
 begin
+  Result := TJSONObject.Create.AddPair('id', joParam.GetValue<Integer>('id', 0));
   ValidarChamada(Usuario, joParam.GetValue<Integer>('id', 0));
   TPool.Instance.Connection.ExecSQL(
     sl +'update chamada_usuario '+
-    sl +'   set entrou_em  = coalesce(entrou_em, CURRENT_TIMESTAMP) '+
-    sl +'     , recusou_em = null '+
+    sl +'   set status = 3 /* 3-Entrou */'+
     sl +' where chamada_id = '+ joParam.GetValue<String>('id') +
     sl +'   and usuario_id = '+ Usuario.ToString +
     sl +'   and entrou_em is null; '+
@@ -1284,13 +1291,14 @@ end;
 
 class function TConversa.ChamadaSair(Usuario: Integer; joParam: TJSONObject): TJSONObject;
 begin
+  Result := TJSONObject.Create.AddPair('id', joParam.GetValue<Integer>('id', 0));
   ValidarChamada(Usuario, joParam.GetValue<Integer>('id', 0));
 
   TPool.Instance.Connection.ExecSQL(
     sl +'update chamada_usuario '+
-    sl +'   set saiu_em = CURRENT_TIMESTAMP '+
+    sl +'   set status = 4 /* 4-Saiu */'+
     sl +' where chamada_id = '+ joParam.GetValue<String>('id') +
-    sl +'   and usuario_id = '+ Usuario.ToString +
+    sl +'   and usuario_id = '+ Usuario.ToString +';'+
     sl +
     sl +'insert '+
     sl +'  into chamada_evento '+
@@ -1307,19 +1315,17 @@ begin
     sl +'     ) '
   );
 
+  AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0), 4);
+
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.UsuarioSaiu);
 end;
 
 class function TConversa.ChamadaFinalizar(Usuario: Integer; joParam: TJSONObject): TJSONObject;
 begin
+  Result := TJSONObject.Create.AddPair('id', joParam.GetValue<Integer>('id', 0));
   ValidarChamada(Usuario, joParam.GetValue<Integer>('id', 0));
 
   TPool.Instance.Connection.ExecSQL(
-    sl +'update chamada_usuario '+
-    sl +'   set saiu_em = CURRENT_TIMESTAMP '+
-    sl +' where chamada_id = '+ joParam.GetValue<String>('id') +
-    sl +'   and usuario_id = '+ Usuario.ToString +
-    sl +
     sl +'insert '+
     sl +'  into chamada_evento '+
     sl +'     ( chamada_id '+
@@ -1334,14 +1340,12 @@ begin
     sl +'     , '+ Usuario.ToString +
     sl +'     ) '
   );
+  AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0), 4);
 
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.ChamadaFinalizada);
 end;
 
 class function TConversa.ChamadaDados(Usuario: Integer; Chamada: Integer): TJSONObject;
-var
-  Pool: IConnection;
-  Qry: TFDQuery;
 begin
   ValidarChamada(Usuario, Chamada);
   Result := OpenKey(
@@ -1412,6 +1416,31 @@ begin
       sl +'     on u_add.id = cu.adicionado_por '
     )
   );
+end;
+
+class procedure TConversa.AtualizarStatusChamada(const Chamada: Integer; Status: Integer);
+begin
+//  TPool.Instance.Connection.ExecSQL(
+//    sl +'update chamada '+
+//    sl +'   set status = 2 /* 2-Recusada */ '+
+//    sl +' where id = 151 '+
+//    IfThen(Status = 0,
+//    sl +'   and exists( '+
+//    sl +'         select * '+
+//    sl +'           from '+
+//    sl +'              ( select count(1) as usuarios '+
+//    sl +'                     , sum(case when cu.status = 2 then 1 else 0 end) recusaram '+
+//    sl +'                     , sum(case when cu.status = 4 then 1 else 0 end) saiu '+
+//    sl +'                  from chamada c  '+
+//    sl +'                 inner '+
+//    sl +'                  join chamada_usuario cu '+
+//    sl +'                    on cu.chamada_id  = c.id '+
+//    sl +'                 where c.id = 151 '+
+//    sl +'              ) as t '+
+//    sl +'          where usuarios - 1 = recusaram '+
+//    sl +'       ); '
+//    )
+//  );
 end;
 
 class function TConversa.ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject;

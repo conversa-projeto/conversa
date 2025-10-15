@@ -156,6 +156,8 @@ const
     sl +'create '+
     sl +' table chamada  '+
     sl +'     ( id serial4 not null '+
+    sl +'     , tipo int4 default 1 not null /* 1-Simples, 2-Grupo */'+
+    sl +'     , status int4 default 1 not null /* 1-Iniciada, 2-Recusada, 3-Em Andamento, 4-Encerrada, 5-Perdida */'+
     sl +'     , iniciada timestamp default current_timestamp not null '+
     sl +'     , finalizada timestamp null '+
     sl +'     , conversa_id int4 null '+
@@ -163,12 +165,15 @@ const
     sl +'     , constraint chamada_conversa_fk foreign key (conversa_id) references conversa(id) '+
     sl +'     ); '+
     sl +
+    sl +'comment on column chamada.tipo is ''1-Simples, 2-Grupo''; '+
+    sl +'comment on column chamada.status is ''1-Iniciada, 2-Recusada, 3-Em Andamento, 4-Encerrada, 5-Perdida''; '+
+    sl +
     sl +'create '+
     sl +' table chamada_usuario  '+
     sl +'     ( id serial4 not null '+
     sl +'     , chamada_id int4 not null '+
     sl +'     , usuario_id int4 not null '+
-    sl +'     , status int4 default 1 not null /* 1-Adicionado */ '+
+    sl +'     , status int4 default 1 not null /* 1-Pendente */ '+
     sl +'     , adicionado_por int4 not null '+
     sl +'     , adicionado_em timestamp default current_timestamp not null '+
     sl +'     , entrou_em timestamp '+
