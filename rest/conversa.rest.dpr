@@ -30,7 +30,8 @@ uses
   conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas',
   FCMNotification in 'src\conversa\FCMNotification.pas',
   Thread.Queue in 'src\conversa\Thread.Queue.pas',
-  WebSocket in 'src\conversa\WebSocket.pas';
+  WebSocket in 'src\conversa\WebSocket.pas',
+  conversa.chamada in 'src\conversa\conversa.chamada.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
 begin
@@ -443,34 +444,39 @@ begin
         end
       );
 
-      TWebSocket.Iniciar(8000 + Configuracao.Porta, Configuracao.JWTKEY);
+      TChamada.Start(9000 + Configuracao.Porta);
       try
-        TThreadQueue.Create;
+        TWebSocket.Iniciar(8000 + Configuracao.Porta, Configuracao.JWTKEY);
         try
-          TThreadQueue.OnError(
-            procedure(sMessage: String)
-            begin
-              Writeln(sMessage);
-            end
-          );
-
-          FCM := TFCMNotification.Create(Configuracao.FCM);
+          TThreadQueue.Create;
           try
-            THorse.Listen(
-              Configuracao.Porta,
-              procedure
+            TThreadQueue.OnError(
+              procedure(sMessage: String)
               begin
-                Writeln('Servidor iniciado na porta: '+ Configuracao.Porta.ToString +' 🚀');
+                Writeln(sMessage);
               end
             );
+
+            FCM := TFCMNotification.Create(Configuracao.FCM);
+            try
+              THorse.Listen(
+                Configuracao.Porta,
+                procedure
+                begin
+                  Writeln('Servidor iniciado na porta: '+ Configuracao.Porta.ToString +' 🚀');
+                end
+              );
+            finally
+              FreeAndNil(FCM);
+            end;
           finally
-            FreeAndNil(FCM);
+            TThreadQueue.Destroy;
           end;
         finally
-          TThreadQueue.Destroy;
+          TWebSocket.Parar;
         end;
       finally
-        TWebSocket.Parar;
+        TChamada.Stop;
       end;
     finally
       TPool.Stop;

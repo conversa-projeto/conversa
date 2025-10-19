@@ -20,6 +20,7 @@ uses
   Postgres,
   conversa.comum,
   conversa.configuracoes,
+  conversa.chamada,
   FCMNotification,
   Thread.Queue,
   WebSocket;
@@ -1183,7 +1184,11 @@ begin
       sl +'     , '+ Usuario.ToString +
       sl +'     ); '
     );
+
+    // Adiciona usuarios na chamada TCP
+    TChamada.Instance.AdicionarCliente(iID, jvUsuario.GetValue<Integer>('id'));
   end;
+
   Result := TJSONObject.Create.AddPair('id', iID);
 
   ChamadaNotificar(iID, Usuario, TSocketMessageType.ChamadaRecebida);
@@ -1343,6 +1348,9 @@ begin
   AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0), 4);
 
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.ChamadaFinalizada);
+
+  // Remove a chamada TCP
+  TChamada.Instance.RemoverChamada(joParam.GetValue<Integer>('id'));
 end;
 
 class function TConversa.ChamadaDados(Usuario: Integer; Chamada: Integer): TJSONObject;
