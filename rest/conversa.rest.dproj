@@ -72,7 +72,7 @@
         <DCC_K>false</DCC_K>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
         <SanitizedProjectName>conversa_rest</SanitizedProjectName>
-        <DCC_UnitSearchPath>src\horse;src\horse-cors;src\jhonson;src\handle-exception;src\horse-octetstream;src\horse-jwt;src\horse-jwt\delphi-jose-jwt;src\horse-jwt\delphi-jose-jwt\Common;src\horse-jwt\delphi-jose-jwt\JOSE;src\bird-socket-server;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>src\horse;src\horse-cors;src\jhonson;src\handle-exception;src\horse-octetstream;src\horse-jwt;src\horse-jwt\delphi-jose-jwt;src\horse-jwt\delphi-jose-jwt\Common;src\horse-jwt\delphi-jose-jwt\JOSE;src\bird-socket-server;src\tcp;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <VerInfo_Locale>1046</VerInfo_Locale>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
         <PreBuildEventCancelOnError>false</PreBuildEventCancelOnError>
@@ -178,6 +178,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\conversa\FCMNotification.pas"/>
         <DCCReference Include="src\conversa\Thread.Queue.pas"/>
         <DCCReference Include="src\conversa\WebSocket.pas"/>
+        <DCCReference Include="src\conversa\conversa.chamada.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
