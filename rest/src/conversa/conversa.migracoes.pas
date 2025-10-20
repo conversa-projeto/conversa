@@ -158,11 +158,14 @@ const
     sl +'     ( id serial4 not null '+
     sl +'     , tipo int4 default 1 not null /* 1-Simples, 2-Grupo */'+
     sl +'     , status int4 default 1 not null /* 1-Iniciada, 2-Recusada, 3-Em Andamento, 4-Encerrada, 5-Perdida */'+
-    sl +'     , iniciada timestamp default current_timestamp not null '+
+    sl +'     , iniciada timestamp null '+
     sl +'     , finalizada timestamp null '+
     sl +'     , conversa_id int4 null '+
+    sl +'     , criado_em timestamp default current_timestamp not null '+
+    sl +'     , criado_por int4 not null '+
     sl +'     , constraint chamada_pk primary key (id) '+
     sl +'     , constraint chamada_conversa_fk foreign key (conversa_id) references conversa(id) '+
+    sl +'     , constraint chamada_criado_por_fk foreign key (criado_por) references usuario(id) '+
     sl +'     ); '+
     sl +
     sl +'comment on column chamada.tipo is ''1-Simples, 2-Grupo''; '+

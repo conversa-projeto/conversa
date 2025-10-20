@@ -31,7 +31,8 @@ type
     class procedure EnviarNotificacao(Usuario, Conversa: Integer; sConteudo: String); static;
     class procedure AtualizaMensagemSocket(const Usuario, Conversa: Integer; const Mensagens: String); static;
     class procedure ChamadaNotificar(const Chamada, Usuario: Integer; Msg: TSocketMessageType); static;
-    class procedure AtualizarStatusChamada(const Chamada: Integer; Status: Integer = 0); static;
+    class procedure AtualizarStatusChamada(const Chamada: Integer; const Status: Integer = 0); static;
+    class function InternalChamadaDados(Chamada: Integer): TJSONObject; static;
   public
     class function Status: TJSONObject; static;
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
@@ -1060,6 +1061,9 @@ var
   Pool: IConnection;
   Qry: TFDQuery;
 begin
+  if Chamada = 0 then
+    raise Exception.Create('Chamada não encontrada!');
+
   Pool := TPool.Instance;
   Qry := TFDQuery.Create(nil);
   try
@@ -1126,8 +1130,13 @@ begin
   iID := TPool.Instance.Connection.ExecSQLScalar(
     sl +' insert '+
     sl +'   into chamada '+
-    sl +'default '+
+    sl +'      ( tipo '+
+    sl +'      , criado_por '+
+    sl +'      ) '+
     sl +' values '+
+    sl +'      ( '+ joParam.GetValue<Integer>('tipo', IfThen(joParam.GetValue<TJSONArray>('usuarios').Count = 2, 1, 2)).ToString +
+    sl +'      , '+ Usuario.ToString +
+    sl +'      ) '+
     sl +
     sl +'returning id; '
   );
@@ -1184,7 +1193,7 @@ begin
       sl +'     ); '
     );
   end;
-  Result := TJSONObject.Create.AddPair('id', iID);
+  Result := InternalChamadaDados(iID);
 
   ChamadaNotificar(iID, Usuario, TSocketMessageType.ChamadaRecebida);
 end;
@@ -1209,6 +1218,9 @@ begin
     sl +'     , '+ Usuario.ToString +
     sl +'     ) '
   );
+
+  AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0), 6); // 6-Cancelada
+
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.ChamadaFinalizada);
 end;
 
@@ -1257,6 +1269,8 @@ begin
 
   );
 
+  AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0));
+
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.UsuarioRecusou);
 end;
 
@@ -1286,6 +1300,8 @@ begin
     sl +'     ) '
   );
 
+  AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0));
+
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.UsuarioEntrou);
 end;
 
@@ -1312,10 +1328,10 @@ begin
     sl +'     , '+ Usuario.ToString +
     sl +'     , 6 /* 6-Usuário Saiu */ '+
     sl +'     , '+ Usuario.ToString +
-    sl +'     ) '
+    sl +'     ); '
   );
 
-  AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0), 4);
+  AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0));
 
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.UsuarioSaiu);
 end;
@@ -1340,18 +1356,28 @@ begin
     sl +'     , '+ Usuario.ToString +
     sl +'     ) '
   );
-  AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0), 4);
+
+  AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0), 4); // 4-Encerrada
 
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.ChamadaFinalizada);
 end;
 
-class function TConversa.ChamadaDados(Usuario: Integer; Chamada: Integer): TJSONObject;
+class function TConversa.ChamadaDados(Usuario, Chamada: Integer): TJSONObject;
 begin
   ValidarChamada(Usuario, Chamada);
+  Result := InternalChamadaDados(Chamada);
+end;
+
+class function TConversa.InternalChamadaDados(Chamada: Integer): TJSONObject;
+begin
   Result := OpenKey(
     sl +' select id '+
     sl +'      , iniciada '+
     sl +'      , finalizada '+
+    sl +'      , tipo '+
+    sl +'      , status '+
+    sl +'      , criado_em '+
+    sl +'      , criado_por '+
     sl +'   from chamada '+
     sl +'  where id = '+ Chamada.ToString
   );
@@ -1418,29 +1444,67 @@ begin
   );
 end;
 
-class procedure TConversa.AtualizarStatusChamada(const Chamada: Integer; Status: Integer);
+class procedure TConversa.AtualizarStatusChamada(const Chamada: Integer; const Status: Integer = 0);
 begin
-//  TPool.Instance.Connection.ExecSQL(
-//    sl +'update chamada '+
-//    sl +'   set status = 2 /* 2-Recusada */ '+
-//    sl +' where id = 151 '+
-//    IfThen(Status = 0,
-//    sl +'   and exists( '+
-//    sl +'         select * '+
-//    sl +'           from '+
-//    sl +'              ( select count(1) as usuarios '+
-//    sl +'                     , sum(case when cu.status = 2 then 1 else 0 end) recusaram '+
-//    sl +'                     , sum(case when cu.status = 4 then 1 else 0 end) saiu '+
-//    sl +'                  from chamada c  '+
-//    sl +'                 inner '+
-//    sl +'                  join chamada_usuario cu '+
-//    sl +'                    on cu.chamada_id  = c.id '+
-//    sl +'                 where c.id = 151 '+
-//    sl +'              ) as t '+
-//    sl +'          where usuarios - 1 = recusaram '+
-//    sl +'       ); '
-//    )
-//  );
+  if Status > 0 then
+    TPool.Instance.Connection.ExecSQL(
+      sl +'update chamada '+
+      sl +'   set status = '+ Status.ToString +
+      IfThen(Status = 4,
+      sl +'     , finalizada = current_timestamp ') +
+      sl +' where id = '+ Chamada.ToString +
+      sl +'   and status <> '+ Status.ToString
+    )
+  else
+    TPool.Instance.Connection.ExecSQL(
+      sl +'update chamada '+
+      sl +'   set status = novo_status '+
+      sl +'     , iniciada   = case when iniciada is null and novo_status = 3 then current_timestamp else iniciada end '+
+      sl +'     , finalizada = case when novo_status = 4 then current_timestamp else finalizada end '+
+      sl +'  from '+
+      sl +'     ( select * '+
+      sl +'         from '+
+      sl +'            ( select id '+
+      sl +'                   , status '+
+      sl +'                   , case '+
+      sl +'                     when tipo = 1 and u_recusou > 0 then 2 /* 1-Simples | 2-Recusada */ '+
+      sl +'                     when tipo = 1 and u_saiu > 0 then 4 /* 1-Simples | 4-Encerrada */ '+
+      sl +'                     when tipo = 1 and u_entrou = usuarios then 3 /* 1-Simples | 3-Em Andamento */ '+
+      sl +'                     when tipo = 2 and u_recusou = usuarios - 1 then 2 /* 2-Grupo | 2-Recusada */ '+
+      sl +'                     when tipo = 2 and u_saiu = usuarios - 1 then 4 /* 2-Grupo | 4-Encerrada */ '+
+      sl +'                     when tipo = 2 and u_entrou > 0 then 3 /* 2-Grupo | 3-Em Andamento */ '+
+      sl +'                     else 0 /* 0-Desconhecido */ '+
+      sl +'                     end as novo_status '+
+      sl +'                from '+
+      sl +'                   ( select c.id '+
+      sl +'                          , c.tipo '+
+      sl +'                          , c.status '+
+      sl +'                          , count(1) as usuarios '+
+      sl +'                          , sum(case when cu.status = 1 then 1 else 0 end) as u_pendentes '+
+      sl +'                          , sum(case when cu.status = 2 then 1 else 0 end) as u_recusou '+
+      sl +'                          , sum(case when cu.status = 3 then 1 else 0 end) as u_entrou '+
+      sl +'                          , sum(case when cu.status = 4 then 1 else 0 end) as u_saiu '+
+      sl +'                          , sum(case when cu.status = 5 then 1 else 0 end) as u_desconectou '+
+      sl +'                       from chamada c '+
+      sl +'                      inner '+
+      sl +'                       join chamada_usuario cu '+
+      sl +'                         on cu.chamada_id = c.id '+
+      sl +'                      where c.id = '+ Chamada.ToString +
+      sl +'                        and c.status in(1, 3) '+
+      sl +'                      group '+
+      sl +'                         by c.id '+
+      sl +'                          , c.status '+
+      sl +'                          , c.tipo '+
+      sl +'                   ) as t '+
+      sl +'            ) as t '+
+      sl +'        where status <> novo_status '+
+      sl +'     ) c '+
+      sl +' where c.id  = chamada.id '+
+      sl +'   and c.novo_status <> chamada.status '+
+      sl +'   and c.novo_status <> 0 '+
+      sl +'   and c.id = '+ Chamada.ToString +
+      sl +'   and c.status in(1, 3); '
+    );
 end;
 
 class function TConversa.ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject;
