@@ -34,6 +34,7 @@ type
     class procedure ChamadaNotificar(const Chamada, Usuario: Integer; Msg: TSocketMessageType); static;
     class procedure AtualizarStatusChamada(const Chamada: Integer; const Status: Integer = 0); static;
     class function InternalChamadaDados(Chamada: Integer): TJSONObject; static;
+    class procedure ConversaNotificar(const Conversa, Usuario: Integer; Msg: TSocketMessageType); static;
   public
     class function Status: TJSONObject; static;
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
@@ -298,6 +299,42 @@ begin
   );
 end;
 
+class procedure TConversa.ConversaNotificar(const Conversa, Usuario: Integer; Msg: TSocketMessageType);
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+begin
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    Qry.Open(
+      sl +'select c.id '+
+      sl +'     , u.usuario_id '+
+      sl +'  from conversa as c '+
+      sl +' inner '+
+      sl +'  join conversa_usuario u '+
+      sl +'    on u.conversa_id = c.id '+
+      sl +'   and u.usuario_id <> '+ Usuario.ToString +
+      sl +' where c.id = '+ Conversa.ToString
+    );
+
+    if Qry.IsEmpty then
+      Exit;
+
+    Qry.FetchAll;
+    Qry.First;
+    while not Qry.Eof do
+    try
+      TWebSocket.ConversaNotificar(Conversa, Usuario, Qry.FieldByName('usuario_id').AsInteger, Msg);
+    finally
+      Qry.Next;
+    end;
+  finally
+    FreeAndNil(Qry);
+  end;
+end;
+
 class function TConversa.ConversaIncluir(Usuario: Integer; oConversa: TJSONObject): TJSONObject;
 begin
   {TODO -oEduardo -cSegurança : não pode incluir conversa para outro usuário, adicionar validação}
@@ -361,6 +398,7 @@ begin
     sl +'                 join conversa_usuario cu '+
     sl +'                   on cu.conversa_id = tc.id '+
     sl +'                  and cu.usuario_id <> '+ Usuario.ToString +
+    sl +'                where tc.tipo = 1 /* 1-Chat */ '+
     sl +'                group '+
     sl +'                   by cu.conversa_id '+
     sl +'                    , cu.usuario_id '+
@@ -431,6 +469,7 @@ begin
   {TODO -oDaniel -cSegurança : Não pode incluir usuário em um chat comum (1:1)}
   CamposObrigatorios(oConversaUsuario, ['usuario_id', 'conversa_id']);
   Result := InsertJSON('conversa_usuario', oConversaUsuario);
+  ConversaNotificar(oConversaUsuario.GetValue<Integer>('conversa_id', 0), Usuario, TSocketMessageType.ConversaNova);
 end;
 
 class function TConversa.ConversaUsuarioExcluir(Usuario, ConversaUsuario: Integer): TJSONObject;
@@ -465,26 +504,20 @@ begin
   try
     Qry.Connection := Pool.Connection;
     Qry.Open(
-      sl +'select cu.usuario_id '+
-      sl +'     , u.nome '+
-      sl +'     , d.token_fcm '+
+      sl +'select distinct '+
+      sl +'       cu.usuario_id '+
       sl +'  from conversa_usuario as cu '+
       sl +' inner '+
       sl +'  join usuario as u '+
       sl +'    on u.id = '+ Usuario.ToString +
-      sl +'  left '+
-      sl +'  join dispositivo_usuario as du '+
-      sl +'    on du.usuario_id = cu.usuario_id '+
-      sl +'  left '+
-      sl +'  join dispositivo as d '+
-      sl +'    on d.id = du.dispositivo_id '+
       sl +' where cu.conversa_id = '+ Conversa.ToString +
       sl +'   and cu.usuario_id <> '+ Usuario.ToString
     );
     Qry.First;
     while not Qry.Eof do
     begin
-      EnviaNotificacoes(Qry.FieldByName('usuario_id').AsInteger, Qry.FieldByName('token_fcm').AsString, Qry.FieldByName('nome').AsString, sConteudo);
+      {TODO -oDaniel -cFCM : Corrigir notificação de FCM}
+      EnviaNotificacoes(Qry.FieldByName('usuario_id').AsInteger, '', '', sConteudo);
       Qry.Next;
     end;
   finally

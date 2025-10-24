@@ -22,6 +22,7 @@ type
     Login,
     NovaMensagem,
     AtualizacaoStatusMensagem,
+    ConversaNova = 40, // Nova conversa
     ChamadaRecebida = 51, // Usuário inicia uma chamada
     ChamadaFinalizada = 52, // Usuário que criou, cancela a chamada antes mesmo de algum usuário entrar ou finaliza a chamada de modo forçado
     UsuarioRecusou = 53,
@@ -38,6 +39,7 @@ type
     class procedure NovaMensagem(const sUsuario, sTitulo, sMensagem: String); static;
     class procedure AtualizarStatusMensagem(const sUsuario: String; const iGrupo: Integer; const sMensagens: String); static;
 
+    class procedure ConversaNotificar(const Conversa, Remetente, Destinatario: Integer; const Msg: TSocketMessageType); static;
     class procedure ChamadaNotificar(const Chamada, Remetente, Destinatario: Integer; const Msg: TSocketMessageType); static;
   end;
 
@@ -209,6 +211,21 @@ begin
     TWebSocket.Enviar(sUsuario, oJSON);
   finally
     oJSON.Free;
+  end;
+end;
+
+class procedure TWebSocket.ConversaNotificar(const Conversa, Remetente, Destinatario: Integer; const Msg: TSocketMessageType);
+var
+  jo: TJSONObject;
+begin
+  jo := TJSONObject.Create;
+  try
+    jo.AddPair('tipo', Integer(Msg));
+    jo.AddPair('conversa_id', Conversa);
+    jo.AddPair('usuario_id', Remetente);
+    TWebSocket.Enviar(Destinatario.ToString, jo);
+  finally
+    jo.Free;
   end;
 end;
 
