@@ -1,4 +1,4 @@
-// Eduardo - 24/09/2025
+Ôªø// Eduardo - 24/09/2025
 unit conversa.chamada;
 
 interface
@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   System.Generics.Collections,
   System.DateUtils,
+  Thread.Queue,
   tcp;
 
 type
@@ -67,6 +68,7 @@ begin
   Servidor := TTCPServer.Create(iPort);
   Servidor.OnServerReceive := OnServerReceive;
   Servidor.OnClientDisconnect := DisconnectClient;
+  Servidor.StartListening;
 end;
 
 destructor TChamada.Destroy;
@@ -142,6 +144,21 @@ begin
   Move(Value, Result[0], SizeOf(Value));
 end;
 
+function BytesToString(const Bytes: TBytes): string;
+var
+  FullString: string;
+begin
+  if Length(Bytes) = 0 then
+    raise Exception.Create('Invalid byte array size. Cannot be empty.');
+
+  FullString := TEncoding.UTF8.GetString(Bytes);
+
+  if Length(FullString) > 50 then
+    Result := Copy(FullString, 1, 50)
+  else
+    Result := FullString;
+end;
+
 procedure TChamada.OnServerReceive(const ClientID: Int64; const Data: TBytes);
 var
   Clientes: TList<Integer>;
@@ -151,16 +168,21 @@ var
   Cliente: Integer;
   bNaChamada: Boolean;
 begin
+  if Length(Data) = 0 then
+  begin
+    Sleep(0);
+    Exit;
+  end;
+
   case Data[0] of
     0: // Registrar
     begin
-      // Recebe o cÛdigo do cliente
       if Length(Data) = 5 then
         MapaClientes.AddOrSetValue(BytesToInt(Copy(Data, 1, 4)), ClientID);
     end;
     1: // Audio
     begin
-      // Recebe o cÛdigo da chamada
+      // Recebe o c√≥digo da chamada
       iChamada := BytesToInt(Copy(Data, 1, 4));
       if not Chamadas.TryGetValue(iChamada, Clientes) then
         Exit;
@@ -168,11 +190,17 @@ begin
       // Obtem o ID do cliente remetente
       iRemetente := ObtemIDCliente(ClientID);
 
-      // Valida se o cliente est· na chamada
+      if iRemetente = 1 then
+      begin
+        Sleep(0);
+      end;
+
+
+      // Valida se o cliente est√° na chamada
       bNaChamada := False;
       for Cliente in Clientes do
       begin
-        // Se È ele mesmo, n„o envia
+        // Se √© ele mesmo, n√£o envia
         if Cliente = iRemetente then
         begin
           bNaChamada := True;
@@ -180,21 +208,25 @@ begin
         end;
       end;
 
-      // Um cliente n„o pode enviar audio em uma chamada que n„o est·
+      // Um cliente n√£o pode enviar audio em uma chamada que n√£o est√°
       if not bNaChamada then
         Exit;
 
       // Percorre todos os clientes da chamada enviando os dados
       for Cliente in Clientes do
       begin
-        // Se È ele mesmo, n„o envia
+        // Se √© ele mesmo, n√£o envia
         if Cliente = iRemetente then
           Continue;
 
         // Obtem o ID para enviar
         if MapaClientes.TryGetValue(Cliente, iIDTCP) then
-          Servidor.Send(iIDTCP, IntToBytes(ClientID) + Copy(Data, 1));
+          Servidor.Send(iIDTCP, IntToBytes(iRemetente) + Copy(Data, 1));
       end;
+    end;
+  else
+    begin
+      Sleep(0);
     end;
   end;
 end;
@@ -204,12 +236,15 @@ var
   Chamada: TList<Integer>;
   Cliente: Integer;
 begin
-  // Percorre todas as chamadas removendo o cliente da lista
   Cliente := ObtemIDCliente(ClientID);
+
+  // Remove de todas as chamadas
   for Chamada in Chamadas.Values do
     Chamada.Remove(Cliente);
 
-  // Avisar que o cliente desconectou para o websocket
+  // Remove do mapa de clientes
+  if Cliente > 0 then
+    MapaClientes.Remove(Cliente);
 end;
 
 end.

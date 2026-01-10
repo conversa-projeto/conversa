@@ -7,6 +7,7 @@ program conversa.rest;
 
 uses
   {$IF DEFINED(MSWINDOWS)}
+  Winapi.WinSock,
   Winapi.Windows,
   {$ENDIF }
   System.SysUtils,
@@ -40,17 +41,76 @@ begin
     EHorseException.New.Status(THTTPStatus.BadRequest).Error('Erro ao obter o conteúdo da requisição!');
 end;
 
+{$IF DEFINED(MSWINDOWS)}
+function ObterIPLocal: string;
+var
+  WSAData: TWSAData;
+  HostEnt: PHostEnt;
+  HostName: array[0..255] of AnsiChar;
+  Addr: PPAnsiChar;
+  IPTemp: string;
+begin
+  Result := '';
+
+  if WSAStartup($0101, WSAData) <> 0 then
+    Exit;
+
+  try
+    if gethostname(HostName, SizeOf(HostName)) = 0 then
+    begin
+      HostEnt := gethostbyname(HostName);
+      if HostEnt <> nil then
+      begin
+        Addr := Pointer(HostEnt^.h_addr_list);
+        // Percorre todos os IPs disponíveis
+        while Addr^ <> nil do
+        begin
+          IPTemp := string(inet_ntoa(PInAddr(Addr^)^));
+
+          // Prioriza IPs que começam com 192.168 (rede local comum)
+          if Copy(IPTemp, 1, 7) = '192.168' then
+          begin
+            Result := IPTemp;
+            Break;
+          end
+          // Se não encontrar 192.168, aceita 10.x.x.x
+          else if (Copy(IPTemp, 1, 3) = '10.') and (Result = '') then
+          begin
+            Result := IPTemp;
+          end
+          // Ignora 172.x.x.x e 127.0.0.1 quando possível
+          else if (Result = '') and (IPTemp <> '127.0.0.1') then
+          begin
+            Result := IPTemp;
+          end;
+
+          Inc(Addr);
+        end;
+      end;
+    end;
+  finally
+    WSACleanup;
+  end;
+end;
+{$ENDIF }
+
 const
   sl = sLineBreak;
 begin
   {$IF DEFINED(MSWINDOWS)}
   // Habilita caracteres UTF8 no terminal
   SetConsoleOutputCP(CP_UTF8);
+  Writeln('🖥️ IP Local: '+ ObterIPLocal);
   {$ENDIF}
 
   ReportMemoryLeaksOnShutdown := True;
   try
     TConfiguracao.LoadFromEnvironment;
+
+    Writeln('🌐 Porta  Geral: '+ Configuracao.Porta.ToString);
+    Writeln('🌐 Porta   HTTP: '+ Configuracao.Porta.ToString);
+    Writeln('🌐 Porta Socket: '+ (8000 + Configuracao.Porta).ToString);
+    Writeln('🌐 Porta  Áudio: '+ (9000 + Configuracao.Porta).ToString);
 
     TPool.Start(Configuracao.PGParams);
     try
@@ -241,6 +301,14 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONArray>(TConversa.Conversas(Req.Session<TJWTClaims>.Subject.ToInteger));
+        end
+      );
+
+      THorse.Get(
+        '/conversa/dados',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.ConversaDados(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('id').AsInteger));
         end
       );
 
@@ -463,7 +531,7 @@ begin
                 Configuracao.Porta,
                 procedure
                 begin
-                  Writeln('Servidor iniciado na porta: '+ Configuracao.Porta.ToString +' 🚀');
+                  Writeln('✔️Servidor iniciado ');
                 end
               );
             finally

@@ -28,6 +28,7 @@ uses
 type
   TConversa = record
   private
+    class procedure ValidarConversa(Usuario, Conversa: Integer); static;
     class procedure ValidarChamada(Usuario, Chamada: Integer); static;
     class procedure EnviarNotificacao(Usuario, Conversa: Integer; sConteudo: String); static;
     class procedure AtualizaMensagemSocket(const Usuario, Conversa: Integer; const Mensagens: String); static;
@@ -35,6 +36,7 @@ type
     class procedure AtualizarStatusChamada(const Chamada: Integer; const Status: Integer = 0); static;
     class function InternalChamadaDados(Chamada: Integer): TJSONObject; static;
     class procedure ConversaNotificar(const Conversa, Usuario: Integer; Msg: TSocketMessageType); static;
+    class function InternalConversaDados(Conversa, Usuario: Integer): TJSONObject; static;
   public
     class function Status: TJSONObject; static;
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
@@ -52,6 +54,7 @@ type
     class function ConversaAlterar(Usuario: Integer; oConversa: TJSONObject): TJSONObject; static;
     class function ConversaExcluir(Usuario: Integer; Conversa: Integer): TJSONObject; static;
     class function Conversas(Usuario: Integer): TJSONArray; static;
+    class function ConversaDados(Usuario, Conversa: Integer): TJSONObject; static;
     class function ConversaUsuarioIncluir(Usuario: Integer; oConversaUsuario: TJSONObject): TJSONObject; static;
     class function ConversaUsuarioExcluir(Usuario: Integer; ConversaUsuario: Integer): TJSONObject; static;
     class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject; static;
@@ -299,6 +302,35 @@ begin
   );
 end;
 
+class procedure TConversa.ValidarConversa(Usuario, Conversa: Integer);
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+begin
+  if Conversa = 0 then
+    raise Exception.Create('Chamada não encontrada!');
+
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    Qry.Open(
+      sl +'select c.id '+
+      sl +'  from conversa as c '+
+      sl +' inner '+
+      sl +'  join conversa_usuario u '+
+      sl +'    on u.conversa_id = c.id '+
+      sl +'   and u.usuario_id = '+ Usuario.ToString +
+      sl +' where c.id = '+ Conversa.ToString
+    );
+
+    if Qry.IsEmpty then
+      raise Exception.Create('Chamada não encontrada!');
+  finally
+    FreeAndNil(Qry);
+  end;
+end;
+
 class procedure TConversa.ConversaNotificar(const Conversa, Usuario: Integer; Msg: TSocketMessageType);
 var
   Pool: IConnection;
@@ -459,6 +491,129 @@ begin
     sl +'     on msg_count.conversa_id = tc.id '+
     sl +'  order '+
     sl +'     by tcm.ultima_mensagem desc '
+  );
+end;
+
+class function TConversa.ConversaDados(Usuario, Conversa: Integer): TJSONObject;
+begin
+  ValidarConversa(Usuario, Conversa);
+  Result := InternalConversaDados(Conversa, Usuario);
+end;
+
+class function TConversa.InternalConversaDados(Conversa, Usuario: Integer): TJSONObject;
+begin
+  Result := OpenKey(
+    sl +'   drop table if exists temp_conversa; '+
+    sl +' create temp table temp_conversa as '+
+    sl +' select c.id '+
+    sl +'      , c.descricao '+
+    sl +'      , c.tipo '+
+    sl +'      , c.inserida '+
+    sl +'   from conversa c '+
+    sl +'  where c.id = '+ Conversa.ToString +'; '+
+    sl +
+    sl +' select tc.id '+
+    sl +'      , coalesce(nullif(trim(tc.descricao), ''''), d.nome) as descricao '+
+    sl +'      , tc.tipo '+
+    sl +'      , tc.inserida '+
+    sl +'      , d.nome '+
+    sl +'      , d.destinatario_id '+
+    sl +'      , coalesce(tcm.mensagem_id, 0) as mensagem_id '+
+    sl +'      , tcm.ultima_mensagem '+
+    sl +'      , convert_from(tcm.ultima_mensagem_texto, ''utf-8'') as ultima_mensagem_texto '+
+    sl +'      , cast(coalesce(mensagens_sem_visualizar, 0) as int) as mensagens_sem_visualizar '+
+    sl +'   from temp_conversa tc '+
+    sl +'   left '+
+    sl +'   join '+
+    sl +'      ( select d.conversa_id '+
+    sl +'             , d.destinatario_id '+
+    sl +'             , u.nome '+
+    sl +'          from '+
+    sl +'             ( select cu.conversa_id '+
+    sl +'                    , cu.usuario_id as destinatario_id '+
+    sl +'                 from temp_conversa tc '+
+    sl +'                inner '+
+    sl +'                 join conversa_usuario cu '+
+    sl +'                   on cu.conversa_id = tc.id '+
+    IfThen(Usuario <> 0,
+    sl +'                  and cu.usuario_id <> '+ Usuario.ToString) +
+    sl +'                where tc.tipo = 1 /* 1-Chat */ '+
+    sl +'                group '+
+    sl +'                   by cu.conversa_id '+
+    sl +'                    , cu.usuario_id '+
+    sl +'               having count(1) = 1 '+
+    sl +'             ) d '+
+    sl +'         inner '+
+    sl +'          join usuario u '+
+    sl +'            on u.id = d.destinatario_id '+
+    sl +'      ) as d '+
+    sl +'     on d.conversa_id = tc.id '+
+    sl +'   left '+
+    sl +'   join '+
+    sl +'      ( select * '+
+    sl +'          from '+
+    sl +'             ( select tcm.conversa_id '+
+    sl +'                    , tcm.mensagem_id as mensagem_id '+
+    sl +'                    , tcm.inserida as ultima_mensagem '+
+    sl +'                    , case mc.tipo '+
+    sl +'                      when 1 then mc.conteudo '+
+    sl +'                      when 2 then ''imagem'' '+
+    sl +'                      else '''' '+
+    sl +'                       end as ultima_mensagem_texto '+
+    sl +'                    , row_number() over(partition by tcm.conversa_id, tcm.mensagem_id order by mc.ordem) as rid_conteudo '+
+    sl +'                 from '+
+    sl +'                    ( select * '+
+    sl +'                        from '+
+    sl +'                           ( select tc.id as conversa_id '+
+    sl +'                                  , m.id as mensagem_id '+
+    sl +'                                  , m.inserida '+
+    sl +'                                  , row_number() over(partition by tc.id order by m.inserida desc) as rid '+
+    sl +'                               from temp_conversa tc '+
+    sl +'                              inner '+
+    sl +'                               join mensagem m '+
+    sl +'                                 on m.conversa_id = tc.id '+
+    sl +'                           ) as tcm '+
+    sl +'                       where tcm.rid = 1 '+
+    sl +'                    ) as tcm '+
+    sl +'                inner '+
+    sl +'                 join mensagem_conteudo mc '+
+    sl +'                   on mc.mensagem_id  = tcm.mensagem_id '+
+    sl +'             ) as tcm '+
+    sl +'         where tcm.rid_conteudo = 1 '+
+    sl +'      ) as tcm '+
+    sl +'     on tcm.conversa_id = tc.id '+
+    sl +'   left '+
+    sl +'   join '+
+    sl +'      ( select ms.conversa_id '+
+    sl +'             , count(1) as mensagens_sem_visualizar '+
+    sl +'          from conversa c '+
+    sl +'         inner '+
+    sl +'          join mensagem_status ms '+
+    sl +'            on ms.conversa_id = c.id '+
+    sl +'           and (ms.recebida is null or ms.visualizada is null) '+
+    sl +'           and ms.usuario_id = '+ Usuario.ToString +
+    sl +'         group '+
+    sl +'            by ms.conversa_id '+
+    sl +'      ) as msg_count '+
+    sl +'     on msg_count.conversa_id = tc.id '+
+    sl +'  order '+
+    sl +'     by tcm.ultima_mensagem desc '
+  );
+
+
+  Result.AddPair(
+    'usuarios',
+    Open(
+      sl +' select c.usuario_id as id '+
+      sl +'      , u.nome '+
+      sl +'      , u.login '+
+      sl +'      , u.email '+
+      sl +'   from conversa_usuario c '+
+      sl +'  inner '+
+      sl +'   join usuario u '+
+      sl +'     on u.id = c.usuario_id  '+
+      sl +'  where c.conversa_id = '+ Conversa.ToString
+    )
   );
 end;
 
@@ -1160,6 +1315,11 @@ var
   iID: Integer;
   jvUsuario: TJSONValue;
 begin
+  for jvUsuario in joParam.GetValue<TJSONArray>('usuarios') do
+    if jvUsuario.GetValue<Integer>('id', 0) = 0 then
+      raise Exception.Create('Usuário inválido!');
+
+
   // Apenas para gerar um id
   iID := TPool.Instance.Connection.ExecSQLScalar(
     sl +' insert '+
