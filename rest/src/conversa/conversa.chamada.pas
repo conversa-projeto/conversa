@@ -169,10 +169,7 @@ var
   bNaChamada: Boolean;
 begin
   if Length(Data) = 0 then
-  begin
-    Sleep(0);
     Exit;
-  end;
 
   case Data[0] of
     0: // Registrar
@@ -189,12 +186,6 @@ begin
 
       // Obtem o ID do cliente remetente
       iRemetente := ObtemIDCliente(ClientID);
-
-      if iRemetente = 1 then
-      begin
-        Sleep(0);
-      end;
-
 
       // Valida se o cliente está na chamada
       bNaChamada := False;
@@ -223,10 +214,6 @@ begin
         if MapaClientes.TryGetValue(Cliente, iIDTCP) then
           Servidor.Send(iIDTCP, IntToBytes(iRemetente) + Copy(Data, 1));
       end;
-    end;
-  else
-    begin
-      Sleep(0);
     end;
   end;
 end;
