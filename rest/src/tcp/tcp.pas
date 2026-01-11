@@ -26,11 +26,8 @@ type
       TClientData = class
     strict private
       FID: Int64;
-      FLastPing: TDateTime;
     public
       constructor Create(const AID: Int64);
-      procedure UpdateLastPing;
-      function SecondsSinceLastPing: Integer;
       property ID: Int64 read FID;
     end;
   private
@@ -38,19 +35,13 @@ type
     FOnClientDisconnect: TOnClientDisconnect;
     FOnError: TOnError;
     FClientCounter: Int64;
-    FTimeoutThread: TThread;
-    FTimeoutSeconds: Integer;
-    FControle: Int64;
     procedure Execute(AContext: TIdContext);
     procedure Connect(AContext: TIdContext);
     procedure Disconnect(AContext: TIdContext);
-    procedure CheckClientTimeouts;
     function GetClients: TArray<Integer>;
   public
-    constructor Create(const APort: Word; const ATimeoutSeconds: Integer = 10);
-    destructor Destroy; override;
+    constructor Create(const APort: Word);
     procedure Send(const iClient: Int64; const Data: TBytes);
-    procedure UpdateClientPing(const iClient: Int64);
     property Clients: TArray<Integer> read GetClients;
     property OnServerReceive: TOnServerReceive read FOnServerReceive write FOnServerReceive;
     property OnClientDisconnect: TOnClientDisconnect read FOnClientDisconnect write FOnClientDisconnect;
@@ -76,7 +67,6 @@ implementation
 
 uses
   System.NetEncoding,
-  System.DateUtils,
   IdIOHandler,
   IdGlobal;
 
@@ -214,7 +204,7 @@ end;
 
 { TTCPServer }
 
-constructor TTCPServer.Create(const APort: Word; const ATimeoutSeconds: Integer = 10);
+constructor TTCPServer.Create(const APort: Word);
 begin
   inherited Create;
 
@@ -222,75 +212,11 @@ begin
     raise Exception.Create('Informe a porta!');
 
   FClientCounter := 0;
-  FControle := 0;
-  FTimeoutSeconds := ATimeoutSeconds;
   DefaultPort := APort;
   OnConnect := Connect;
   OnDisconnect := Disconnect;
   OnExecute := Execute;
   Active := True;
-
-  if FTimeoutSeconds > 0 then
-  begin
-    FTimeoutThread := TThread.CreateAnonymousThread(CheckClientTimeouts);
-    FTimeoutThread.FreeOnTerminate := False;
-    FTimeoutThread.Start;
-  end;
-end;
-
-destructor TTCPServer.Destroy;
-begin
-  TInterlocked.Increment(FControle);
-  Active := False;
-  if Assigned(FTimeoutThread) then
-  begin
-    FTimeoutThread.WaitFor;
-    FTimeoutThread.Free;
-  end;
-  inherited;
-end;
-
-procedure TTCPServer.CheckClientTimeouts;
-var
-  List: TList<TIdContext>;
-  ClientData: TClientData;
-  ToDisconnect: TList<TIdContext>;
-begin
-  while TInterlocked.Read(FControle) = 0 do
-  begin
-    Sleep(1000);
-    if TInterlocked.Read(FControle) <> 0 then
-      Break;
-
-    ToDisconnect := TList<TIdContext>.Create;
-    try
-      List := TList<TIdContext>(Contexts.LockList);
-      try
-        for var Item in List do
-        begin
-          if not Item.Connection.Connected then
-            Continue;
-
-          ClientData := TClientData(Item.Data);
-          if not Assigned(ClientData) then
-            Continue;
-
-          if ClientData.SecondsSinceLastPing > FTimeoutSeconds then
-            ToDisconnect.Add(Item);
-        end;
-      finally
-        Contexts.UnlockList;
-      end;
-
-      for var Item in ToDisconnect do
-      try
-        Item.Connection.Disconnect;
-      except
-      end;
-    finally
-      ToDisconnect.Free;
-    end;
-  end;
 end;
 
 procedure TTCPServer.Execute(AContext: TIdContext);
@@ -343,27 +269,6 @@ begin
         end;
       end
     );
-end;
-
-procedure TTCPServer.UpdateClientPing(const iClient: Int64);
-var
-  List: TList<TIdContext>;
-  ClientData: TClientData;
-begin
-  List := TList<TIdContext>(Contexts.LockList);
-  try
-    for var Item in List do
-    begin
-      ClientData := TClientData(Item.Data);
-      if Assigned(ClientData) and (ClientData.ID = iClient) then
-      begin
-        ClientData.UpdateLastPing;
-        Break;
-      end;
-    end;
-  finally
-    Contexts.UnlockList;
-  end;
 end;
 
 procedure TTCPServer.Send(const iClient: Int64; const Data: TBytes);
@@ -424,17 +329,6 @@ constructor TTCPServer.TClientData.Create(const AID: Int64);
 begin
   inherited Create;
   FID := AID;
-  FLastPing := Now;
-end;
-
-procedure TTCPServer.TClientData.UpdateLastPing;
-begin
-  FLastPing := Now;
-end;
-
-function TTCPServer.TClientData.SecondsSinceLastPing: Integer;
-begin
-  Result := SecondsBetween(Now, FLastPing);
 end;
 
 end.
