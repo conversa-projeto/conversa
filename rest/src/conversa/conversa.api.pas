@@ -633,22 +633,6 @@ begin
   Result := Delete('conversa_usuario', ConversaUsuario);
 end;
 
-procedure EnviaNotificacoes(const AUsuarioID: Integer; const ATokenDispositivo, ATitulo, AMensagem: String; ADadosExtras: TJSONObject = nil);
-begin
-  TWebSocket.NovaMensagem(AUsuarioID.ToString, ATitulo, AMensagem);
-
-  // Desabilitado envio de mensagens FCM por enquanto
-  Exit;
-
-  if not ATokenDispositivo.IsEmpty then
-    TThreadQueue.Add(
-      procedure
-      begin
-        FCM.EnviarNotificacao(ATokenDispositivo, ATitulo, AMensagem, ADadosExtras);
-      end
-    );
-end;
-
 class procedure TConversa.EnviarNotificacao(Usuario, Conversa: Integer; sConteudo: String);
 var
   Pool: IConnection;
@@ -661,7 +645,13 @@ begin
     Qry.Open(
       sl +'select distinct '+
       sl +'       cu.usuario_id '+
+      sl +'     , coalesce(nullif(trim(c.descricao), ''''), u.nome) as titulo '+
+      sl +'     , u.nome as subtitulo '+
+      sl +'     , c.tipo '+
       sl +'  from conversa_usuario as cu '+
+      sl +' inner '+
+      sl +'  join conversa c '+
+      sl +'    on c.id = cu.conversa_id '+
       sl +' inner '+
       sl +'  join usuario as u '+
       sl +'    on u.id = '+ Usuario.ToString +
@@ -672,7 +662,15 @@ begin
     while not Qry.Eof do
     begin
       {TODO -oDaniel -cFCM : Corrigir notificação de FCM}
-      EnviaNotificacoes(Qry.FieldByName('usuario_id').AsInteger, '', '', sConteudo);
+      TWebSocket.NovaMensagem(
+        TJSONObject.Create
+          .AddPair('conversa_id', Conversa)
+          .AddPair('remetente_id', Usuario)
+          .AddPair('destinatario_id', Qry.FieldByName('usuario_id').AsInteger)
+          .AddPair('titulo', Qry.FieldByName('titulo').AsString)
+          .AddPair('subtitulo', IfThen(Qry.FieldByName('usuario_id').AsInteger <> 1, Qry.FieldByName('subtitulo').AsString, ''))
+          .AddPair('mensagem', sConteudo)
+      );
       Qry.Next;
     end;
   finally
@@ -735,7 +733,11 @@ begin
     FreeAndNil(pJSON);
   end;
 
-  EnviarNotificacao(Usuario, oMensagem.GetValue<Integer>('conversa_id'), sNotificacao);
+  EnviarNotificacao(
+    Usuario,
+    oMensagem.GetValue<Integer>('conversa_id'),
+    sNotificacao
+  );
 end;
 
 class function TConversa.MensagemExcluir(Usuario, Mensagem: Integer): TJSONObject;

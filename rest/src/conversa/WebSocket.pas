@@ -20,8 +20,8 @@ type
   TSocketMessageType = (
     Erro,
     Login,
-    NovaMensagem,
-    AtualizacaoStatusMensagem,
+    NovaMensagem = 20,
+    AtualizacaoStatusMensagem = 21,
     ConversaNova = 40, // Nova conversa
     ChamadaRecebida = 51, // Usuário inicia uma chamada
     ChamadaFinalizada = 52, // Usuário que criou, cancela a chamada antes mesmo de algum usuário entrar ou finaliza a chamada de modo forçado
@@ -36,7 +36,7 @@ type
   public
     class procedure Iniciar(const iPort: Integer; const sJWTKey: String); static;
     class procedure Parar; static;
-    class procedure NovaMensagem(const sUsuario, sTitulo, sMensagem: String); static;
+    class procedure NovaMensagem(const oJSON: TJSONObject); static;
     class procedure AtualizarStatusMensagem(const sUsuario: String; const iGrupo: Integer; const sMensagens: String); static;
 
     class procedure ConversaNotificar(const Conversa, Remetente, Destinatario: Integer; const Msg: TSocketMessageType); static;
@@ -184,16 +184,11 @@ begin
   end;
 end;
 
-class procedure TWebSocket.NovaMensagem(const sUsuario, sTitulo, sMensagem: String);
-var
-  oJSON: TJSONObject;
+class procedure TWebSocket.NovaMensagem(const oJSON: TJSONObject);
 begin
-  oJSON := TJSONObject.Create;
   try
     oJSON.AddPair('tipo', Integer(TSocketMessageType.NovaMensagem));
-    oJSON.AddPair('titulo', sTitulo);
-    oJSON.AddPair('mensagem', sMensagem);
-    TWebSocket.Enviar(sUsuario, oJSON);
+    TWebSocket.Enviar(oJSON.GetValue<String>('destinatario_id'), oJSON);
   finally
     oJSON.Free;
   end;
