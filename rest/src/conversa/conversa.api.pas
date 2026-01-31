@@ -69,6 +69,7 @@ type
     class function Anexo(Identificador: String): TStringStream; static;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray; static;
 
+    class function Chamadas(Usuario: Integer): TJSONArray; static;
     class function ChamadaIniciar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaCancelar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaRecusar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
@@ -1713,6 +1714,86 @@ class function TConversa.ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONOb
 begin
   CamposObrigatorios(joParam, ['chamada_id', 'usuario_id', 'evento_tipo_id']);
   Result := InsertJSON('chamada_evento', joParam);
+end;
+
+class function TConversa.Chamadas(Usuario: Integer): TJSONArray;
+begin
+  Result := Open(
+    sl +'select chamada_id '+
+    sl +'     , iniciada '+
+    sl +'     , finalizada '+
+    sl +'     , conversa_id '+
+    sl +'     , tipo_chamada '+
+    sl +'     , status_chamada '+
+    sl +'     , criado_por_id '+
+    sl +'     , criado_por '+
+    sl +'     , usuario_exibido_id '+
+    sl +'     , usuario_exibido_nome '+
+    sl +'     , recusou_em '+
+    sl +'     , entrou_em '+
+    sl +'     , saiu_em '+
+    sl +'     , status_usuario '+
+    sl +'     , adicionado_em '+
+    sl +'     , adicionado_por_id '+
+    sl +'     , adicionado_por '+
+    sl +'     , tipo_acao '+
+    sl +'     , quantidade_outros_usuarios '+
+    sl +'  from '+
+    sl +'     ( select c.id as chamada_id '+
+    sl +'            , c.iniciada '+
+    sl +'            , c.finalizada '+
+    sl +'            , c.conversa_id '+
+    sl +'            , c.tipo as tipo_chamada '+
+    sl +'            , c.status as status_chamada '+
+    sl +'            , c.criado_por as criado_por_id '+
+    sl +'            , u_criador.nome as criado_por '+
+    sl +'            , u_outro_info.id as usuario_exibido_id '+
+    sl +'            , u_outro_info.nome as usuario_exibido_nome '+
+    sl +'            , u.recusou_em '+
+    sl +'            , u.entrou_em '+
+    sl +'            , u.saiu_em '+
+    sl +'            , u.status as status_usuario '+
+    sl +'            , u.adicionado_em '+
+    sl +'            , u.adicionado_por as adicionado_por_id '+
+    sl +'            , u_add.nome as adicionado_por '+
+    sl +'            , case '+
+    sl +'              when u.usuario_id = u.adicionado_por then 1 /* Chamada Realizada */ '+
+    sl +'              when u.usuario_id <> u.adicionado_por then 2 /* Chamada Recebida */ '+
+    sl +'              else 3 /* Desconhecido */ '+
+    sl +'              end as tipo_acao '+
+    sl +'            , (count(1) over(partition by u.chamada_id) - 1) as quantidade_outros_usuarios '+
+    sl +'            , row_number() over( '+
+    sl +'                partition '+
+    sl +'                       by u.chamada_id '+
+    sl +'                    order '+
+    sl +'                       by case '+
+    sl +'                          when u.adicionado_por = u_outro.usuario_id and u.usuario_id <> u_outro.usuario_id then 0 '+
+    sl +'                          else 1 '+
+    sl +'                           end '+
+    sl +'                        , u_outro.adicionado_em desc '+
+    sl +'              ) as rid '+
+    sl +'         from chamada_usuario u '+
+    sl +'         left '+
+    sl +'         join chamada c '+
+    sl +'           on c.id = u.chamada_id '+
+    sl +'         left '+
+    sl +'         join usuario u_criador '+
+    sl +'           on u_criador.id = c.criado_por '+
+    sl +'         left '+
+    sl +'         join chamada_usuario u_outro '+
+    sl +'           on u_outro.chamada_id = c.id '+
+    sl +'         left '+
+    sl +'         join usuario u_outro_info '+
+    sl +'           on u_outro_info.id = u_outro.usuario_id '+
+    sl +'         left '+
+    sl +'         join usuario u_add '+
+    sl +'           on u_add.id = u.adicionado_por '+
+    sl +'        where u.usuario_id = '+ Usuario.ToString +
+    sl +'     ) as c '+
+    sl +' where c.rid = 1 '+
+    sl +' order '+
+    sl +'    by adicionado_em desc '
+  );
 end;
 
 class procedure TConversa.AtualizaMensagemSocket(const Usuario, Conversa: Integer; const Mensagens: String);

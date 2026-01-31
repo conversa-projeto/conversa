@@ -435,6 +435,14 @@ begin
         end
       );
 
+      THorse.Get(
+        '/chamadas',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONArray>(TConversa.Chamadas(Req.Session<TJWTClaims>.Subject.ToInteger));
+        end
+      );
+
       THorse.Put(
         '/chamada/iniciar',
         procedure(Req: THorseRequest; Res: THorseResponse)
