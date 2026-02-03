@@ -729,7 +729,7 @@ begin
       end
     end;
 
-    sNotificacao := sNotificacao.Trim.Replace(' ', ' | ');
+    sNotificacao := sNotificacao.Trim;
   finally
     FreeAndNil(pJSON);
   end;
