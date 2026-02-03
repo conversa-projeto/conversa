@@ -1725,6 +1725,7 @@ begin
     sl +'     , conversa_id '+
     sl +'     , tipo_chamada '+
     sl +'     , status_chamada '+
+    sl +'     , criado_em '+
     sl +'     , criado_por_id '+
     sl +'     , criado_por '+
     sl +'     , usuario_exibido_id '+
@@ -1737,7 +1738,7 @@ begin
     sl +'     , adicionado_por_id '+
     sl +'     , adicionado_por '+
     sl +'     , tipo_acao '+
-    sl +'     , quantidade_outros_usuarios '+
+    sl +'     , cast(quantidade_outros_usuarios as int) as quantidade_outros_usuarios '+
     sl +'  from '+
     sl +'     ( select c.id as chamada_id '+
     sl +'            , c.iniciada '+
@@ -1745,6 +1746,7 @@ begin
     sl +'            , c.conversa_id '+
     sl +'            , c.tipo as tipo_chamada '+
     sl +'            , c.status as status_chamada '+
+    sl +'            , c.criado_em '+
     sl +'            , c.criado_por as criado_por_id '+
     sl +'            , u_criador.nome as criado_por '+
     sl +'            , u_outro_info.id as usuario_exibido_id '+
@@ -1761,7 +1763,7 @@ begin
     sl +'              when u.usuario_id <> u.adicionado_por then 2 /* Chamada Recebida */ '+
     sl +'              else 3 /* Desconhecido */ '+
     sl +'              end as tipo_acao '+
-    sl +'            , (count(1) over(partition by u.chamada_id) - 1) as quantidade_outros_usuarios '+
+    sl +'            , (count(1) over(partition by u.chamada_id) - 2) as quantidade_outros_usuarios '+
     sl +'            , row_number() over( '+
     sl +'                partition '+
     sl +'                       by u.chamada_id '+
@@ -1792,7 +1794,7 @@ begin
     sl +'     ) as c '+
     sl +' where c.rid = 1 '+
     sl +' order '+
-    sl +'    by adicionado_em desc '
+    sl +'    by coalesce(adicionado_em, criado_em) desc '
   );
 end;
 
