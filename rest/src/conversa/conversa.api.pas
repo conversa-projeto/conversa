@@ -648,7 +648,7 @@ begin
       sl +'       cu.usuario_id '+
       sl +'     , coalesce(nullif(trim(c.descricao), ''''), u.nome) as titulo '+
       sl +'     , u.nome as subtitulo '+
-      sl +'     , c.tipo '+
+      sl +'     , c.tipo as tipo_conversa '+
       sl +'  from conversa_usuario as cu '+
       sl +' inner '+
       sl +'  join conversa c '+
@@ -669,7 +669,8 @@ begin
           .AddPair('remetente_id', Usuario)
           .AddPair('destinatario_id', Qry.FieldByName('usuario_id').AsInteger)
           .AddPair('titulo', Qry.FieldByName('titulo').AsString)
-          .AddPair('subtitulo', IfThen(Qry.FieldByName('usuario_id').AsInteger <> 1, Qry.FieldByName('subtitulo').AsString, ''))
+          .AddPair('subtitulo', Qry.FieldByName('subtitulo').AsString)
+          .AddPair('tipo_conversa', Qry.FieldByName('tipo_conversa').AsInteger)
           .AddPair('mensagem', sConteudo)
       );
       Qry.Next;
