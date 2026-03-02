@@ -61,7 +61,6 @@ begin
   inherited Create;
   FBirds := TBirds.Create;
   DefaultPort := APort;
-  Active := True;
   FIdHashSHA1 := TIdHashSHA1.Create;
   FIdServerIOHandlerSSLOpenSSL := nil;
   OnConnect := DoOnConnect;
