@@ -12,7 +12,6 @@ uses
 
 type
   TConfiguracao = record
-    Porta: Word;
     PGParams: TPGParams;
     LocalAnexos: String;
     LocalVersoes: String;
@@ -36,7 +35,6 @@ class procedure TConfiguracao.LoadFromEnvironment;
 begin
   try
     Configuracao                        := Default(TConfiguracao);
-    Configuracao.Porta                  := GetEnvironmentVariable('CONVERSA_PORTA').ToInteger;
     Configuracao.PGParams.DriverID      := GetEnvironmentVariable('CONVERSA_DRIVERID');
     Configuracao.PGParams.Server        := GetEnvironmentVariable('CONVERSA_SERVER');
     Configuracao.PGParams.MetaDefSchema := GetEnvironmentVariable('CONVERSA_METADEFSCHEMA');

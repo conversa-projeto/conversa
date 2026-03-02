@@ -1,0 +1,27 @@
+# mediamtx.yml - configurado para HTTPS/WSS na rede local
+
+# API de controle (opcional)
+api: yes
+apiAddress: :9997
+
+# Certificado global (RTSP, etc)
+encryption: optional
+serverKey: cert/key.pem
+serverCert: cert/cert.pem
+
+# Endereços de escuta
+rtspAddress: :8554
+rtmpAddress: :1935
+hlsAddress: :8888
+webrtcAddress: :8889
+srtAddress: :8890
+
+# WebRTC - habilita WHIP e WHEP com HTTPS
+webrtc: yes
+webrtcEncryption: true
+webrtcServerKey: cert/key.pem
+webrtcServerCert: cert/cert.pem
+
+# Permite qualquer stream sem autenticação (rede local)
+paths:
+  all_others:
