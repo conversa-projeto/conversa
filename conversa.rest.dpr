@@ -409,6 +409,14 @@ begin
         end
       );
 
+      THorse.Put(
+        '/chamada/usuario',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.ChamadaUsuario(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
       THorse.Post(
         '/chamada/finalizar',
         procedure(Req: THorseRequest; Res: THorseResponse)

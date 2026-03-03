@@ -70,6 +70,7 @@ type
     class function ChamadaRecusar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaEntrar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaSair(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
+    class function ChamadaUsuario(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaFinalizar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaDados(Usuario: Integer; Chamada: Integer): TJSONObject; static;
     class function ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
@@ -1374,6 +1375,50 @@ begin
   AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0));
 
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.UsuarioSaiu);
+end;
+
+class function TConversa.ChamadaUsuario(Usuario: Integer; joParam: TJSONObject): TJSONObject;
+var
+  iChamadaId, iUsuarioId: Integer;
+begin
+  iChamadaId := joParam.GetValue<Integer>('chamada_id', 0);
+  iUsuarioId := joParam.GetValue<Integer>('usuario_id', 0);
+
+  Result := TJSONObject.Create.AddPair('id', iChamadaId);
+
+  ValidarChamada(Usuario, iChamadaId);
+
+  TPool.Instance.Connection.ExecSQL(
+    sl +'insert '+
+    sl +'  into chamada_usuario '+
+    sl +'     ( chamada_id '+
+    sl +'     , usuario_id '+
+    sl +'     , adicionado_por '+
+    sl +'     , status '+
+    sl +'     ) '+
+    sl +'values '+
+    sl +'     ( '+ iChamadaId.ToString +
+    sl +'     , '+ iUsuarioId.ToString +
+    sl +'     , '+ Usuario.ToString +
+    sl +'     , 1 /* 1-Pendente */ '+
+    sl +'     ); '+
+    sl +
+    sl +'insert '+
+    sl +'  into chamada_evento '+
+    sl +'     ( chamada_id '+
+    sl +'     , usuario_id '+
+    sl +'     , tipo '+
+    sl +'     , criado_por '+
+    sl +'     ) '+
+    sl +'values '+
+    sl +'     ( '+ iChamadaId.ToString +
+    sl +'     , '+ iUsuarioId.ToString +
+    sl +'     , 3 /* 3-Usuário Convidado */ '+
+    sl +'     , '+ Usuario.ToString +
+    sl +'     ); '
+  );
+
+  ChamadaNotificar(iChamadaId, Usuario, TSocketMessageType.ChamadaRecebida);
 end;
 
 class function TConversa.ChamadaFinalizar(Usuario: Integer; joParam: TJSONObject): TJSONObject;
