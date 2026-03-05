@@ -73,6 +73,7 @@ type
     class function ChamadaDados(Usuario: Integer; Chamada: Integer): TJSONObject; static;
     class function ChamadasPendentes(Usuario: Integer): TJSONArray; static;
     class function ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
+    class procedure ConversaDigitando(const Usuario, Conversa: Integer); static;
   end;
 
 implementation
@@ -473,6 +474,11 @@ class function TConversa.ConversaUsuarioExcluir(Usuario, ConversaUsuario: Intege
 begin
   {TODO -oEduardo -cSegurança : não pode excluir usuario de uma conversa de outro usuário, adicionar validação}
   Result := Delete('conversa_usuario', ConversaUsuario);
+end;
+
+class procedure TConversa.ConversaDigitando(const Usuario, Conversa: Integer);
+begin
+  TConversa.ConversaNotificar(Conversa, Usuario, TSocketMessageType.Digitando);
 end;
 
 procedure EnviaNotificacoes(const AUsuarioID: Integer; const ATokenDispositivo, ATitulo, AMensagem: String; ADadosExtras: TJSONObject = nil);
