@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..8] of String = (
+  Versoes: Array[0..9] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -29,7 +29,6 @@ const
     sl +'     , constraint usuario_email_unique unique (email) '+
     sl +'     , constraint usuario_pk primary key (id) '+
     sl +'     ); '+
-    sl +
     sl +'create '+
     sl +' table conversa  '+
     sl +'     ( id serial4 not null '+
@@ -38,9 +37,7 @@ const
     sl +'     , inserida timestamp default current_timestamp not null '+
     sl +'     , constraint conversa_pk primary key (id) '+
     sl +'     ); '+
-    sl +
     sl +'comment on column conversa.tipo is ''1-Chat; 2-Grupo''; '+
-    sl +
     sl +'create '+
     sl +' table usuario_contato  '+
     sl +'     ( id serial4 not null '+
@@ -50,7 +47,6 @@ const
     sl +'     , constraint usuario_contato_usuario_fk foreign key (usuario_id) references usuario(id) '+
     sl +'     , constraint usuario_contato_usuario_fk_1 foreign key (relacionamento_id) references usuario(id) '+
     sl +'     ); '+
-    sl +
     sl +'create '+
     sl +' table conversa_usuario  '+
     sl +'     ( id serial4 not null '+
@@ -60,7 +56,6 @@ const
     sl +'     , constraint conversa_usuario_conversa_fk foreign key (conversa_id) references conversa(id) '+
     sl +'     , constraint conversa_usuario_usuario_fk foreign key (usuario_id) references usuario(id) '+
     sl +'     ); '+
-    sl +
     sl +'create '+
     sl +' table mensagem  '+
     sl +'     ( id serial4 not null '+
@@ -72,7 +67,6 @@ const
     sl +'     , constraint mensagem_conversa_fk foreign key (conversa_id) references conversa(id) '+
     sl +'     , constraint mensagem_usuario_fk foreign key (usuario_id) references usuario(id) '+
     sl +'     ); '+
-    sl +
     sl +'create '+
     sl +' table mensagem_conteudo  '+
     sl +'     ( id serial4 not null '+
@@ -83,7 +77,6 @@ const
     sl +'     , constraint mensagem_conteudo_pk primary key (id) '+
     sl +'     , constraint mensagem_conteudo_mensagem_fk foreign key (mensagem_id) references mensagem(id) '+
     sl +'     ); '+
-    sl +
     sl +'create '+
     sl +' table mensagem_status '+
     sl +'     ( conversa_id int4 not null '+
@@ -96,7 +89,6 @@ const
     sl +'     , constraint mensagem_status_mensagem_fk foreign key (mensagem_id) references mensagem(id) '+
     sl +'     , constraint mensagem_status_usuario_fk foreign key (usuario_id) references usuario(id) '+
     sl +'     ); '+
-    sl +
     sl +'create '+
     sl +' table anexo '+
     sl +'     ( id serial4 not null '+
@@ -118,7 +110,6 @@ const
     sl +'     , plataforma varchar(15) not null '+
     sl +'     , constraint dispositivo_pk primary key (id) '+
     sl +'     ); '+
-    sl +
     sl +'create '+
     sl +' table dispositivo_usuario '+
     sl +'     ( id serial4 not null '+
@@ -167,10 +158,8 @@ const
     sl +'     , constraint chamada_conversa_fk foreign key (conversa_id) references conversa(id) '+
     sl +'     , constraint chamada_criado_por_fk foreign key (criado_por) references usuario(id) '+
     sl +'     ); '+
-    sl +
     sl +'comment on column chamada.tipo is ''1-Simples, 2-Grupo''; '+
     sl +'comment on column chamada.status is ''1-Iniciada, 2-Recusada, 3-Em Andamento, 4-Encerrada, 5-Perdida''; '+
-    sl +
     sl +'create '+
     sl +' table chamada_usuario  '+
     sl +'     ( id serial4 not null '+
@@ -187,11 +176,8 @@ const
     sl +'     , constraint chamada_usuario_usuario_fk foreign key (usuario_id) references usuario(id) '+
     sl +'     , constraint chamada_usuario_adicionado_por_fk foreign key (adicionado_por) references usuario(id) '+
     sl +'     ); '+
-    sl +
     sl +'create index ix_chamada_usuario_01 on chamada_usuario(chamada_id, usuario_id) include(status); '+
-    sl +
     sl +'comment on column chamada_usuario.status is ''1-Pendente, 2-Entrou, 3-Saiu, 4-Recusou, 5-Desconectou''; '+
-    sl +
     sl +'create '+
     sl +' table chamada_evento  '+
     sl +'     ( id serial4 not null '+
@@ -206,9 +192,9 @@ const
     sl +'     , constraint chamada_evento_criado_por_fk foreign key (criado_por) references usuario(id) '+
     sl +'     ); '+
     sl +
-    sl +'create index ix_chamada_evento_01 on chamada_evento(chamada_id, usuario_id) include(tipo) ;'+
+    sl +'create index ix_chamada_evento_01 on chamada_evento(chamada_id, usuario_id) include(tipo); ',
 
-    sl
+    sl +'alter table usuario alter column senha type varchar(60) using senha::varchar(60); '
   );
 
 procedure Migracoes;

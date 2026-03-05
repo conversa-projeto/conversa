@@ -17,6 +17,7 @@ type
     LocalVersoes: String;
     JWTKEY: String;
     FCM: TFCMConfig;
+    BcryptPepper: String;
     class procedure LoadFromEnvironment; static;
     class procedure LoadFromDataBase; static;
   end;
@@ -41,6 +42,7 @@ begin
     Configuracao.PGParams.Database      := GetEnvironmentVariable('CONVERSA_DATABASE');
     Configuracao.PGParams.UserName      := GetEnvironmentVariable('CONVERSA_USERNAME');
     Configuracao.PGParams.Password      := GetEnvironmentVariable('CONVERSA_PASSWORD');
+    Configuracao.BcryptPepper           := GetEnvironmentVariable('CONVERSA_BCRYPT_PEPPER');
   except on E: Exception do
     begin
       E.Message := 'Erro ao carregar as configurações das variáveis de ambiente! ☠️ - '+ E.Message;

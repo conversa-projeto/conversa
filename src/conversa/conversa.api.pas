@@ -22,7 +22,8 @@ uses
   conversa.configuracoes,
   FCMNotification,
   Thread.Queue,
-  WebSocket;
+  WebSocket,
+  Bcrypt;
 
 type
   TConversa = record
@@ -38,6 +39,7 @@ type
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
     class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivo: String): TStringStream; static;
     class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
+    class procedure AlterarSenha(oAutenticacao: TJSONObject); static;
     class function DispositivoAlterar(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject; static;
     class function DispositivoUsuarioIncluir(Usuario, Dispositivo: Integer): TJSONObject; static;
     class function UsuarioIncluir(oUsuario: TJSONObject): TJSONObject; static;
@@ -133,6 +135,8 @@ class function TConversa.Login(oAutenticacao: TJSONObject): TJSONObject;
 var
   iDispositivoId: Integer;
   oDispositivo: TJSONObject;
+  passwordRehashNeeded: Boolean;
+  sSenhaUsuario: String;
 begin
   CamposObrigatorios(oAutenticacao, ['login', 'senha']);
 
@@ -141,30 +145,45 @@ begin
     sl +'     , nome '+
     sl +'     , email '+
     sl +'     , telefone '+
+    sl +'     , senha '+
     sl +'  from usuario '+
-    sl +' where login = '+ Qt(oAutenticacao.GetValue<String>('login')) +
-    sl +'   and senha = '+ Qt(oAutenticacao.GetValue<String>('senha'))
+    sl +' where login = '+ Qt(oAutenticacao.GetValue<String>('login'))
   );
 
   if Result.Count = 0 then
   begin
     FreeAndNil(Result);
+    raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Usuário não encontrado!');
+  end;
+
+  sSenhaUsuario := LeftStr(oAutenticacao.GetValue<String>('senha') + Configuracao.BcryptPepper, 72);
+
+  if ((Result.GetValue<String>('senha').Length = 60) and not TBCrypt.CheckPassword(sSenhaUsuario, Result.GetValue<String>('senha'), passwordRehashNeeded))
+  or ((Result.GetValue<String>('senha').Length <> 60) and (oAutenticacao.GetValue<String>('senha') <> Result.GetValue<String>('senha'))) then
+  begin
+    FreeAndNil(Result);
     raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Acesso negado!');
   end;
+
+  // Se a senha não está usando bcrypt mais está correta.. converte para bcrypt
+  if (Result.GetValue<String>('senha').Length <> 60) and (oAutenticacao.GetValue<String>('senha') = Result.GetValue<String>('senha')) then
+    TConversa.AlterarSenha(oAutenticacao);
+
+  Result.RemovePair('senha').Free;
 
   iDispositivoId := oAutenticacao.GetValue<Integer>('dispositivo_id', -1);
   if iDispositivoId > 0 then
     Result.AddPair(
       'dispositivo',
       OpenKey(
-        sl +' select id '+
-        sl +'      , nome '+
-        sl +'      , modelo '+
-        sl +'      , versao_so '+
-        sl +'      , plataforma '+
-        sl +'      , ativo '+
-        sl +'   from dispositivo '+
-        sl +'  where id = '+ iDispositivoId.ToString
+        sl +'select id '+
+        sl +'     , nome '+
+        sl +'     , modelo '+
+        sl +'     , versao_so '+
+        sl +'     , plataforma '+
+        sl +'     , ativo '+
+        sl +'  from dispositivo '+
+        sl +' where id = '+ iDispositivoId.ToString
       )
     );
 
@@ -185,6 +204,27 @@ begin
 
   if not Result.GetValue<Boolean>('dispositivo.ativo', False) then
     raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Seção Encerrada!');
+end;
+
+class procedure TConversa.AlterarSenha(oAutenticacao: TJSONObject);
+var
+  sHash: String;
+  sSenhaUsuario: String;
+begin
+  CamposObrigatorios(oAutenticacao, ['login', 'senha']);
+
+  if oAutenticacao.GetValue<String>('senha').Length > 72 then
+    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Senha inválida!');
+
+  sSenhaUsuario := LeftStr(oAutenticacao.GetValue<String>('senha') + Configuracao.BcryptPepper, 72);
+
+  sHash := TBCrypt.HashPassword(sSenhaUsuario, 15);
+
+  TPool.Instance.Connection.ExecSQL(
+    sl +'update usuario '+
+    sl +'   set senha = '+ Qt(sHash) +
+    sl +' where login = '+ Qt(oAutenticacao.GetValue<String>('login'))
+  );
 end;
 
 class function TConversa.DispositivoAlterar(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject;

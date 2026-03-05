@@ -79,7 +79,6 @@ begin
               .SessionClass(TJWTClaims)
               .SkipRoutes([
                 'favicon.ico',
-                'status',
                 'repos/+.+/releases/latest',
                 '.+/releases/download/+.*',
                 'login'
@@ -134,6 +133,15 @@ begin
           end;
 
           Res.Send<TJSONObject>(Resposta);
+        end
+      );
+
+      THorse.Post(
+        '/alterar-senha',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          TConversa.AlterarSenha(Conteudo(Req));
+          Res.Send<TJSONObject>(TJSONObject.Create);
         end
       );
 
@@ -262,7 +270,7 @@ begin
           if not Assigned(Conteudo(Req).FindValue('id')) then
             EHorseException.New.Status(THTTPStatus.BadRequest).Error('ID da conversa não informado!');
           TConversa.ConversaDigitando(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req).GetValue<Integer>('id'));
-          Res.Status(200);
+          Res.Send<TJSONObject>(TJSONObject.Create);
         end
       );
 

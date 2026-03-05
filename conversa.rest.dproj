@@ -72,7 +72,7 @@
         <DCC_K>false</DCC_K>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
         <SanitizedProjectName>conversa_rest</SanitizedProjectName>
-        <DCC_UnitSearchPath>src\horse;src\horse-cors;src\jhonson;src\handle-exception;src\horse-octetstream;src\horse-jwt;src\horse-jwt\delphi-jose-jwt;src\horse-jwt\delphi-jose-jwt\Common;src\horse-jwt\delphi-jose-jwt\JOSE;src\bird-socket-server;src\tcp;src\horse-staticfiles;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>src\horse;src\horse-cors;src\jhonson;src\handle-exception;src\horse-octetstream;src\horse-jwt;src\horse-jwt\delphi-jose-jwt;src\horse-jwt\delphi-jose-jwt\Common;src\horse-jwt\delphi-jose-jwt\JOSE;src\bird-socket-server;src\tcp;src\horse-staticfiles;src\bcrypt;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <VerInfo_Locale>1046</VerInfo_Locale>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
         <PreBuildEventCancelOnError>false</PreBuildEventCancelOnError>
@@ -235,6 +235,12 @@ $(PreBuildEvent)]]></PreBuildEvent>
                 <DeployFile LocalName="bin\conversa.rest.exe" Configuration="Release" Class="ProjectOutput">
                     <Platform Name="Win32">
                         <RemoteName>conversa_rest.exe</RemoteName>
+                        <Overwrite>true</Overwrite>
+                    </Platform>
+                </DeployFile>
+                <DeployFile LocalName="bin\conversa.rest.exe" Configuration="Release" Class="ProjectOutput">
+                    <Platform Name="Win64">
+                        <RemoteName>conversa.rest.exe</RemoteName>
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
