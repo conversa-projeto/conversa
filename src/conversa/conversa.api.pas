@@ -35,7 +35,6 @@ type
     class function InternalChamadaDados(Chamada: Integer): TJSONObject; static;
     class procedure ConversaNotificar(const Conversa, Usuario: Integer; Msg: TSocketMessageType); static;
   public
-    class function Status: TJSONObject; static;
     class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
     class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivo: String): TStringStream; static;
     class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
@@ -64,7 +63,6 @@ type
     class function AnexoIncluir(Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject; static;
     class function Anexo(Identificador: String): TStringStream; static;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray; static;
-
     class function ChamadaIniciar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaCancelar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaRecusar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
@@ -73,15 +71,11 @@ type
     class function ChamadaUsuario(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaFinalizar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaDados(Usuario: Integer; Chamada: Integer): TJSONObject; static;
+    class function ChamadasPendentes(Usuario: Integer): TJSONArray; static;
     class function ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
   end;
 
 implementation
-
-class function TConversa.Status: TJSONObject;
-begin
-  Result := TJSONObject.Create.AddPair('ativo', True);
-end;
 
 class function TConversa.ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject;
 var
@@ -1455,6 +1449,63 @@ class function TConversa.ChamadaDados(Usuario, Chamada: Integer): TJSONObject;
 begin
   ValidarChamada(Usuario, Chamada);
   Result := InternalChamadaDados(Chamada);
+end;
+
+class function TConversa.ChamadasPendentes(Usuario: Integer): TJSONArray;
+var
+  oJSON: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  with TFDQuery.Create(nil) do
+  try
+    Connection := TPool.Instance.Connection;
+    Open(
+      sl +'select c.id '+
+      sl +'     , c.tipo '+
+      sl +'     , c.status '+
+      sl +'     , c.iniciada '+
+      sl +'     , c.finalizada '+
+      sl +'     , c.conversa_id '+
+      sl +'     , c.criado_em '+
+      sl +'     , c.criado_por '+
+      sl +'  from chamada as c '+
+      sl +'  join chamada_usuario as cu '+
+      sl +'    on cu.chamada_id = c.id '+
+      sl +' where cu.usuario_id = '+ Usuario.ToString +
+      sl +'   and cu.status = 1 /* 1-PENDENTE */ '+
+      sl +'   and c.status in (1, 3) /* 1-PENDENTE; 3-EM ATENDIMENTO */ '+
+      sl +' order '+
+      sl +'    by c.criado_em desc '
+    );
+    FetchAll;
+    First;
+    while not Eof do
+    try
+      oJSON := TJSONObject.Create;
+      oJSON.AddPair('id', FieldByName('id').AsInteger);
+      oJSON.AddPair('tipo', FieldByName('tipo').AsInteger);
+      oJSON.AddPair('status', FieldByName('status').AsInteger);
+      if FieldByName('iniciada').IsNull then
+        oJSON.AddPair('iniciada', TJSONNull.Create)
+      else
+        oJSON.AddPair('iniciada', DateToISO8601(FieldByName('iniciada').AsDateTime));
+      if FieldByName('finalizada').IsNull then
+        oJSON.AddPair('finalizada', TJSONNull.Create)
+      else
+       oJSON.AddPair('finalizada', DateToISO8601(FieldByName('finalizada').AsDateTime));
+      oJSON.AddPair('conversa_id', FieldByName('conversa_id').AsInteger);
+      if FieldByName('criado_em').IsNull then
+        oJSON.AddPair('criado_em', TJSONNull.Create)
+      else
+        oJSON.AddPair('criado_em', DateToISO8601(FieldByName('criado_em').AsDateTime));
+      oJSON.AddPair('criado_por', FieldByName('criado_por').AsInteger);
+      Result.Add(oJSON);
+    finally
+      Next;
+    end;
+  finally
+    Free;
+  end;
 end;
 
 class function TConversa.InternalChamadaDados(Chamada: Integer): TJSONObject;

@@ -88,14 +88,6 @@ begin
         );
 
       THorse.Get(
-        '/status',
-        procedure(Req: THorseRequest; Res: THorseResponse)
-        begin
-          Res.Send<TJSONObject>(TConversa.Status);
-        end
-      );
-
-      THorse.Get(
         'repos/:repo/:project/releases/latest',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
@@ -430,6 +422,14 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaDados(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('id').AsInteger));
+        end
+      );
+
+      THorse.Get(
+        '/chamadas/pendentes',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONArray>(TConversa.ChamadasPendentes(Req.Session<TJWTClaims>.Subject.ToInteger));
         end
       );
 
