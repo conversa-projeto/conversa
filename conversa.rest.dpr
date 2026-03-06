@@ -20,7 +20,7 @@ uses
   Horse.CORS,
   Horse.OctetStream,
   Horse.JWT,
-  Horse.StaticFiles,
+  Horse.ServerStatic,
   IdSSLOpenSSL,
   JOSE.Core.JWT,
   JOSE.Core.Builder,
@@ -67,7 +67,7 @@ begin
       TConfiguracao.LoadFromDataBase;
 
       THorse
-        .Use(HorseStaticFile('.\web', ['index.html']))
+        .Use(ServerStatic('web'))
         .Use(Jhonson)
         .Use(OctetStream)
         .Use(HandleException)

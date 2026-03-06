@@ -4,7 +4,7 @@
         <ProjectVersion>20.1</ProjectVersion>
         <FrameworkType>None</FrameworkType>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Release</Config>
+        <Config Condition="'$(Config)'==''">Debug</Config>
         <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <TargetedPlatforms>2</TargetedPlatforms>
         <AppType>Console</AppType>
@@ -62,6 +62,12 @@
         <Cfg_2>true</Cfg_2>
         <Base>true</Base>
     </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win64)'!=''">
+        <Cfg_2_Win64>true</Cfg_2_Win64>
+        <CfgParent>Cfg_2</CfgParent>
+        <Cfg_2>true</Cfg_2>
+        <Base>true</Base>
+    </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>.\bin</DCC_ExeOutput>
@@ -72,7 +78,7 @@
         <DCC_K>false</DCC_K>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
         <SanitizedProjectName>conversa_rest</SanitizedProjectName>
-        <DCC_UnitSearchPath>src\horse;src\horse-cors;src\jhonson;src\handle-exception;src\horse-octetstream;src\horse-jwt;src\horse-jwt\delphi-jose-jwt;src\horse-jwt\delphi-jose-jwt\Common;src\horse-jwt\delphi-jose-jwt\JOSE;src\bird-socket-server;src\tcp;src\horse-staticfiles;src\bcrypt;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>src\horse;src\horse-cors;src\jhonson;src\handle-exception;src\horse-octetstream;src\horse-jwt;src\horse-jwt\delphi-jose-jwt;src\horse-jwt\delphi-jose-jwt\Common;src\horse-jwt\delphi-jose-jwt\JOSE;src\bird-socket-server;src\tcp;src\horse-server-static;src\bcrypt;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <VerInfo_Locale>1046</VerInfo_Locale>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
         <PreBuildEventCancelOnError>false</PreBuildEventCancelOnError>
@@ -162,6 +168,11 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCC_DebugInformation>0</DCC_DebugInformation>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <Manifest_File>(None)</Manifest_File>
+        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>(None)</Manifest_File>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
