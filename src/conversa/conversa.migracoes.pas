@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..9] of String = (
+  Versoes: Array[0..10] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -194,7 +194,11 @@ const
     sl +
     sl +'create index ix_chamada_evento_01 on chamada_evento(chamada_id, usuario_id) include(tipo); ',
 
-    sl +'alter table usuario alter column senha type varchar(60) using senha::varchar(60); '
+    sl +'alter table usuario alter column senha type varchar(60) using senha::varchar(60); ',
+
+    sl +'alter table anexo add column objeto varchar(255); '+
+    sl +'alter table anexo alter column tamanho type int8; '+
+    sl +'create index anexo_identificador_idx on anexo(identificador); '
   );
 
 procedure Migracoes;

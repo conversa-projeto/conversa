@@ -305,7 +305,7 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('identificador').Required(True);
-          Res.Send<TStringStream>(TConversa.Anexo(Req.Query.Field('identificador').AsString));
+          Res.Send<TJSONObject>(TConversa.Anexo(Req.Query.Field('identificador').AsString));
         end
       );
 
@@ -315,10 +315,11 @@ begin
         begin
           Res.Send<TJSONObject>(
             TConversa.AnexoIncluir(
-              Req.Query.Field('tipo').AsInteger,
-              Req.Query.Field('nome').AsString,
-              Req.Query.Field('extensao').AsString,
-              Req.Body<TStringStream>
+              Req.Body<TJSONObject>.GetValue<String>('identificador'),
+              Req.Body<TJSONObject>.GetValue<Integer>('tipo'),
+              Req.Body<TJSONObject>.GetValue<String>('nome'),
+              Req.Body<TJSONObject>.GetValue<String>('extensao'),
+              Req.Body<TJSONObject>.GetValue<Int64>('tamanho')
             )
           );
         end

@@ -23,7 +23,8 @@ uses
   FCMNotification,
   Thread.Queue,
   WebSocket,
-  Bcrypt;
+  Bcrypt,
+  Minio.Presign;
 
 type
   TConversa = record
@@ -62,8 +63,8 @@ type
     class function MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject; static;
     class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray; static;
     class function AnexoExiste(Identificador: String): TJSONObject; static;
-    class function AnexoIncluir(Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject; static;
-    class function Anexo(Identificador: String): TStringStream; static;
+    class function AnexoIncluir(Identificador: String; Tipo: Integer; Nome: String; Extensao: String; Tamanho: Int64): TJSONObject; static;
+    class function Anexo(Identificador: String): TJSONObject; static;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray; static;
     class function ChamadaIniciar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaCancelar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
@@ -655,59 +656,97 @@ begin
     );
 
     Result := TJSONObject.Create;
-    Result.AddPair('existe', TJSONBool.Create(not Qry.IsEmpty and TFile.Exists(IncludeTrailingPathDelimiter(Configuracao.LocalAnexos) + Qry.FieldByName('identificador').AsString)));
+    Result.AddPair('existe', not Qry.IsEmpty);
   finally
     FreeAndNil(Qry);
   end;
 end;
 
-class function TConversa.AnexoIncluir(Tipo: Integer; Nome, Extensao: String; Dados: TStringStream): TJSONObject;
+class function TConversa.Anexo(Identificador: String): TJSONObject;
 var
-  iID: Integer;
-  sIdentificador: String;
-  sLocal: String;
   Pool: IConnection;
   Qry: TFDQuery;
+  URL: String;
+  Config: TMinioConfig;
 begin
-  if not Assigned(Dados) then
-    raise Exception.Create('Sem dados na requisição! Verifique se tipo de conteúdo é Content-Type: application/octet-stream');
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
 
-  sIdentificador := THashSHA2.GetHashString(Dados);
+    Qry.Open(
+      sl +'select objeto '+
+      sl +'  from anexo '+
+      sl +' where identificador = '+ Qt(Identificador)
+    );
+
+    if Qry.IsEmpty then
+      raise Exception.Create('Anexo não encontrado');
+
+    Config := Default(TMinioConfig);
+    Config.Endpoint := 'http://127.0.0.1:9000';
+    Config.AccessKey := 'admin';
+    Config.SecretKey := 'admin123';
+    Config.Bucket := 'chat';
+
+    URL := TMinioPresign.PresignedURL('GET', Config, Qry.FieldByName('objeto').AsString, 'us-east-1', 600);
+
+    Result := TJSONObject.Create;
+    Result.AddPair('url', URL);
+  finally
+    Qry.Free;
+  end;
+end;
+
+class function TConversa.AnexoIncluir(Identificador: String; Tipo: Integer; Nome: String; Extensao: String; Tamanho: Int64): TJSONObject;
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+  Objeto: String;
+  URL: String;
+  ID: Integer;
+  Config: TMinioConfig;
+begin
+  // 1 GiB
+  if Tamanho > (1 * 1024 * 1024 * 1024) then
+    raise Exception.Create('Arquivo muito grande!');
+
+  Config := Default(TMinioConfig);
+  Config.Endpoint := 'http://127.0.0.1:9000';
+  Config.AccessKey := 'admin';
+  Config.SecretKey := 'admin123';
+  Config.Bucket := 'chat';
 
   Pool := TPool.Instance;
   Qry := TFDQuery.Create(nil);
   try
     Qry.Connection := Pool.Connection;
-    Qry.Open(
-      sl +'select a.id '+
-      sl +'  from anexo as a '+
-      sl +' where a.identificador = '+ Qt(sIdentificador)
-    );
 
+    Qry.Open(
+      sl +'select id '+
+      sl +'     , objeto '+
+      sl +'  from anexo '+
+      sl +' where identificador = '+ Qt(Identificador)
+    );
     if not Qry.IsEmpty then
     begin
-      Result := OpenKey(
-        sl +'select a.id '+
-        sl +'     , a.identificador '+
-        sl +'     , a.tipo '+
-        sl +'     , a.tamanho '+
-        sl +'  from anexo as a '+
-        sl +' where a.id = '+ Qry.FieldByName('id').AsString
-      );
+      URL := TMinioPresign.PresignedURL('GET', Config, Qry.FieldByName('objeto').AsString, 'us-east-1', 600);
+
+      Result := TJSONObject.Create;
+      Result.AddPair('existe', True);
+      Result.AddPair('id', Qry.FieldByName('id').AsString);
+      Result.AddPair('upload_url', URL);
       Exit;
     end;
   finally
-    FreeAndNil(Qry);
+    Qry.Free;
   end;
 
-  sLocal := IncludeTrailingPathDelimiter(Configuracao.LocalAnexos);
+  Objeto := Copy(Identificador, 1, 2) +'/'+ Identificador;
 
-  if not TDirectory.Exists(sLocal) then
-    TDirectory.CreateDirectory(sLocal);
+  URL := TMinioPresign.PresignedURL('PUT', Config, Objeto, 'us-east-1', 300);
 
-  Dados.SaveToFile(sLocal + PathDelim + sIdentificador);
-
-  iID := TPool.Instance.Connection.ExecSQLScalar(
+  ID := Pool.Connection.ExecSQLScalar(
     sl +'insert '+
     sl +'  into anexo '+
     sl +'     ( identificador '+
@@ -715,54 +754,22 @@ begin
     sl +'     , tamanho '+
     sl +'     , nome '+
     sl +'     , extensao '+
+    sl +'     , objeto '+
     sl +'     ) '+
     sl +'values '+
-    sl +'     ( '+ Qt(sIdentificador) +
+    sl +'     ( '+ Qt(Identificador) +
     sl +'     , '+ Tipo.ToString +
-    sl +'     , '+ Dados.Size.ToString +
+    sl +'     , '+ Tamanho.ToString +
     sl +'     , '+ IfThen(Nome.Trim.IsEmpty, 'null', Qt(Nome)) +
     sl +'     , '+ IfThen(Extensao.Trim.IsEmpty, 'null', Qt(Extensao)) +
-    sl +'     ) '+
-    sl +
-    sl +'returning id; '
+    sl +'     , '+ Qt(Objeto) +
+    sl +'     ) returning id '
   );
 
-  Result := OpenKey(
-    sl +'select a.id '+
-    sl +'     , a.identificador '+
-    sl +'     , a.tipo '+
-    sl +'     , a.tamanho '+
-    sl +'  from anexo as a '+
-    sl +' where a.id = '+ iID.ToString
-  );
-end;
-
-class function TConversa.Anexo(Identificador: String): TStringStream;
-var
-  Pool: IConnection;
-  Qry: TFDQuery;
-begin
-  Pool := TPool.Instance;
-  Qry := TFDQuery.Create(nil);
-  try
-    Qry.Connection := Pool.Connection;
-    Qry.Open(
-      sl +'select a.id '+
-      sl +'     , a.identificador '+
-      sl +'     , a.tipo '+
-      sl +'     , a.tamanho '+
-      sl +'  from anexo as a '+
-      sl +' where a.identificador = '+ Qt(Identificador)
-    );
-
-    if Qry.IsEmpty then
-      raise Exception.Create('Anexo não encontrado!');
-
-    Result := TStringStream.Create;
-    Result.LoadFromFile(IncludeTrailingPathDelimiter(Configuracao.LocalAnexos) + Qry.FieldByName('identificador').AsString);
-  finally
-    FreeAndNil(Qry);
-  end;
+  Result := TJSONObject.Create;
+  Result.AddPair('existe', False);
+  Result.AddPair('id', TJSONNumber.Create(ID));
+  Result.AddPair('upload_url', URL);
 end;
 
 class function TConversa.Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray;
