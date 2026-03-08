@@ -55,6 +55,7 @@ end;
 
 class function TMinioPresign.PresignedURL(Method: String; Config: TMinioConfig; ObjectKey, Region: String; Expires: Integer): String;
 var
+  Endpoint: String;
   Host: String;
   CanonicalURI: String;
   CanonicalQuery: String;
@@ -69,29 +70,39 @@ var
   AmzDate: String;
   SigningKey: TBytes;
   Signature: String;
-  URL: String;
   UTCNow: TDateTime;
 begin
-  Host := Config.Endpoint.Replace('https://', '').Replace('http://', '');
-  CanonicalURI := '/'+ Config.Bucket + '/'+ ObjectKey;
+  Endpoint := Trim(Config.Endpoint);
+  if Endpoint.IsEmpty then
+    raise Exception.Create('MinIO endpoint não informado.');
 
-  // CORREÇÃO 3: Usar tempo UTC para ambas as datas exatas
+  // força https para evitar Mixed Content no browser
+  if Endpoint.StartsWith('http://', True) then
+    Endpoint := 'https://' + Copy(Endpoint, Length('http://') + 1, MaxInt)
+  else if not Endpoint.StartsWith('https://', True) then
+    Endpoint := 'https://' + Endpoint;
+
+  Endpoint := Endpoint.TrimRight(['/']);
+
+  Host := Endpoint.Replace('https://', '').Replace('http://', '');
+  Host := Host.TrimRight(['/']);
+
+  CanonicalURI := '/' + Config.Bucket + '/' + ObjectKey;
+
   UTCNow := TTimeZone.Local.ToUniversalTime(Now);
   DateStamp := FormatDateTime('yyyymmdd', UTCNow);
   AmzDate := FormatDateTime('yyyymmdd"T"hhnnss"Z"', UTCNow);
 
   Algorithm := 'AWS4-HMAC-SHA256';
-  CredentialScope := DateStamp +'/'+ Region +'/s3/aws4_request';
+  CredentialScope := DateStamp + '/' + Region + '/s3/aws4_request';
   SignedHeaders := 'host';
-  // CORREÇÃO 1: Usar estritamente #10 em vez de sLineBreak
-  CanonicalHeaders := 'host:'+ Host + #10;
+  CanonicalHeaders := 'host:' + Host + #10;
   PayloadHash := 'UNSIGNED-PAYLOAD';
 
-  // CORREÇÃO 2: X-Amz-Content-Sha256 movido para manter ORDEM ALFABÉTICA estrita
   CanonicalQuery :=
     'X-Amz-Algorithm=' + Algorithm +
     '&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD' +
-    '&X-Amz-Credential=' + TNetEncoding.URL.Encode(Config.AccessKey +'/'+ CredentialScope) +
+    '&X-Amz-Credential=' + TNetEncoding.URL.Encode(Config.AccessKey + '/' + CredentialScope) +
     '&X-Amz-Date=' + AmzDate +
     '&X-Amz-Expires=' + Expires.ToString +
     '&X-Amz-SignedHeaders=' + SignedHeaders;
@@ -108,14 +119,12 @@ begin
     Algorithm + #10 +
     AmzDate + #10 +
     CredentialScope + #10 +
-    LowerCase(THashSHA2.GetHashString(CanonicalRequest)); // Garanta o uso de Lowercase sempre
+    LowerCase(THashSHA2.GetHashString(CanonicalRequest));
 
   SigningKey := GetSignatureKey(Config.SecretKey, DateStamp, Region, 's3');
   Signature := LowerCase(HexEncode(HmacSHA256(SigningKey, StringToSign)));
 
-  URL := Config.Endpoint + CanonicalURI +'?'+ CanonicalQuery +'&X-Amz-Signature='+ Signature;
-  Result := URL;
+  Result := Endpoint + CanonicalURI + '?' + CanonicalQuery + '&X-Amz-Signature=' + Signature;
 end;
-
 
 end.

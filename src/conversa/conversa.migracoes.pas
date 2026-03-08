@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..10] of String = (
+  Versoes: Array[0..11] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -198,7 +198,27 @@ const
 
     sl +'alter table anexo add column objeto varchar(255); '+
     sl +'alter table anexo alter column tamanho type int8; '+
-    sl +'create index anexo_identificador_idx on anexo(identificador); '
+    sl +'create index anexo_identificador_idx on anexo(identificador); ',
+
+    sl +'insert '+
+    sl +'  into parametros '+
+    sl +'     ( nome '+
+    sl +'     , valor '+
+    sl +'     )  '+
+    sl +'values '+
+    sl +'     ( ''s3_endpoint'' '+
+    sl +'     , ''http://127.0.0.1:9000'' '+
+    sl +'     ), '+
+    sl +'     ( ''s3_accesskey'' '+
+    sl +'     , ''admin'' '+
+    sl +'     ), '+
+    sl +'     ( ''s3_secretkey'' '+
+    sl +'     , ''admin123'' '+
+    sl +'     ), '+
+    sl +'     ( ''s3_bucket'' '+
+    sl +'     , ''chat'' '+
+    sl +'     ); '+
+    sl +'drop table versao; '
   );
 
 procedure Migracoes;

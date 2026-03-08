@@ -1,0 +1,19 @@
+# mediamtx.yml - backend interno (TLS termina no Nginx)
+
+# API de controle (opcional)
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Protocolos que voce usa
+rtspAddress: 127.0.0.1:18554
+rtmpAddress: 127.0.0.1:11935
+hlsAddress: 127.0.0.1:18888
+
+# WebRTC interno (SEM HTTPS aqui)
+webrtc: yes
+webrtcAddress: 127.0.0.1:18889
+webrtcEncryption: false
+
+# Permite qualquer stream sem autenticacao (rede local)
+paths:
+  all_others:

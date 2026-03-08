@@ -79,36 +79,10 @@ begin
               .SessionClass(TJWTClaims)
               .SkipRoutes([
                 'favicon.ico',
-                'repos/+.+/releases/latest',
-                '.+/releases/download/+.*',
                 'login'
               ])
           )
         );
-
-      THorse.Get(
-        'repos/:repo/:project/releases/latest',
-        procedure(Req: THorseRequest; Res: THorseResponse)
-        begin
-          Res.Send<TJSONObject>(TConversa.ConsultarVersao(
-            Req.Params.Field('repo').AsString,
-            Req.Params.Field('project').AsString
-          ));
-        end
-      );
-
-      THorse.Get(
-        '/:repo/:project/releases/download/:version/:file',
-        procedure(Req: THorseRequest; Res: THorseResponse)
-        begin
-          Res.Send<TStringStream>(TConversa.DownloadVersao(
-            Req.Params.Field('repo').AsString,
-            Req.Params.Field('project').AsString,
-            Req.Params.Field('version').AsString,
-            Req.Params.Field('file').AsString
-          ));
-        end
-      );
 
       THorse.Post(
         '/login',
@@ -474,7 +448,7 @@ begin
         end
       );
 
-      TWebSocket.Iniciar(8000 + 443, Configuracao.JWTKEY);
+      TWebSocket.Iniciar(19090, Configuracao.JWTKEY);
       try
         TThreadQueue.Create;
         try
@@ -487,18 +461,12 @@ begin
 
           FCM := TFCMNotification.Create(Configuracao.FCM);
           try
-            THorse.IOHandleSSL
-              .CertFile('cert\cert.pem')
-              .KeyFile('cert\key.pem')
-              .SSLVersions([sslvTLSv1_2])
-              .Active(True);
-
             THorse.Listen(
-              443,
+              18080,
               procedure
               begin
                 Writeln('Servidor iniciado 🚀');
-                Writeln('https://localhost');
+                Writeln('Acesso usando https://SEU_IP');
               end
             );
           finally

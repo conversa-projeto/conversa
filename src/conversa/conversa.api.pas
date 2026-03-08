@@ -37,8 +37,6 @@ type
     class function InternalChamadaDados(Chamada: Integer): TJSONObject; static;
     class procedure ConversaNotificar(const Conversa, Usuario: Integer; Msg: TSocketMessageType); static;
   public
-    class function ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject; static;
-    class function DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivo: String): TStringStream; static;
     class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
     class procedure AlterarSenha(oAutenticacao: TJSONObject); static;
     class function DispositivoAlterar(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject; static;
@@ -80,57 +78,6 @@ type
   end;
 
 implementation
-
-class function TConversa.ConsultarVersao(sRepositorio, sProjeto: String): TJSONObject;
-var
-  oJSON: TJSONObject;
-begin
-  oJSON := OpenKey(
-    sl +'select nome '+
-    sl +'     , criada '+
-    sl +'     , descricao '+
-    sl +'     , arquivo '+
-    sl +'     , url '+
-    sl +'  from versao '+
-    sl +' where repositorio = '+ sRepositorio.QuotedString +
-    sl +'   and projeto = '+ sProjeto.QuotedString +
-    sl +' order '+
-    sl +'    by id desc '+
-    sl +' limit 1 '
-  );
-  try
-    if oJSON.Count = 0 then
-      Exit(TJSONObject.Create);
-
-    Result := TJSONObject.Create
-      .AddPair('name', oJSON.GetValue<String>('nome'))
-      .AddPair('created_at', oJSON.GetValue<String>('criada'))
-      .AddPair('body', oJSON.GetValue<String>('descricao'))
-      .AddPair('assets',
-        TJSONArray.Create
-          .Add(TJSONObject.Create
-            .AddPair('name', oJSON.GetValue<String>('arquivo'))
-            .AddPair('browser_download_url', oJSON.GetValue<String>('url'))
-          )
-      );
-  finally
-    FreeAndNil(oJSON);
-  end;
-end;
-
-class function TConversa.DownloadVersao(sRepositorio, sProjeto, sVersao, sArquivo: String): TStringStream;
-begin
-  Result := TStringStream.Create;
-  Result.LoadFromFile(
-    IncludeTrailingPathDelimiter(Configuracao.LocalVersoes) +
-    sRepositorio + PathDelim +
-    sProjeto + PathDelim +
-    'releases'+ PathDelim +
-    'download'+ PathDelim +
-    sVersao + PathDelim +
-    sArquivo
-  );
-end;
 
 class function TConversa.Login(oAutenticacao: TJSONObject): TJSONObject;
 var
@@ -667,7 +614,6 @@ var
   Pool: IConnection;
   Qry: TFDQuery;
   URL: String;
-  Config: TMinioConfig;
 begin
   Pool := TPool.Instance;
   Qry := TFDQuery.Create(nil);
@@ -683,13 +629,7 @@ begin
     if Qry.IsEmpty then
       raise Exception.Create('Anexo não encontrado');
 
-    Config := Default(TMinioConfig);
-    Config.Endpoint := 'http://127.0.0.1:9000';
-    Config.AccessKey := 'admin';
-    Config.SecretKey := 'admin123';
-    Config.Bucket := 'chat';
-
-    URL := TMinioPresign.PresignedURL('GET', Config, Qry.FieldByName('objeto').AsString, 'us-east-1', 600);
+    URL := TMinioPresign.PresignedURL('GET', Configuracao.S3, Qry.FieldByName('objeto').AsString, 'us-east-1', 600);
 
     Result := TJSONObject.Create;
     Result.AddPair('url', URL);
@@ -705,17 +645,10 @@ var
   Objeto: String;
   URL: String;
   ID: Integer;
-  Config: TMinioConfig;
 begin
   // 1 GiB
   if Tamanho > (1 * 1024 * 1024 * 1024) then
     raise Exception.Create('Arquivo muito grande!');
-
-  Config := Default(TMinioConfig);
-  Config.Endpoint := 'http://127.0.0.1:9000';
-  Config.AccessKey := 'admin';
-  Config.SecretKey := 'admin123';
-  Config.Bucket := 'chat';
 
   Pool := TPool.Instance;
   Qry := TFDQuery.Create(nil);
@@ -730,7 +663,7 @@ begin
     );
     if not Qry.IsEmpty then
     begin
-      URL := TMinioPresign.PresignedURL('GET', Config, Qry.FieldByName('objeto').AsString, 'us-east-1', 600);
+      URL := TMinioPresign.PresignedURL('GET', Configuracao.S3, Qry.FieldByName('objeto').AsString, 'us-east-1', 600);
 
       Result := TJSONObject.Create;
       Result.AddPair('existe', True);
@@ -744,7 +677,7 @@ begin
 
   Objeto := Copy(Identificador, 1, 2) +'/'+ Identificador;
 
-  URL := TMinioPresign.PresignedURL('PUT', Config, Objeto, 'us-east-1', 300);
+  URL := TMinioPresign.PresignedURL('PUT', Configuracao.S3, Objeto, 'us-east-1', 300);
 
   ID := Pool.Connection.ExecSQLScalar(
     sl +'insert '+
@@ -1340,7 +1273,7 @@ begin
     sl +
     sl +'update chamada '+
     sl +'   set status = 2 /* 2-Recusada */ '+
-    sl +' where id = 151 '+
+    sl +' where id = '+ joParam.GetValue<String>('id') +
     sl +'   and exists( '+
     sl +'         select * '+
     sl +'           from '+
@@ -1350,11 +1283,10 @@ begin
     sl +'                 inner '+
     sl +'                  join chamada_usuario cu '+
     sl +'                    on cu.chamada_id  = c.id '+
-    sl +'                 where c.id = 151 '+
+    sl +'                 where c.id = '+ joParam.GetValue<String>('id') +
     sl +'              ) as t '+
     sl +'          where usuarios - 1 = recusaram '+
     sl +'       ); '
-
   );
 
   AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0));

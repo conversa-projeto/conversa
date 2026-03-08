@@ -8,16 +8,16 @@ uses
   FireDAC.Comp.Client,
   Data.DB,
   Postgres,
-  FCMNotification;
+  FCMNotification,
+  Minio.Presign;
 
 type
   TConfiguracao = record
     PGParams: TPGParams;
-    LocalAnexos: String;
-    LocalVersoes: String;
     JWTKEY: String;
     FCM: TFCMConfig;
     BcryptPepper: String;
+    S3: TMinioConfig;
     class procedure LoadFromEnvironment; static;
     class procedure LoadFromDataBase; static;
   end;
@@ -51,6 +51,44 @@ begin
   end;
 end;
 
+function GerarSQLParametros(const Campos: array of string): string;
+var
+  i: Integer;
+  sl: string;
+  sSelectMax: string;
+  sSelectCase: string;
+  sWhere: string;
+begin
+  sl := sLineBreak;
+
+  for i := Low(Campos) to High(Campos) do
+  begin
+    if i > Low(Campos) then
+    begin
+      sSelectMax  := sSelectMax  + '     , ';
+      sSelectCase := sSelectCase + '            , ';
+      sWhere      := sWhere + ', ';
+    end;
+
+    sSelectMax := sSelectMax +'max('+ Campos[i] +') as '+ Campos[i] + sl;
+
+    sSelectCase := sSelectCase +
+      'case nome '+
+      sl +'  when '''+ Campos[i] +''' then valor ' +
+      sl +'  else null '+
+      sl +'end as '+ Campos[i] +
+      sl;
+
+    sWhere := sWhere + '''' + Campos[i] + '''';
+  end;
+
+  Result := 'select '+ sSelectMax +' from '+
+    sl +'( select '+ sSelectCase +
+    sl +'     from parametros '+
+    sl +'    where nome in ('+ sWhere +')' +
+    sl +') as t';
+end;
+
 class procedure TConfiguracao.LoadFromDataBase;
 var
   Pool: IConnection;
@@ -63,53 +101,44 @@ begin
     try
       Qry.Connection := Pool.Connection;
       Qry.Open(
-        sl +'select max(local_anexos) as local_anexos '+
-        sl +'     , max(local_versoes) as local_versoes '+
-        sl +'     , max(jwt_token) as jwt_token '+
-        sl +'     , max(fcm_project_id) as fcm_project_id '+
-        sl +'     , max(fcm_client_email) as fcm_client_email '+
-        sl +'     , max(fcm_private_key) as fcm_private_key '+
-        sl +'  from  '+
-        sl +'     ( select case nome '+
-        sl +'              when ''local_anexos'' then valor '+
-        sl +'              else null '+
-        sl +'               end as local_anexos '+
-        sl +'            , case nome '+
-        sl +'              when ''local_versoes'' then valor '+
-        sl +'              else null '+
-        sl +'               end as local_versoes '+
-        sl +'            , case nome '+
-        sl +'              when ''jwt_token'' then valor '+
-        sl +'              else null '+
-        sl +'               end as jwt_token '+
-        sl +'            , case nome '+
-        sl +'              when ''fcm_project_id'' then valor '+
-        sl +'              else null '+
-        sl +'               end as fcm_project_id '+
-        sl +'            , case nome '+
-        sl +'              when ''fcm_client_email'' then valor '+
-        sl +'              else null '+
-        sl +'               end as fcm_client_email '+
-        sl +'            , case nome '+
-        sl +'              when ''fcm_private_key'' then valor '+
-        sl +'              else null '+
-        sl +'               end as fcm_private_key '+
-        sl +'         from parametros '+
-        sl +'        where nome in (''local_anexos'', ''local_versoes'', ''jwt_token'', ''fcm_project_id'', ''fcm_client_email'', ''fcm_private_key'') '+
-        sl +'     ) as t '
+        GerarSQLParametros([
+          'jwt_token',
+          'fcm_project_id',
+          'fcm_client_email',
+          'fcm_private_key',
+          's3_endpoint',
+          's3_accesskey',
+          's3_secretkey',
+          's3_bucket'
+        ])
       );
 
       for I := 0 to Pred(Qry.FieldCount) do
         if Qry.Fields[I].IsNull then
           raise Exception.Create('"'+ Qry.Fields[I].FieldName +'" não configurado nos parâmetros!');
 
-      Configuracao.LocalAnexos     := Qry.FieldByName('local_anexos').AsString;
-      Configuracao.LocalVersoes    := Qry.FieldByName('local_versoes').AsString;
       Configuracao.JWTKEY          := Qry.FieldByName('jwt_token').AsString;
+
       Configuracao.FCM             := Default(TFCMConfig);
       Configuracao.FCM.ProjectID   := Qry.FieldByName('fcm_project_id').AsString;
       Configuracao.FCM.ClientEmail := Qry.FieldByName('fcm_client_email').AsString;
       Configuracao.FCM.PrivateKey  := Qry.FieldByName('fcm_private_key').AsString;
+
+      Configuracao.S3.Endpoint  := Qry.FieldByName('s3_endpoint').AsString;
+      Configuracao.S3.AccessKey := Qry.FieldByName('s3_accesskey').AsString;
+      Configuracao.S3.SecretKey := Qry.FieldByName('s3_secretkey').AsString;
+      Configuracao.S3.Bucket    := Qry.FieldByName('s3_bucket').AsString;
+
+      if Configuracao.S3.Endpoint.Contains('127.0.0.1') or Configuracao.S3.Endpoint.Contains('localhost') then
+        Writeln('⚠  Parâmetro "s3_endpoint" deve apontar para o IP do servidor atual! Corrija para funcionar em outras máquinas!');
+
+      if Configuracao.S3.AccessKey.Contains('admin') or Configuracao.S3.SecretKey.Contains('admin') then
+        Writeln('⚠  Parâmetro "s3_accesskey" e "s3_secretkey" inseguros! Corrija antes de colocar em produção!');
+
+      if Configuracao.S3.Bucket.Trim.IsEmpty then
+        Writeln('⚠  Parâmetro "s3_bucket" vazio! Anexos não vão funcionar!');
+
+      Writeln;
     finally
       FreeAndNil(Qry);
     end;

@@ -147,19 +147,10 @@ begin
 end;
 
 class procedure TWebSocket.Iniciar(const iPort: Integer; const sJWTKey: String);
-var
-  LSSLHandler: TIdServerIOHandlerSSLOpenSSL;
 begin
   FJWTKey := sJWTKey;
   FWebSocket := TBirdSocket.Create(iPort);
-
-  LSSLHandler := TIdServerIOHandlerSSLOpenSSL.Create(FWebSocket);
-  LSSLHandler.SSLOptions.CertFile := 'cert\cert.pem';
-  LSSLHandler.SSLOptions.KeyFile  := 'cert\key.pem';
-  LSSLHandler.SSLOptions.SSLVersions := [sslvTLSv1_2];
-  FWebSocket.IOHandler := LSSLHandler;
   FWebSocket.Active := True;
-
   FWebSocket.AddEventListener(TEventType.EXECUTE, Execute);
 end;
 
