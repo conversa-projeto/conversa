@@ -114,7 +114,7 @@ begin
         '/alterar-senha',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          TConversa.AlterarSenha(Conteudo(Req));
+          TConversa.AlterarSenha(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req));
           Res.Send<TJSONObject>(TJSONObject.Create);
         end
       );

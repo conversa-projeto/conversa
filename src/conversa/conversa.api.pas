@@ -38,7 +38,7 @@ type
     class procedure ConversaNotificar(const Conversa, Usuario: Integer; Msg: TSocketMessageType); static;
   public
     class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
-    class procedure AlterarSenha(oAutenticacao: TJSONObject); static;
+    class procedure AlterarSenha(Usuario: Integer; oAutenticacao: TJSONObject); static;
     class function DispositivoAlterar(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject; static;
     class function DispositivoUsuarioIncluir(Usuario, Dispositivo: Integer): TJSONObject; static;
     class function UsuarioIncluir(oUsuario: TJSONObject): TJSONObject; static;
@@ -115,7 +115,7 @@ begin
 
   // Se a senha não está usando bcrypt mais está correta.. converte para bcrypt
   if (Result.GetValue<String>('senha').Length <> 60) and (oAutenticacao.GetValue<String>('senha') = Result.GetValue<String>('senha')) then
-    TConversa.AlterarSenha(oAutenticacao);
+    TConversa.AlterarSenha(Result.GetValue<Integer>('id'), oAutenticacao);
 
   Result.RemovePair('senha').Free;
 
@@ -154,24 +154,25 @@ begin
     raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Seção Encerrada!');
 end;
 
-class procedure TConversa.AlterarSenha(oAutenticacao: TJSONObject);
+class procedure TConversa.AlterarSenha(Usuario: Integer; oAutenticacao: TJSONObject);
 var
   sHash: String;
   sSenhaUsuario: String;
 begin
-  CamposObrigatorios(oAutenticacao, ['login', 'senha']);
+  {TODO: Verificar se a senha atual está correta antes de permitir colocar a nova}
+  CamposObrigatorios(oAutenticacao, ['senha_atual', 'senha_nova']);
 
-  if oAutenticacao.GetValue<String>('senha').Length > 72 then
+  if oAutenticacao.GetValue<String>('senha_nova').Length > 72 then
     raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Senha inválida!');
 
-  sSenhaUsuario := LeftStr(oAutenticacao.GetValue<String>('senha') + Configuracao.BcryptPepper, 72);
+  sSenhaUsuario := LeftStr(oAutenticacao.GetValue<String>('senha_nova') + Configuracao.BcryptPepper, 72);
 
   sHash := TBCrypt.HashPassword(sSenhaUsuario, 15);
 
   TPool.Instance.Connection.ExecSQL(
     sl +'update usuario '+
     sl +'   set senha = '+ Qt(sHash) +
-    sl +' where login = '+ Qt(oAutenticacao.GetValue<String>('login'))
+    sl +' where id = '+ Usuario.ToString
   );
 end;
 
