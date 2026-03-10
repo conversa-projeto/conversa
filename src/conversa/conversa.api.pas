@@ -51,6 +51,7 @@ type
     class function ConversaAlterar(Usuario: Integer; oConversa: TJSONObject): TJSONObject; static;
     class function ConversaExcluir(Usuario: Integer; Conversa: Integer): TJSONObject; static;
     class function Conversas(Usuario: Integer): TJSONArray; static;
+    class function ConversaUsuarios(Usuario: Integer; Conversa: Integer): TJSONArray; static;
     class function ConversaUsuarioIncluir(Usuario: Integer; oConversaUsuario: TJSONObject): TJSONObject; static;
     class function ConversaUsuarioExcluir(Usuario: Integer; ConversaUsuario: Integer): TJSONObject; static;
     class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject; static;
@@ -58,7 +59,7 @@ type
     class function Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray; static;
     class function Pesquisar(Usuario: Integer; Texto: String): TJSONArray; static;
     class function GetMensagens(Conversa, Usuario: Integer; Script: String; MarcarComoRecebida: Boolean): TJSONArray; static;
-    class function MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject; static;
+    class function MensagemVisualizada(Usuario: Integer; oConversaMensagem: TJSONObject): TJSONObject; static;
     class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray; static;
     class function AnexoExiste(Identificador: String): TJSONObject; static;
     class function AnexoIncluir(Identificador: String; Tipo: Integer; Nome: String; Extensao: String; Tamanho: Int64): TJSONObject; static;
@@ -446,6 +447,25 @@ begin
     sl +'     on msg_count.conversa_id = tc.id '+
     sl +'  order '+
     sl +'     by tcm.ultima_mensagem desc '
+  );
+end;
+
+class function TConversa.ConversaUsuarios(Usuario: Integer; Conversa: Integer): TJSONArray;
+begin
+  Result := Open(
+    sl +'select cu.usuario_id '+
+    sl +'     , u.nome '+
+    sl +'  from conversa_usuario as cu '+
+    sl +' inner '+
+    sl +'  join usuario as u '+
+    sl +'    on u.id = cu.usuario_id '+
+    sl +' where cu.conversa_id = '+ Conversa.ToString +
+    sl +'   and exists( '+
+    sl +'       select cu2.id '+
+    sl +'         from conversa_usuario as cu2 '+
+    sl +'        where cu2.conversa_id = cu.conversa_id '+
+    sl +'          and cu2.usuario_id = '+ Usuario.ToString +
+    sl +'       ) '
   );
 end;
 
@@ -998,20 +1018,20 @@ begin
   end;
 end;
 
-class function TConversa.MensagemVisualizada(Conversa, Mensagem, Usuario: Integer): TJSONObject;
+class function TConversa.MensagemVisualizada(Usuario: Integer; oConversaMensagem: TJSONObject): TJSONObject;
 begin
   {TODO -oEduardo -cSegurança : não pode marcar como visualizada mensagem de outro o usuário, adicionar validação}
   TPool.Instance.Connection.ExecSQL(
     sl +' update mensagem_status '+
     sl +'    set visualizada = now() '+
-    sl +'  where conversa_id = '+ Conversa.ToString +
-    sl +'    and mensagem_id = '+ Mensagem.ToString +
+    sl +'  where conversa_id = '+ oConversaMensagem.GetValue<String>('conversa') +
+    sl +'    and mensagem_id = '+ oConversaMensagem.GetValue<String>('mensagem') +
     sl +'    and usuario_id  = '+ Usuario.ToString +
     sl +'    and visualizada is null '
   );
   Result := TJSONObject.Create.AddPair('sucesso', True);
 
-  AtualizaMensagemSocket(Usuario, Conversa, Mensagem.ToString);
+  AtualizaMensagemSocket(Usuario, oConversaMensagem.GetValue<Integer>('conversa'), oConversaMensagem.GetValue<String>('mensagem'));
 end;
 
 class function TConversa.MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;

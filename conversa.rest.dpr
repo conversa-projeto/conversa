@@ -220,6 +220,15 @@ begin
         end
       );
 
+      THorse.Get(
+        '/conversa/usuarios',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Query.Field('conversa').Required(True);
+          Res.Send<TJSONArray>(TConversa.ConversaUsuarios(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('conversa').AsInteger));
+        end
+      );
+
       THorse.Put(
         '/conversa/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
@@ -315,19 +324,11 @@ begin
         end
       );
 
-      THorse.Get(
+      THorse.Post(
         '/mensagem/visualizar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Req.Query.Field('conversa').Required(True);
-          Req.Query.Field('mensagem').Required(True);
-          Res.Send<TJSONObject>(
-            TConversa.MensagemVisualizada(
-              Req.Query.Field('conversa').AsInteger,
-              Req.Query.Field('mensagem').AsInteger,
-              Req.Session<TJWTClaims>.Subject.ToInteger
-            )
-          );
+          Res.Send<TJSONObject>(TConversa.MensagemVisualizada(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
