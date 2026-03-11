@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..11] of String = (
+  Versoes: Array[0..12] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -207,7 +207,7 @@ const
     sl +'     )  '+
     sl +'values '+
     sl +'     ( ''s3_endpoint'' '+
-    sl +'     , ''http://127.0.0.1:9000'' '+
+    sl +'     , ''https://127.0.0.1:9000'' '+
     sl +'     ), '+
     sl +'     ( ''s3_accesskey'' '+
     sl +'     , ''admin'' '+
@@ -218,7 +218,9 @@ const
     sl +'     ( ''s3_bucket'' '+
     sl +'     , ''chat'' '+
     sl +'     ); '+
-    sl +'drop table versao; '
+    sl +'drop table versao; ',
+
+    sl +'alter table usuario add column avatar_anexo_id int4 references anexo(id);'
   );
 
 procedure Migracoes;

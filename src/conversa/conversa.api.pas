@@ -86,17 +86,23 @@ var
   oDispositivo: TJSONObject;
   passwordRehashNeeded: Boolean;
   sSenhaUsuario: String;
+  Objeto: TJSONPair;
+  URL: String;
 begin
   CamposObrigatorios(oAutenticacao, ['login', 'senha']);
 
   Result := OpenKey(
-    sl +'select id '+
-    sl +'     , nome '+
-    sl +'     , email '+
-    sl +'     , telefone '+
-    sl +'     , senha '+
-    sl +'  from usuario '+
-    sl +' where login = '+ Qt(oAutenticacao.GetValue<String>('login'))
+    sl +'select u.id '+
+    sl +'     , u.nome '+
+    sl +'     , u.email '+
+    sl +'     , u.telefone '+
+    sl +'     , u.senha '+
+    sl +'     , a.objeto as avatar_objeto '+
+    sl +'  from usuario as u '+
+    sl +'  left '+
+    sl +'  join anexo as a '+
+    sl +'    on a.id = u.avatar_anexo_id '+
+    sl +' where u.login = '+ Qt(oAutenticacao.GetValue<String>('login'))
   );
 
   if Result.Count = 0 then
@@ -119,6 +125,21 @@ begin
     TConversa.AlterarSenha(Result.GetValue<Integer>('id'), oAutenticacao);
 
   Result.RemovePair('senha').Free;
+
+  // Retorna url do avatar
+  Objeto := TJSONObject(Result).RemovePair('avatar_objeto');
+  try
+    if not Assigned(Objeto) or (Objeto.JsonValue is TJSONNull) then
+      Result.AddPair('avatar_url', TJSONNull.Create)
+    else
+    begin
+      URL := TMinioPresign.PresignedURL('GET', Configuracao.S3, TJSONString(Objeto.JsonValue).Value, 'us-east-1', 600);
+      Result.AddPair('avatar_url', URL);
+    end;
+  finally
+    Objeto.Free;
+  end;
+
 
   iDispositivoId := oAutenticacao.GetValue<Integer>('dispositivo_id', -1);
   if iDispositivoId > 0 then
@@ -240,16 +261,19 @@ class function TConversa.UsuarioIncluir(oUsuario: TJSONObject): TJSONObject;
 begin
   CamposObrigatorios(oUsuario, ['nome', 'login', 'email', 'senha']);
   Result := InsertJSON('usuario', oUsuario);
+  Result.RemovePair('senha').Free;
 end;
 
 class function TConversa.UsuarioAlterar(oUsuario: TJSONObject): TJSONObject;
 begin
   Result := UpdateJSON('usuario', oUsuario);
+  Result.RemovePair('senha').Free;
 end;
 
 class function TConversa.UsuarioExcluir(Usuario: Integer): TJSONObject;
 begin
   Result := Delete('usuario', Usuario);
+  Result.RemovePair('senha').Free;
 end;
 
 class function TConversa.UsuarioContatoIncluir(Usuario, Relacionamento: Integer): TJSONObject;
@@ -345,6 +369,10 @@ begin
 end;
 
 class function TConversa.Conversas(Usuario: Integer): TJSONArray;
+var
+  Item: TJSONValue;
+  Objeto: TJSONPair;
+  URL: String;
 begin
   Result := Open(
     sl +'   drop table if exists temp_conversa; '+
@@ -372,12 +400,14 @@ begin
     sl +'      , tcm.ultima_mensagem '+
     sl +'      , convert_from(tcm.ultima_mensagem_texto, ''utf-8'') as ultima_mensagem_texto '+
     sl +'      , cast(coalesce(mensagens_sem_visualizar, 0) as int) as mensagens_sem_visualizar '+
+    sl +'      , d.avatar_objeto '+
     sl +'   from temp_conversa tc '+
     sl +'   left '+
     sl +'   join '+
     sl +'      ( select d.conversa_id '+
     sl +'             , d.destinatario_id '+
     sl +'             , u.nome '+
+    sl +'             , a.objeto as avatar_objeto '+
     sl +'          from '+
     sl +'             ( select cu.conversa_id '+
     sl +'                    , cu.usuario_id as destinatario_id '+
@@ -395,6 +425,9 @@ begin
     sl +'         inner '+
     sl +'          join usuario u '+
     sl +'            on u.id = d.destinatario_id '+
+    sl +'          left '+
+    sl +'          join anexo as a '+
+    sl +'            on a.id = u.avatar_anexo_id '+
     sl +'      ) as d '+
     sl +'     on d.conversa_id = tc.id '+
     sl +'   left '+
@@ -448,6 +481,25 @@ begin
     sl +'  order '+
     sl +'     by tcm.ultima_mensagem desc '
   );
+
+  for Item in Result do
+  begin
+    Objeto := TJSONObject(Item).RemovePair('avatar_objeto');
+    try
+      if not Assigned(Objeto) then
+        Continue;
+
+      if Objeto.JsonValue is TJSONNull then
+        TJSONObject(Item).AddPair('avatar_url', TJSONNull.Create)
+      else
+      begin
+        URL := TMinioPresign.PresignedURL('GET', Configuracao.S3, TJSONString(Objeto.JsonValue).Value, 'us-east-1', 600);
+        TJSONObject(Item).AddPair('avatar_url', URL);
+      end;
+    finally
+      Objeto.Free;
+    end;
+  end;
 end;
 
 class function TConversa.ConversaUsuarios(Usuario: Integer; Conversa: Integer): TJSONArray;
@@ -625,6 +677,13 @@ begin
 
     Result := TJSONObject.Create;
     Result.AddPair('existe', not Qry.IsEmpty);
+    if not Qry.IsEmpty then
+    begin
+      Result.AddPair('id', Qry.FieldByName('id').AsInteger);
+      Result.AddPair('identificador', Qry.FieldByName('identificador').AsString);
+      Result.AddPair('tipo', Qry.FieldByName('tipo').AsInteger);
+      Result.AddPair('tamanho', Qry.FieldByName('tamanho').AsLargeInt);
+    end;
   finally
     FreeAndNil(Qry);
   end;
@@ -696,7 +755,7 @@ begin
     Qry.Free;
   end;
 
-  Objeto := Copy(Identificador, 1, 2) +'/'+ Identificador;
+  Objeto := 'conversa'+ FormatDateTime('/yyyy/mm/dd/', Now) + Identificador;
 
   URL := TMinioPresign.PresignedURL('PUT', Configuracao.S3, Objeto, 'us-east-1', 300);
 

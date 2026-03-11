@@ -188,11 +188,13 @@ begin
     sCampos := sCampos + IfThen(not sCampos.IsEmpty, ',') + Par.JsonString.Value +' = '+ sValor;
   end;
 
-  Result := OpenKey(
+  TPool.Instance.Connection.ExecSQL(
     sl +'update '+ sTabela +
     sl +'   set '+ sCampos +
-    sl +' where id = '+ iID.ToString +';'+
-    sl +
+    sl +' where id = '+ iID.ToString
+  );
+
+  Result := OpenKey(
     sl +'select * '+
     sl +'  from '+ sTabela +
     sl +' where id = '+ iID.ToString
