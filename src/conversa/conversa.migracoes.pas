@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..12] of String = (
+  Versoes: Array[0..13] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -220,7 +220,116 @@ const
     sl +'     ); '+
     sl +'drop table versao; ',
 
-    sl +'alter table usuario add column avatar_anexo_id int4 references anexo(id);'
+    sl +'alter table usuario add column avatar_anexo_id int4 references anexo(id);',
+
+    // Auditoria
+    sl +'create schema auditoria; '+
+
+    // Tabela de alterações (UPDATE - uma linha por campo alterado)
+    sl +'create table auditoria.alteracao '+
+    sl +'     ( id serial primary key '+
+    sl +'     , tabela varchar(50) not null '+
+    sl +'     , registro_id int not null '+
+    sl +'     , campo varchar(50) not null '+
+    sl +'     , valor_antigo text '+
+    sl +'     , valor_novo text '+
+    sl +'     , usuario_id int '+
+    sl +'     , criado_em timestamp default current_timestamp '+
+    sl +'     ); '+
+    sl +'create index ix_alteracao_01 on auditoria.alteracao(tabela, registro_id); '+
+
+    // Tabela de exclusões (DELETE - JSON do registro completo)
+    sl +'create table auditoria.exclusao '+
+    sl +'     ( id serial primary key '+
+    sl +'     , tabela varchar(50) not null '+
+    sl +'     , registro_id int not null '+
+    sl +'     , dados jsonb not null '+
+    sl +'     , usuario_id int '+
+    sl +'     , criado_em timestamp default current_timestamp '+
+    sl +'     ); '+
+    sl +'create index ix_exclusao_01 on auditoria.exclusao(tabela, registro_id); '+
+
+    // Adicionar id na tabela parametros
+    sl +'alter table parametros add column id serial primary key; '+
+    sl +'alter table parametros add column criado_em timestamp default current_timestamp; '+
+    sl +'alter table parametros add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
+
+    // Adicionar criado_em e criado_por nas tabelas que não possuem
+    sl +'alter table usuario add column criado_em timestamp default current_timestamp; '+
+    sl +'alter table usuario add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
+    sl +'alter table conversa add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
+    sl +'alter table usuario_contato add column criado_em timestamp default current_timestamp; '+
+    sl +'alter table usuario_contato add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
+    sl +'alter table conversa_usuario add column criado_em timestamp default current_timestamp; '+
+    sl +'alter table conversa_usuario add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
+    sl +'alter table mensagem_conteudo add column criado_em timestamp default current_timestamp; '+
+    sl +'alter table mensagem_conteudo add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
+    sl +'alter table anexo add column criado_em timestamp default current_timestamp; '+
+    sl +'alter table anexo add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
+    sl +'alter table dispositivo add column criado_em timestamp default current_timestamp; '+
+    sl +'alter table dispositivo add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
+    sl +'alter table dispositivo_usuario add column criado_em timestamp default current_timestamp; '+
+    sl +'alter table dispositivo_usuario add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
+
+    // Função de auditoria para UPDATE
+    sl +'create or replace function auditoria.fn_alteracao() returns trigger as $$ '+
+    sl +'declare '+
+    sl +'  v_old jsonb; '+
+    sl +'  v_new jsonb; '+
+    sl +'  v_key text; '+
+    sl +'begin '+
+    sl +'  v_old := row_to_json(OLD)::jsonb; '+
+    sl +'  v_new := row_to_json(NEW)::jsonb; '+
+    sl +'  for v_key in select jsonb_object_keys(v_old) '+
+    sl +'  loop '+
+    sl +'    if v_key not in (''id'', ''senha'', ''conteudo'', ''criado_em'', ''criado_por'') '+
+    sl +'       and v_old->v_key is distinct from v_new->v_key then '+
+    sl +'      insert into auditoria.alteracao (tabela, registro_id, campo, valor_antigo, valor_novo, usuario_id) '+
+    sl +'      values (TG_TABLE_NAME, OLD.id, v_key, v_old->>v_key, v_new->>v_key, nullif(current_setting(''app.usuario_id'', true), '''')::int); '+
+    sl +'    end if; '+
+    sl +'  end loop; '+
+    sl +'  return NEW; '+
+    sl +'end; '+
+    sl +'$$ language plpgsql; '+
+
+    // Função de auditoria para DELETE
+    sl +'create or replace function auditoria.fn_exclusao() returns trigger as $$ '+
+    sl +'begin '+
+    sl +'  insert into auditoria.exclusao (tabela, registro_id, dados, usuario_id) '+
+    sl +'  values (TG_TABLE_NAME, OLD.id, row_to_json(OLD)::jsonb - ''senha'' - ''conteudo'', nullif(current_setting(''app.usuario_id'', true), '''')::int); '+
+    sl +'  return OLD; '+
+    sl +'end; '+
+    sl +'$$ language plpgsql; '+
+
+    // Triggers de UPDATE
+    sl +'create trigger trg_alteracao after update on usuario for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on conversa for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on usuario_contato for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on conversa_usuario for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on mensagem for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on mensagem_conteudo for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on anexo for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on dispositivo for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on dispositivo_usuario for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on chamada for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on chamada_usuario for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on chamada_evento for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_alteracao after update on parametros for each row execute function auditoria.fn_alteracao(); '+
+
+    // Triggers de DELETE
+    sl +'create trigger trg_exclusao after delete on usuario for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on conversa for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on usuario_contato for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on conversa_usuario for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on mensagem for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on mensagem_conteudo for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on anexo for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on dispositivo for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on dispositivo_usuario for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on chamada for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on chamada_usuario for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on chamada_evento for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create trigger trg_exclusao after delete on parametros for each row execute function auditoria.fn_exclusao(); '
   );
 
 procedure Migracoes;

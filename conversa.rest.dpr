@@ -84,6 +84,18 @@ begin
           )
         );
 
+      THorse.Use(
+        procedure(Req: THorseRequest; Res: THorseResponse; Next: TProc)
+        begin
+          try
+            TPool.SetUsuarioID(Req.Session<TJWTClaims>.Subject.ToInteger);
+          except
+            TPool.SetUsuarioID(0);
+          end;
+          Next;
+        end
+      );
+
       THorse.Post(
         '/login',
         procedure(Req: THorseRequest; Res: THorseResponse)

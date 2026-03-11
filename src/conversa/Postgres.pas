@@ -72,12 +72,16 @@ type
     class procedure Start(Params: TPGParams; iMaxConnections: Integer = 50; iMaxIdleTimeout: Integer = 30);
     class procedure Stop;
     class function Instance: IConnection;
+    class procedure SetUsuarioID(iID: Integer);
   end;
 
 implementation
 
 var
   FPool: TPool;
+
+threadvar
+  _PoolUsuarioID: Integer;
 
 { TPool }
 
@@ -181,6 +185,11 @@ begin
   end;
 end;
 
+class procedure TPool.SetUsuarioID(iID: Integer);
+begin
+  _PoolUsuarioID := iID;
+end;
+
 class procedure TPool.Stop;
 begin
   if not Assigned(FPool) then
@@ -217,6 +226,10 @@ constructor TIntfConnection.Create(Con: TConnection);
 begin
   FCon := Con;
   FCon.FState := Ocupada;
+  if _PoolUsuarioID > 0 then
+    FCon.FFDCon.ExecSQLScalar('SELECT set_config(''app.usuario_id'', ''' + IntToStr(_PoolUsuarioID) + ''', false)')
+  else
+    FCon.FFDCon.ExecSQLScalar('SELECT set_config(''app.usuario_id'', '''', false)');
 end;
 
 destructor TIntfConnection.Destroy;
