@@ -76,6 +76,7 @@ type
     class function ChamadasPendentes(Usuario: Integer): TJSONArray; static;
     class function ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class procedure ConversaDigitando(const Usuario, Conversa: Integer); static;
+    class procedure ConversaGravando(const Usuario, Conversa: Integer); static;
   end;
 
 implementation
@@ -86,8 +87,6 @@ var
   oDispositivo: TJSONObject;
   passwordRehashNeeded: Boolean;
   sSenhaUsuario: String;
-  Objeto: TJSONPair;
-  URL: String;
 begin
   CamposObrigatorios(oAutenticacao, ['login', 'senha']);
 
@@ -97,7 +96,7 @@ begin
     sl +'     , u.email '+
     sl +'     , u.telefone '+
     sl +'     , u.senha '+
-    sl +'     , a.objeto as avatar_objeto '+
+    sl +'     , a.identificador as avatar_identificador '+
     sl +'  from usuario as u '+
     sl +'  left '+
     sl +'  join anexo as a '+
@@ -125,21 +124,6 @@ begin
     TConversa.AlterarSenha(Result.GetValue<Integer>('id'), oAutenticacao);
 
   Result.RemovePair('senha').Free;
-
-  // Retorna url do avatar
-  Objeto := TJSONObject(Result).RemovePair('avatar_objeto');
-  try
-    if not Assigned(Objeto) or (Objeto.JsonValue is TJSONNull) then
-      Result.AddPair('avatar_url', TJSONNull.Create)
-    else
-    begin
-      URL := TMinioPresign.PresignedURL('GET', Configuracao.S3, TJSONString(Objeto.JsonValue).Value, 'us-east-1', 600);
-      Result.AddPair('avatar_url', URL);
-    end;
-  finally
-    Objeto.Free;
-  end;
-
 
   iDispositivoId := oAutenticacao.GetValue<Integer>('dispositivo_id', -1);
   if iDispositivoId > 0 then
@@ -540,6 +524,11 @@ end;
 class procedure TConversa.ConversaDigitando(const Usuario, Conversa: Integer);
 begin
   TConversa.ConversaNotificar(Conversa, Usuario, TSocketMessageType.Digitando);
+end;
+
+class procedure TConversa.ConversaGravando(const Usuario, Conversa: Integer);
+begin
+  TConversa.ConversaNotificar(Conversa, Usuario, TSocketMessageType.GravandoAudio);
 end;
 
 procedure EnviaNotificacoes(const AUsuarioID: Integer; const ATokenDispositivo, ATitulo, AMensagem: String; ADadosExtras: TJSONObject = nil);

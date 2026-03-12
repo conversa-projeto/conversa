@@ -269,6 +269,17 @@ begin
         end
       );
 
+      THorse.Post(
+        '/conversa/gravando',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          if not Assigned(Conteudo(Req).FindValue('id')) then
+            EHorseException.New.Status(THTTPStatus.BadRequest).Error('ID da conversa não informado!');
+          TConversa.ConversaGravando(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req).GetValue<Integer>('id'));
+          Res.Send<TJSONObject>(TJSONObject.Create);
+        end
+      );
+
       THorse.Put(
         '/mensagem',
         procedure(Req: THorseRequest; Res: THorseResponse)
