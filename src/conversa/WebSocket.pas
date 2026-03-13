@@ -29,7 +29,8 @@ type
     ChamadaFinalizada = 52, // Usuário que criou, cancela a chamada antes mesmo de algum usuário entrar ou finaliza a chamada de modo forçado
     UsuarioRecusou = 53,
     UsuarioEntrou = 54,
-    UsuarioSaiu = 55
+    UsuarioSaiu = 55,
+    VideoAtivado = 56
   );
 
   TWebSocket = record

@@ -78,6 +78,7 @@ type
     class function ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class procedure ConversaDigitando(const Usuario, Conversa: Integer); static;
     class procedure ConversaGravando(const Usuario, Conversa: Integer); static;
+    class procedure ChamadaVideo(const Usuario, Chamada: Integer); static;
   end;
 
 implementation
@@ -530,6 +531,11 @@ end;
 class procedure TConversa.ConversaGravando(const Usuario, Conversa: Integer);
 begin
   TConversa.ConversaNotificar(Conversa, Usuario, TSocketMessageType.GravandoAudio);
+end;
+
+class procedure TConversa.ChamadaVideo(const Usuario, Chamada: Integer);
+begin
+  TConversa.ChamadaNotificar(Chamada, Usuario, TSocketMessageType.VideoAtivado);
 end;
 
 procedure EnviaNotificacoes(const AUsuarioID: Integer; const ATokenDispositivo, ATitulo, AMensagem: String; ADadosExtras: TJSONObject = nil);

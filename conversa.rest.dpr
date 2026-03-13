@@ -459,6 +459,16 @@ begin
         end
       );
 
+      THorse.Post('/chamada/video',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          if not Assigned(Conteudo(Req).FindValue('id')) then
+            EHorseException.New.Status(THTTPStatus.BadRequest).Error('ID da chamada não informado!');
+          TConversa.ChamadaVideo(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req).GetValue<Integer>('id'));
+          Res.Send<TJSONObject>(TJSONObject.Create);
+        end
+      );
+
       THorse.Put(
         '/chamadaevento',
         procedure(Req: THorseRequest; Res: THorseResponse)
