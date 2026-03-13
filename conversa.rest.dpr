@@ -355,6 +355,14 @@ begin
         end
       );
 
+      THorse.Post(
+        '/mensagem/reproduzir',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.MensagemReproduzida(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
       THorse.Get(
         '/mensagem/status',
         procedure(Req: THorseRequest; Res: THorseResponse)

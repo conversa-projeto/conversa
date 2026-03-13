@@ -60,6 +60,7 @@ type
     class function Pesquisar(Usuario: Integer; Texto: String): TJSONArray; static;
     class function GetMensagens(Conversa, Usuario: Integer; Script: String; MarcarComoRecebida: Boolean): TJSONArray; static;
     class function MensagemVisualizada(Usuario: Integer; oConversaMensagem: TJSONObject): TJSONObject; static;
+    class function MensagemReproduzida(Usuario: Integer; oConversaMensagem: TJSONObject): TJSONObject; static;
     class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray; static;
     class function AnexoExiste(Identificador: String): TJSONObject; static;
     class function AnexoIncluir(Identificador: String; Tipo: Integer; Nome: String; Extensao: String; Tamanho: Int64): TJSONObject; static;
@@ -917,6 +918,7 @@ begin
       sl +'     , m.conversa_id '+
       sl +'     , m.inserida '+
       sl +'     , m.alterada '+
+      sl +'     , m.resposta_mensagem_id '+
       sl +'  from '+
       sl +'     ( select m.* '+
       sl +'         from '+
@@ -977,6 +979,45 @@ begin
       oMensagem.AddPair('conversa_id', Mensagem.FieldByName('conversa_id').AsInteger);
       oMensagem.AddPair('inserida', DateToISO8601(Mensagem.FieldByName('inserida').AsDateTime));
       oMensagem.AddPair('alterada', DateToISO8601(Mensagem.FieldByName('alterada').AsDateTime));
+
+      // Resposta a mensagem
+      if not Mensagem.FieldByName('resposta_mensagem_id').IsNull then
+      begin
+        oMensagem.AddPair('resposta_mensagem_id', Mensagem.FieldByName('resposta_mensagem_id').AsInteger);
+        QryAux.Open(
+          sl +'select m.id '+
+          sl +'     , substring(trim(u.nome) from ''^([^ ]+)'') as remetente '+
+          sl +'     , coalesce( '+
+          sl +'         (select convert_from(mc.conteudo, ''utf-8'') '+
+          sl +'            from mensagem_conteudo mc '+
+          sl +'           where mc.mensagem_id = m.id '+
+          sl +'             and mc.tipo = 1 '+
+          sl +'           order by mc.ordem '+
+          sl +'           limit 1), '+
+          sl +'         case (select mc.tipo '+
+          sl +'                 from mensagem_conteudo mc '+
+          sl +'                where mc.mensagem_id = m.id '+
+          sl +'                order by mc.ordem '+
+          sl +'                limit 1) '+
+          sl +'           when 2 then ''Imagem'' '+
+          sl +'           when 3 then ''Arquivo'' '+
+          sl +'           when 4 then ''Audio'' '+
+          sl +'           else ''Mensagem'' '+
+          sl +'         end '+
+          sl +'       ) as conteudo_resumo '+
+          sl +'  from mensagem m '+
+          sl +' inner join usuario u on u.id = m.usuario_id '+
+          sl +' where m.id = '+ Mensagem.FieldByName('resposta_mensagem_id').AsString
+        );
+        if not QryAux.IsEmpty then
+        begin
+          var oResposta := TJSONObject.Create;
+          oResposta.AddPair('id', QryAux.FieldByName('id').AsInteger);
+          oResposta.AddPair('remetente', QryAux.FieldByName('remetente').AsString);
+          oResposta.AddPair('conteudo_resumo', QryAux.FieldByName('conteudo_resumo').AsString);
+          oMensagem.AddPair('resposta_mensagem', oResposta);
+        end;
+      end;
 
       QryAux.Open(
         sl +' select mensagem_id '+
@@ -1076,6 +1117,22 @@ begin
     sl +'    and mensagem_id = '+ oConversaMensagem.GetValue<String>('mensagem') +
     sl +'    and usuario_id  = '+ Usuario.ToString +
     sl +'    and visualizada is null '
+  );
+  Result := TJSONObject.Create.AddPair('sucesso', True);
+
+  AtualizaMensagemSocket(Usuario, oConversaMensagem.GetValue<Integer>('conversa'), oConversaMensagem.GetValue<String>('mensagem'));
+end;
+
+class function TConversa.MensagemReproduzida(Usuario: Integer; oConversaMensagem: TJSONObject): TJSONObject;
+begin
+  {TODO -oEduardo -cSegurança : não pode marcar como visualizada mensagem de outro o usuário, adicionar validação}
+  TPool.Instance.Connection.ExecSQL(
+    sl +' update mensagem_status '+
+    sl +'    set reproduzida = now() '+
+    sl +'  where conversa_id = '+ oConversaMensagem.GetValue<String>('conversa') +
+    sl +'    and mensagem_id = '+ oConversaMensagem.GetValue<String>('mensagem') +
+    sl +'    and usuario_id  = '+ Usuario.ToString +
+    sl +'    and reproduzida is null '
   );
   Result := TJSONObject.Create.AddPair('sucesso', True);
 

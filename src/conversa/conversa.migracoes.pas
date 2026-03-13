@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..13] of String = (
+  Versoes: Array[0..14] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -329,7 +329,9 @@ const
     sl +'create trigger trg_exclusao after delete on chamada for each row execute function auditoria.fn_exclusao(); '+
     sl +'create trigger trg_exclusao after delete on chamada_usuario for each row execute function auditoria.fn_exclusao(); '+
     sl +'create trigger trg_exclusao after delete on chamada_evento for each row execute function auditoria.fn_exclusao(); '+
-    sl +'create trigger trg_exclusao after delete on parametros for each row execute function auditoria.fn_exclusao(); '
+    sl +'create trigger trg_exclusao after delete on parametros for each row execute function auditoria.fn_exclusao(); ',
+
+    sl +'alter table mensagem add column resposta_mensagem_id int4 references mensagem(id); '
   );
 
 procedure Migracoes;
