@@ -79,16 +79,21 @@ begin
               .SessionClass(TJWTClaims)
               .SkipRoutes([
                 'favicon.ico',
-                'login'
+                'login',
+                'cadastro'
               ])
           )
         );
 
       THorse.Use(
         procedure(Req: THorseRequest; Res: THorseResponse; Next: TProc)
+        var
+          Claims: TJWTClaims;
         begin
           try
-            TPool.SetUsuarioID(Req.Session<TJWTClaims>.Subject.ToInteger);
+            Claims := Req.Session<TJWTClaims>;
+            if Assigned(Claims) then
+              TPool.SetUsuarioID(Claims.Subject.ToInteger);
           except
             TPool.SetUsuarioID(0);
           end;
@@ -119,6 +124,14 @@ begin
           end;
 
           Res.Send<TJSONObject>(Resposta);
+        end
+      );
+
+      THorse.Post(
+        '/cadastro',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.Cadastrar(Conteudo(Req)));
         end
       );
 
@@ -508,7 +521,7 @@ begin
               procedure
               begin
                 Writeln('Servidor iniciado 🚀');
-                Writeln('Acesso usando https://SEU_IP');
+                Writeln('Acesso usando https://...');
               end
             );
           finally

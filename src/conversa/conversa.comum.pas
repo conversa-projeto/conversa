@@ -133,7 +133,12 @@ begin
       sValor := Par.JsonValue.Value
     else
     if Par.JsonValue is TJSONString then
-      sValor := Qt(Par.JsonValue.Value);
+      sValor := Qt(Par.JsonValue.Value)
+    else
+    if Par.JsonValue is TJSONBool then
+      sValor := Par.JsonValue.Value.ToLower
+    else
+      raise Exception.Create('Tipo do campo "'+ Par.JsonString.Value +'" da tabela "'+ sTabela +'" não esperado: '+ Par.JsonValue.ClassName);
 
     sCampos := sCampos + IfThen(not sCampos.IsEmpty, ',') + sCampo;
     sValores := sValores + IfThen(not sValores.IsEmpty, ',') + sValor;

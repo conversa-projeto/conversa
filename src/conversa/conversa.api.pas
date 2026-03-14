@@ -38,6 +38,7 @@ type
     class procedure ConversaNotificar(const Conversa, Usuario: Integer; Msg: TSocketMessageType); static;
   public
     class function Login(oAutenticacao: TJSONObject): TJSONObject; static;
+    class function Cadastrar(oCadastro: TJSONObject): TJSONObject; static;
     class procedure AlterarSenha(Usuario: Integer; oAutenticacao: TJSONObject); static;
     class function DispositivoAlterar(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject; static;
     class function DispositivoUsuarioIncluir(Usuario, Dispositivo: Integer): TJSONObject; static;
@@ -129,8 +130,8 @@ begin
 
   iDispositivoId := oAutenticacao.GetValue<Integer>('dispositivo_id', -1);
   if iDispositivoId > 0 then
-    Result.AddPair(
-      'dispositivo',
+  begin
+    oDispositivo :=
       OpenKey(
         sl +'select id '+
         sl +'     , nome '+
@@ -140,8 +141,13 @@ begin
         sl +'     , ativo '+
         sl +'  from dispositivo '+
         sl +' where id = '+ iDispositivoId.ToString
-      )
-    );
+      );
+
+    if oDispositivo.Count > 0 then
+      Result.AddPair('dispositivo', oDispositivo)
+    else
+      oDispositivo.Free;
+  end;
 
   if not Assigned(Result.GetValue<TJSONObject>('dispositivo', nil)) then
   begin
@@ -151,6 +157,7 @@ begin
       oDispositivo.AddPair('modelo', 'desconhecido');
       oDispositivo.AddPair('versao_so', 'desconhecido');
       oDispositivo.AddPair('plataforma', 'desconhecido');
+      oDispositivo.AddPair('ativo', True);
       oDispositivo.AddPair('usuario_id', Result.GetValue<Integer>('id'));
       Result.AddPair('dispositivo', InsertJSON('dispositivo', oDispositivo));
     finally
@@ -182,6 +189,25 @@ begin
     sl +'   set senha = '+ Qt(sHash) +
     sl +' where id = '+ Usuario.ToString
   );
+end;
+
+class function TConversa.Cadastrar(oCadastro: TJSONObject): TJSONObject;
+var
+  sHash: String;
+  sSenha: String;
+begin
+  CamposObrigatorios(oCadastro, ['nome', 'login', 'email', 'senha']);
+
+  sSenha := oCadastro.GetValue<String>('senha');
+  if (sSenha.Length < 4) or (sSenha.Length > 72) then
+    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('A senha deve ter entre 4 e 72 caracteres!');
+
+  sHash := TBCrypt.HashPassword(LeftStr(sSenha + Configuracao.BcryptPepper, 72), 15);
+  oCadastro.RemovePair('senha').Free;
+  oCadastro.AddPair('senha', sHash);
+
+  Result := InsertJSON('usuario', oCadastro);
+  Result.RemovePair('senha').Free;
 end;
 
 class function TConversa.DispositivoAlterar(Usuario: Integer; oDispositivo: TJSONObject): TJSONObject;

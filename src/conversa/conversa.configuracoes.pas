@@ -129,11 +129,18 @@ begin
       Configuracao.S3.SecretKey := Qry.FieldByName('s3_secretkey').AsString;
       Configuracao.S3.Bucket    := Qry.FieldByName('s3_bucket').AsString;
 
+      if Configuracao.JWTKEY.Equals('S3RV1D0R_4P1_C0NV3R54') then
+        Writeln('⚠  Parâmetro "jwt_token" inseguro! Corrija antes de colocar em produção!');
+
+      if Configuracao.FCM.ProjectID.Trim.IsEmpty or Configuracao.FCM.ClientEmail.Trim.IsEmpty or Configuracao.FCM.PrivateKey.Trim.IsEmpty then
+        Writeln('⚠  Parâmetros "fcm_project_id", "fcm_client_email" e "fcm_private_key" vazios! FCM não vão funcionar!');
+
+
       if Configuracao.S3.Endpoint.Contains('127.0.0.1') or Configuracao.S3.Endpoint.Contains('localhost') then
         Writeln('⚠  Parâmetro "s3_endpoint" deve apontar para o IP do servidor atual! Corrija para funcionar em outras máquinas!');
 
       if Configuracao.S3.AccessKey.Contains('admin') or Configuracao.S3.SecretKey.Contains('admin') then
-        Writeln('⚠  Parâmetro "s3_accesskey" e "s3_secretkey" inseguros! Corrija antes de colocar em produção!');
+        Writeln('⚠  Parâmetros "s3_accesskey" e "s3_secretkey" inseguros! Corrija antes de colocar em produção!');
 
       if Configuracao.S3.Bucket.Trim.IsEmpty then
         Writeln('⚠  Parâmetro "s3_bucket" vazio! Anexos não vão funcionar!');

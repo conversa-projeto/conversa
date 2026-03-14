@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..14] of String = (
+  Versoes: Array[0..15] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -331,7 +331,27 @@ const
     sl +'create trigger trg_exclusao after delete on chamada_evento for each row execute function auditoria.fn_exclusao(); '+
     sl +'create trigger trg_exclusao after delete on parametros for each row execute function auditoria.fn_exclusao(); ',
 
-    sl +'alter table mensagem add column resposta_mensagem_id int4 references mensagem(id); '
+    sl +'alter table mensagem add column resposta_mensagem_id int4 references mensagem(id); ',
+
+    sl +'insert '+
+    sl +'  into parametros '+
+    sl +'     ( nome '+
+    sl +'     , valor '+
+    sl +'     )  '+
+    sl +'values '+
+    sl +'     ( ''jwt_token'' '+
+    sl +'     , ''S3RV1D0R_4P1_C0NV3R54'' '+
+    sl +'     ), '+
+    sl +'     ( ''fcm_project_id'' '+
+    sl +'     , '''' '+
+    sl +'     ), '+
+    sl +'     ( ''fcm_client_email'' '+
+    sl +'     , '''' '+
+    sl +'     ), '+
+    sl +'     ( ''fcm_private_key'' '+
+    sl +'     , '''' '+
+    sl +'     ) '+
+    sl +'    on conflict (nome) do nothing; '
   );
 
 procedure Migracoes;

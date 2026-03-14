@@ -5,7 +5,7 @@ echo [1/5] Parando/removendo container antigo (se existir)...
 docker rm -f minio >nul 2>nul
 
 echo [2/5] Iniciando MinIO nas portas internas 19000/19001...
-docker run -d --name minio -p 19000:9000 -p 19001:9001 -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=admin123 quay.io/minio/minio server /data --console-address ":9001"
+docker run --detach --restart always --name minio -p 19000:9000 -p 19001:9001 -v minio:/data -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=admin123 quay.io/minio/minio server /data --console-address ":9001"
 
 if errorlevel 1 (
   echo [ERRO] Falha ao iniciar MinIO.
