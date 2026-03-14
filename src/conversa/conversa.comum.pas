@@ -53,6 +53,9 @@ begin
       if Qry.Fields[I].IsNull then
         Result.AddPair(Qry.Fields[I].FieldName, TJSONNull.Create)
       else
+      if Qry.Fields[I] is TBooleanField then
+        Result.AddPair(Qry.Fields[I].FieldName, TJSONBool.Create(Qry.Fields[I].AsBoolean))
+      else
       if Qry.Fields[I] is TIntegerField then
         Result.AddPair(Qry.Fields[I].FieldName, TJSONNumber.Create(Qry.Fields[I].AsInteger))
       else
@@ -188,7 +191,12 @@ begin
       sValor := Par.JsonValue.Value
     else
     if Par.JsonValue is TJSONString then
-      sValor := Qt(Par.JsonValue.Value);
+      sValor := Qt(Par.JsonValue.Value)
+    else
+    if Par.JsonValue is TJSONBool then
+      sValor := Par.JsonValue.Value.ToLower
+    else
+      raise Exception.Create('Tipo do campo "'+ Par.JsonString.Value +'" da tabela "'+ sTabela +'" não esperado: '+ Par.JsonValue.ClassName);
 
     sCampos := sCampos + IfThen(not sCampos.IsEmpty, ',') + Par.JsonString.Value +' = '+ sValor;
   end;

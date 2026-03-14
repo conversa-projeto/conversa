@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..15] of String = (
+  Versoes: Array[0..16] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -351,7 +351,24 @@ const
     sl +'     ( ''fcm_private_key'' '+
     sl +'     , '''' '+
     sl +'     ) '+
-    sl +'    on conflict (nome) do nothing; '
+    sl +'    on conflict (nome) do nothing; ',
+
+    sl +'create '+
+    sl +' table sip '+
+    sl +'     ( id serial primary key '+
+    sl +'     , usuario_id integer not null references usuario(id) '+
+    sl +'     , sip_user varchar(100) not null '+
+    sl +'     , auth_user varchar(100) '+
+    sl +'     , sip_password text not null '+
+    sl +'     , display_name varchar(100) '+
+    sl +'     , domain varchar(150) not null '+
+    sl +'     , ws_server varchar(255) not null '+
+    sl +'     , ativo boolean not null default true '+
+    sl +'     , criado_em timestamp default current_timestamp '+
+    sl +'     , criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id) '+
+    sl +'     ); '+
+    sl +'create trigger trg_alteracao after update on sip for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_exclusao after delete on sip for each row execute function auditoria.fn_exclusao(); '
   );
 
 procedure Migracoes;

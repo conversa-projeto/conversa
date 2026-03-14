@@ -503,6 +503,30 @@ begin
         end
       );
 
+      THorse.Get(
+        '/sip',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.SIP(Req.Session<TJWTClaims>.Subject.ToInteger));
+        end
+      );
+
+      THorse.Put(
+        '/sip',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.SIPIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
+      THorse.Patch(
+        '/sip',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.SIPAlterar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
       TWebSocket.Iniciar(19090, Configuracao.JWTKEY);
       try
         TThreadQueue.Create;

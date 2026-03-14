@@ -80,6 +80,9 @@ type
     class procedure ConversaDigitando(const Usuario, Conversa: Integer); static;
     class procedure ConversaGravando(const Usuario, Conversa: Integer); static;
     class procedure ChamadaVideo(const Usuario, Chamada: Integer); static;
+    class function SIP(Usuario: Integer): TJSONObject; static;
+    class function SIPIncluir(Usuario: Integer; oSIP: TJSONObject): TJSONObject; static;
+    class function SIPAlterar(Usuario: Integer; oSIP: TJSONObject): TJSONObject; static;
   end;
 
 implementation
@@ -517,7 +520,8 @@ end;
 class function TConversa.ConversaUsuarios(Usuario: Integer; Conversa: Integer): TJSONArray;
 begin
   Result := Open(
-    sl +'select cu.usuario_id '+
+    sl +'select cu.id '+
+    sl +'     , cu.usuario_id '+
     sl +'     , u.nome '+
     sl +'  from conversa_usuario as cu '+
     sl +' inner '+
@@ -1821,6 +1825,39 @@ begin
   finally
     FreeAndNil(Qry);
   end;
+end;
+
+class function TConversa.SIP(Usuario: Integer): TJSONObject;
+begin
+  Result := OpenKey(
+    sl +'select id '+
+    sl +'     , usuario_id '+
+    sl +'     , sip_user '+
+    sl +'     , auth_user '+
+    sl +'     , sip_password '+
+    sl +'     , display_name '+
+    sl +'     , domain '+
+    sl +'     , ws_server '+
+    sl +'     , ativo '+
+    sl +'     , criado_em '+
+    sl +'     , criado_por '+
+    sl +'  from sip '+
+    sl +' where usuario_id = '+ Usuario.ToString
+  );
+end;
+
+class function TConversa.SIPIncluir(Usuario: Integer; oSIP: TJSONObject): TJSONObject;
+begin
+  if Assigned(oSIP.FindValue('usuario_id')) then
+    oSIP.RemovePair('usuario_id').Free;
+  oSIP.AddPair('usuario_id', Usuario);
+  Result := InsertJSON('sip', oSIP);
+end;
+
+class function TConversa.SIPAlterar(Usuario: Integer; oSIP: TJSONObject): TJSONObject;
+begin
+  {TODO: Só permitir alterar um SIP do usuário atual}
+  Result := UpdateJSON('sip', oSIP);
 end;
 
 end.
