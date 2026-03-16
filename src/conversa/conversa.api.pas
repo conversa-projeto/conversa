@@ -619,16 +619,54 @@ class function TConversa.MensagemIncluir(Usuario: Integer; oMensagem: TJSONObjec
 var
   Item: TJSONValue;
   pJSON: TJSONPair;
+  pMensagemReferencia: TJSONPair;
   oConteudo: TJSONObject;
+  oMensagemReferencia: TJSONObject;
+  oJSONMensagemReferencia: TJSONObject;
   sNotificacao: String;
+  iReferenciaTipo: Integer;
+  iReferenciaMensagemID: Integer;
 begin
   {TODO -oDaniel -cSegurança : Validar usuário e conversa}
   CamposObrigatorios(oMensagem, ['conversa_id', 'conteudos']);
   oMensagem.AddPair('usuario_id', TJSONNumber.Create(Usuario));
 
   pJSON := oMensagem.RemovePair('conteudos');
+  pMensagemReferencia := oMensagem.RemovePair('mensagem_referencia');
   try
     Result := InsertJSON('mensagem', oMensagem);
+
+    iReferenciaTipo := 0;
+    iReferenciaMensagemID := 0;
+
+    if Assigned(pMensagemReferencia) and (pMensagemReferencia.JsonValue is TJSONObject) then
+    begin
+      oJSONMensagemReferencia := pMensagemReferencia.JsonValue as TJSONObject;
+      CamposObrigatorios(oJSONMensagemReferencia, ['tipo', 'origem_mensagem_id']);
+      iReferenciaTipo := oJSONMensagemReferencia.GetValue<Integer>('tipo', 0);
+      iReferenciaMensagemID := oJSONMensagemReferencia.GetValue<Integer>('origem_mensagem_id', 0);
+
+      if not (iReferenciaTipo in [1, 2]) then
+        raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Tipo de referência inválido!');
+    end;
+
+    if (iReferenciaTipo > 0) and (iReferenciaMensagemID > 0) then
+    begin
+      oMensagemReferencia := TJSONObject.Create;
+      try
+        oMensagemReferencia.AddPair('tipo', TJSONNumber.Create(iReferenciaTipo));
+        oMensagemReferencia.AddPair('origem_mensagem_id', Result.GetValue<Integer>('id'));
+        oMensagemReferencia.AddPair('destino_mensagem_id', iReferenciaMensagemID);
+        InsertJSON('mensagem_referencia', oMensagemReferencia);
+      finally
+        oMensagemReferencia.Free;
+      end;
+
+      oJSONMensagemReferencia := TJSONObject.Create;
+      oJSONMensagemReferencia.AddPair('tipo', iReferenciaTipo);
+      oJSONMensagemReferencia.AddPair('origem_mensagem_id', iReferenciaMensagemID);
+      Result.AddPair('mensagem_referencia', oJSONMensagemReferencia);
+    end;
 
     TPool.Instance.Connection.ExecSQL(
       sl +' insert '+
@@ -668,6 +706,7 @@ begin
     sNotificacao := sNotificacao.Trim.Replace(' ', ' | ');
   finally
     FreeAndNil(pJSON);
+    FreeAndNil(pMensagemReferencia);
   end;
 
   EnviarNotificacao(Usuario, oMensagem.GetValue<Integer>('conversa_id'), sNotificacao);
@@ -678,6 +717,12 @@ var
   oConteudo: TJSONObject;
 begin
   {TODO -oEduardo -cSegurança : não pode excluir mensagem de outro usuário, adicionar validação}
+  TPool.Instance.Connection.ExecSQL(
+    sl +'delete '+
+    sl +'  from mensagem_referencia '+
+    sl +' where origem_mensagem_id = '+ Mensagem.ToString +
+    sl +'    or destino_mensagem_id = '+ Mensagem.ToString
+  );
   oConteudo := Delete('mensagem_conteudo', Mensagem, 'mensagem_id');
   Result := Delete('mensagem', Mensagem);
   Result.AddPair('conteudo', oConteudo);
@@ -930,19 +975,87 @@ var
   Mensagem: TFDQuery;
   Qry: TFDQuery;
   QryAux: TFDQuery;
+  QryRef: TFDQuery;
   oMensagem: TJSONObject;
+  oMensagemReferencia: TJSONObject;
   aConteudos: TJSONArray;
   oConteudo: TJSONObject;
   sMensagens: String;
+  iReferenciaTipo: Integer;
+  iReferenciaMensagemID: Integer;
+  procedure CarregarConteudos(const MensagemID: Integer; DestinoMensagem: TJSONObject);
+  begin
+    aConteudos := TJSONArray.Create;
+    DestinoMensagem.AddPair('conteudos', aConteudos);
+
+    QryRef.Open(
+      sl +'select id '+
+      sl +'     , ordem '+
+      sl +'     , tipo '+
+      sl +'     , conteudo '+
+      sl +'     , nome '+
+      sl +'     , extensao '+
+      sl +'  from '+
+      sl +'     ( /* Retorna conteúdo de texto */ '+
+      sl +'       select id '+
+      sl +'            , ordem '+
+      sl +'            , tipo '+
+      sl +'            , convert_from(conteudo, ''utf-8'') as conteudo '+
+      sl +'            , null as nome '+
+      sl +'            , null as extensao '+
+      sl +'         from mensagem_conteudo '+
+      sl +'        where mensagem_id = '+ MensagemID.ToString +
+      sl +'          and tipo = 1 /* 1-Texto */ '+
+      sl +
+      sl +'        union '+
+      sl +
+      sl +'       /* Retorna arquivos */ '+
+      sl +'       select tbl.id '+
+      sl +'            , tbl.ordem '+
+      sl +'            , tbl.tipo '+
+      sl +'            , tbl.conteudo '+
+      sl +'            , a.nome '+
+      sl +'            , a.extensao '+
+      sl +'         from '+
+      sl +'            ( '+
+      sl +'              select id '+
+      sl +'                   , ordem '+
+      sl +'                   , tipo '+
+      sl +'                   , convert_from(conteudo, ''utf-8'') as conteudo '+
+      sl +'                from mensagem_conteudo '+
+      sl +'               where mensagem_id = '+ MensagemID.ToString +
+      sl +'                 and tipo in(2, 3, 4, 5) /* 2-Imagem, 3-Arquivo, 4-Audio; 5-Gravacao de Audio */ '+
+      sl +'            ) as tbl '+
+      sl +'        inner '+
+      sl +'         join anexo a '+
+      sl +'           on a.identificador = tbl.conteudo '+
+      sl +'     ) as tbl '+
+      sl +' order '+
+      sl +'    by ordem '
+    );
+    QryRef.FetchAll;
+    QryRef.First;
+    while not QryRef.Eof do
+    begin
+      oConteudo := TJSONObject.Create;
+      aConteudos.Add(oConteudo);
+      oConteudo.AddPair('ordem', QryRef.FieldByName('ordem').AsInteger);
+      oConteudo.AddPair('tipo', QryRef.FieldByName('tipo').AsInteger);
+      oConteudo.AddPair('conteudo', QryRef.FieldByName('conteudo').AsString);
+      QryRef.Next;
+    end;
+  end;
 begin
   Pool := TPool.Instance;
   Mensagem := TFDQuery.Create(nil);
   Qry := TFDQuery.Create(nil);
   QryAux := TFDQuery.Create(nil);
+  QryRef := TFDQuery.Create(nil);
   try
     Mensagem.Connection := Pool.Connection;
     Qry.Connection := Pool.Connection;
     QryAux.Connection := Pool.Connection;
+    QryRef.Connection := Pool.Connection;
 
     Mensagem.Open(
       sl +'select * '+
@@ -954,7 +1067,8 @@ begin
       sl +'     , m.conversa_id '+
       sl +'     , m.inserida '+
       sl +'     , m.alterada '+
-      sl +'     , m.resposta_mensagem_id '+
+      sl +'     , mr.tipo as referencia_tipo '+
+      sl +'     , mr.destino_mensagem_id as referencia_origem_mensagem_id '+
       sl +'  from '+
       sl +'     ( select m.* '+
       sl +'         from '+
@@ -964,7 +1078,17 @@ begin
       sl +'        inner '+
       sl +'         join mensagem m '+
       sl +'           on m.id = tm.id '+
-      sl +'     ) as m'+
+      sl +'     ) as m '+
+      sl +'  left '+
+      sl +'  join lateral '+
+      sl +'     ( select tipo '+
+      sl +'            , destino_mensagem_id '+
+      sl +'         from mensagem_referencia mr '+
+      sl +'        where mr.origem_mensagem_id = m.id '+
+      sl +'        order by mr.id desc '+
+      sl +'        limit 1 '+
+      sl +'     ) as mr '+
+      sl +'    on true '+
       sl +' inner  '+
       sl +'  join usuario as u  '+
       sl +'    on u.id = m.usuario_id  '+
@@ -1016,42 +1140,28 @@ begin
       oMensagem.AddPair('inserida', DateToISO8601(Mensagem.FieldByName('inserida').AsDateTime));
       oMensagem.AddPair('alterada', DateToISO8601(Mensagem.FieldByName('alterada').AsDateTime));
 
-      // Resposta a mensagem
-      if not Mensagem.FieldByName('resposta_mensagem_id').IsNull then
+      if not Mensagem.FieldByName('referencia_tipo').IsNull then
       begin
-        oMensagem.AddPair('resposta_mensagem_id', Mensagem.FieldByName('resposta_mensagem_id').AsInteger);
+        iReferenciaTipo := Mensagem.FieldByName('referencia_tipo').AsInteger;
+        iReferenciaMensagemID := Mensagem.FieldByName('referencia_origem_mensagem_id').AsInteger;
+
+        oMensagemReferencia := TJSONObject.Create;
+        oMensagemReferencia.AddPair('tipo', iReferenciaTipo);
+        oMensagem.AddPair('mensagem_referencia', oMensagemReferencia);
+
         QryAux.Open(
           sl +'select m.id '+
-          sl +'     , substring(trim(u.nome) from ''^([^ ]+)'') as remetente '+
-          sl +'     , coalesce( '+
-          sl +'         (select convert_from(mc.conteudo, ''utf-8'') '+
-          sl +'            from mensagem_conteudo mc '+
-          sl +'           where mc.mensagem_id = m.id '+
-          sl +'             and mc.tipo = 1 '+
-          sl +'           order by mc.ordem '+
-          sl +'           limit 1), '+
-          sl +'         case (select mc.tipo '+
-          sl +'                 from mensagem_conteudo mc '+
-          sl +'                where mc.mensagem_id = m.id '+
-          sl +'                order by mc.ordem '+
-          sl +'                limit 1) '+
-          sl +'           when 2 then ''Imagem'' '+
-          sl +'           when 3 then ''Arquivo'' '+
-          sl +'           when 4 then ''Audio'' '+
-          sl +'           else ''Mensagem'' '+
-          sl +'         end '+
-          sl +'       ) as conteudo_resumo '+
+          sl +'     , m.conversa_id '+
           sl +'  from mensagem m '+
-          sl +' inner join usuario u on u.id = m.usuario_id '+
-          sl +' where m.id = '+ Mensagem.FieldByName('resposta_mensagem_id').AsString
+          sl +' where m.id = '+ iReferenciaMensagemID.ToString
         );
         if not QryAux.IsEmpty then
         begin
-          var oResposta := TJSONObject.Create;
-          oResposta.AddPair('id', QryAux.FieldByName('id').AsInteger);
-          oResposta.AddPair('remetente', QryAux.FieldByName('remetente').AsString);
-          oResposta.AddPair('conteudo_resumo', QryAux.FieldByName('conteudo_resumo').AsString);
-          oMensagem.AddPair('resposta_mensagem', oResposta);
+          var oMensagemReferenciada := TJSONObject.Create;
+          oMensagemReferenciada.AddPair('id', QryAux.FieldByName('id').AsInteger);
+          oMensagemReferenciada.AddPair('conversa_id', QryAux.FieldByName('conversa_id').AsInteger);
+          CarregarConteudos(QryAux.FieldByName('id').AsInteger, oMensagemReferenciada);
+          oMensagemReferencia.AddPair('mensagem', oMensagemReferenciada);
         end;
       end;
 
@@ -1072,73 +1182,13 @@ begin
       oMensagem.AddPair('visualizada', QryAux.FieldByName('visualizada').AsInteger = QryAux.FieldByName('total').AsInteger);
       oMensagem.AddPair('reproduzida', QryAux.FieldByName('reproduzida').AsInteger = QryAux.FieldByName('total').AsInteger);
 
-      aConteudos := TJSONArray.Create;
-      oMensagem.AddPair('conteudos', aConteudos);
-
-      QryAux.Open(
-        sl +'select id '+
-        sl +'     , ordem '+
-        sl +'     , tipo '+
-        sl +'     , conteudo '+
-        sl +'     , nome '+
-        sl +'     , extensao '+
-        sl +'  from '+
-        sl +'     ( /* Retorna conteúdo de texto */ '+
-        sl +'       select id '+
-        sl +'            , ordem '+
-        sl +'            , tipo '+
-        sl +'            , convert_from(conteudo, ''utf-8'') as conteudo '+
-        sl +'            , null as nome '+
-        sl +'            , null as extensao '+
-        sl +'         from mensagem_conteudo '+
-        sl +'        where mensagem_id = '+ Mensagem.FieldByName('id').AsString +
-        sl +'          and tipo = 1 /* 1-Texto */ '+
-        sl +
-        sl +'        union '+
-        sl +
-        sl +'       /* Retorna arquivos */ '+
-        sl +'       select tbl.id '+
-        sl +'            , tbl.ordem '+
-        sl +'            , tbl.tipo '+
-        sl +'            , tbl.conteudo '+
-        sl +'            , a.nome '+
-        sl +'            , a.extensao '+
-        sl +'         from '+
-        sl +'            ( '+
-        sl +'              select id '+
-        sl +'                   , ordem '+
-        sl +'                   , tipo '+
-        sl +'                   , convert_from(conteudo, ''utf-8'') as conteudo '+
-        sl +'                from mensagem_conteudo '+
-        sl +'               where mensagem_id = '+ Mensagem.FieldByName('id').AsString +
-        sl +'                 and tipo in(2, 3, 4) /* 2-Imagem, 3-Arquivo, 4-Mensagem de Audio */ '+
-        sl +'            ) as tbl '+
-        sl +'        inner '+
-        sl +'         join anexo a '+
-        sl +'           on a.identificador = tbl.conteudo '+
-        sl +'     ) as tbl '+
-        sl +' order '+
-        sl +'    by ordem '
-      );
-      QryAux.FetchAll;
-      QryAux.First;
-      while not QryAux.Eof do
-      begin
-        oConteudo := TJSONObject.Create;
-        aConteudos.Add(oConteudo);
-        oConteudo.AddPair('id', QryAux.FieldByName('id').AsInteger);
-        oConteudo.AddPair('tipo', QryAux.FieldByName('tipo').AsInteger);
-        oConteudo.AddPair('ordem', QryAux.FieldByName('ordem').AsInteger);
-        oConteudo.AddPair('conteudo', QryAux.FieldByName('conteudo').AsString);
-        oConteudo.AddPair('nome', QryAux.FieldByName('nome').AsString);
-        oConteudo.AddPair('extensao', QryAux.FieldByName('extensao').AsString);
-        QryAux.Next;
-      end;
+      CarregarConteudos(Mensagem.FieldByName('id').AsInteger, oMensagem);
       Mensagem.Next;
     end;
   finally
     FreeAndNil(Qry);
     FreeAndNil(QryAux);
+    FreeAndNil(QryRef);
     FreeAndNil(Mensagem);
   end;
 end;

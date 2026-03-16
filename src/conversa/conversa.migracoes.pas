@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..16] of String = (
+  Versoes: Array[0..17] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -222,10 +222,7 @@ const
 
     sl +'alter table usuario add column avatar_anexo_id int4 references anexo(id);',
 
-    // Auditoria
     sl +'create schema auditoria; '+
-
-    // Tabela de alterações (UPDATE - uma linha por campo alterado)
     sl +'create table auditoria.alteracao '+
     sl +'     ( id serial primary key '+
     sl +'     , tabela varchar(50) not null '+
@@ -237,8 +234,6 @@ const
     sl +'     , criado_em timestamp default current_timestamp '+
     sl +'     ); '+
     sl +'create index ix_alteracao_01 on auditoria.alteracao(tabela, registro_id); '+
-
-    // Tabela de exclusões (DELETE - JSON do registro completo)
     sl +'create table auditoria.exclusao '+
     sl +'     ( id serial primary key '+
     sl +'     , tabela varchar(50) not null '+
@@ -248,13 +243,9 @@ const
     sl +'     , criado_em timestamp default current_timestamp '+
     sl +'     ); '+
     sl +'create index ix_exclusao_01 on auditoria.exclusao(tabela, registro_id); '+
-
-    // Adicionar id na tabela parametros
     sl +'alter table parametros add column id serial primary key; '+
     sl +'alter table parametros add column criado_em timestamp default current_timestamp; '+
     sl +'alter table parametros add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
-
-    // Adicionar criado_em e criado_por nas tabelas que não possuem
     sl +'alter table usuario add column criado_em timestamp default current_timestamp; '+
     sl +'alter table usuario add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
     sl +'alter table conversa add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
@@ -270,8 +261,6 @@ const
     sl +'alter table dispositivo add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
     sl +'alter table dispositivo_usuario add column criado_em timestamp default current_timestamp; '+
     sl +'alter table dispositivo_usuario add column criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id); '+
-
-    // Função de auditoria para UPDATE
     sl +'create or replace function auditoria.fn_alteracao() returns trigger as $$ '+
     sl +'declare '+
     sl +'  v_old jsonb; '+
@@ -291,8 +280,6 @@ const
     sl +'  return NEW; '+
     sl +'end; '+
     sl +'$$ language plpgsql; '+
-
-    // Função de auditoria para DELETE
     sl +'create or replace function auditoria.fn_exclusao() returns trigger as $$ '+
     sl +'begin '+
     sl +'  insert into auditoria.exclusao (tabela, registro_id, dados, usuario_id) '+
@@ -300,8 +287,6 @@ const
     sl +'  return OLD; '+
     sl +'end; '+
     sl +'$$ language plpgsql; '+
-
-    // Triggers de UPDATE
     sl +'create trigger trg_alteracao after update on usuario for each row execute function auditoria.fn_alteracao(); '+
     sl +'create trigger trg_alteracao after update on conversa for each row execute function auditoria.fn_alteracao(); '+
     sl +'create trigger trg_alteracao after update on usuario_contato for each row execute function auditoria.fn_alteracao(); '+
@@ -315,8 +300,6 @@ const
     sl +'create trigger trg_alteracao after update on chamada_usuario for each row execute function auditoria.fn_alteracao(); '+
     sl +'create trigger trg_alteracao after update on chamada_evento for each row execute function auditoria.fn_alteracao(); '+
     sl +'create trigger trg_alteracao after update on parametros for each row execute function auditoria.fn_alteracao(); '+
-
-    // Triggers de DELETE
     sl +'create trigger trg_exclusao after delete on usuario for each row execute function auditoria.fn_exclusao(); '+
     sl +'create trigger trg_exclusao after delete on conversa for each row execute function auditoria.fn_exclusao(); '+
     sl +'create trigger trg_exclusao after delete on usuario_contato for each row execute function auditoria.fn_exclusao(); '+
@@ -368,7 +351,22 @@ const
     sl +'     , criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id) '+
     sl +'     ); '+
     sl +'create trigger trg_alteracao after update on sip for each row execute function auditoria.fn_alteracao(); '+
-    sl +'create trigger trg_exclusao after delete on sip for each row execute function auditoria.fn_exclusao(); '
+    sl +'create trigger trg_exclusao after delete on sip for each row execute function auditoria.fn_exclusao(); ',
+
+    sl +'create '+
+    sl +' table mensagem_referencia '+
+    sl +'     ( id serial primary key '+
+    sl +'     , tipo int4 not null /* 1-resposta; 2-encaminhada */ '+
+    sl +'     , origem_mensagem_id int4 not null references mensagem(id) '+
+    sl +'     , destino_mensagem_id int4 not null references mensagem(id) '+
+    sl +'     , criado_em timestamp default current_timestamp '+
+    sl +'     , criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id) '+
+    sl +'     ); '+
+    sl +'create trigger trg_alteracao after update on mensagem_referencia for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_exclusao after delete on mensagem_referencia for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create index ix_mensagem_referencia on mensagem_referencia(origem_mensagem_id, destino_mensagem_id); '+
+    sl +'alter table public.mensagem drop constraint mensagem_resposta_mensagem_id_fkey; '+
+    sl +'alter table public.mensagem drop column resposta_mensagem_id; '
   );
 
 procedure Migracoes;
