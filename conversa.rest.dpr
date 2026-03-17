@@ -128,14 +128,6 @@ begin
       );
 
       THorse.Post(
-        '/cadastro',
-        procedure(Req: THorseRequest; Res: THorseResponse)
-        begin
-          Res.Send<TJSONObject>(TConversa.Cadastrar(Conteudo(Req)));
-        end
-      );
-
-      THorse.Post(
         '/alterar-senha',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
