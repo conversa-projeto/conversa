@@ -1029,7 +1029,7 @@ var
       sl +'                   , convert_from(conteudo, ''utf-8'') as conteudo '+
       sl +'                from mensagem_conteudo '+
       sl +'               where mensagem_id = '+ MensagemID.ToString +
-      sl +'                 and tipo in(2, 3, 4, 5) /* 2-Imagem, 3-Arquivo, 4-Audio; 5-Gravacao de Audio */ '+
+      sl +'                 and tipo in (2, 3, 4, 5) /* 2-Imagem, 3-Arquivo, 4-Audio; 5-Gravacao de Audio */ '+
       sl +'            ) as tbl '+
       sl +'        inner '+
       sl +'         join anexo a '+
@@ -1044,9 +1044,12 @@ var
     begin
       oConteudo := TJSONObject.Create;
       aConteudos.Add(oConteudo);
+      oConteudo.AddPair('id', QryRef.FieldByName('id').AsInteger);
       oConteudo.AddPair('ordem', QryRef.FieldByName('ordem').AsInteger);
       oConteudo.AddPair('tipo', QryRef.FieldByName('tipo').AsInteger);
       oConteudo.AddPair('conteudo', QryRef.FieldByName('conteudo').AsString);
+      oConteudo.AddPair('nome', QryRef.FieldByName('nome').AsString);
+      oConteudo.AddPair('extensao', QryRef.FieldByName('extensao').AsString);
       QryRef.Next;
     end;
   end;
@@ -1752,8 +1755,8 @@ begin
       sl +'          left '+
       sl +'          join '+
       sl +'             ( select ce.usuario_id '+
-      sl +'                    , max(case when ce.tipo in(1, 3) then criado_por else null end) as adicionado_por '+
-      sl +'                    , max(case when ce.tipo in(1, 3) then criado_em else null end) as adicionado_em '+
+      sl +'                    , max(case when ce.tipo in (1, 3) then criado_por else null end) as adicionado_por '+
+      sl +'                    , max(case when ce.tipo in (1, 3) then criado_em else null end) as adicionado_em '+
       sl +'                    , max(case when ce.tipo = 4 then criado_em else null end) as recusou_em '+
       sl +'                    , max(case when ce.tipo = 5 then criado_em else null end) as entrou_em '+
       sl +'                    , max(case when ce.tipo = 6 then criado_em else null end) as saiu_em '+
@@ -1767,7 +1770,7 @@ begin
       sl +'                                  , row_number() over(partition by usuario_id, tipo order by criado_em desc) as rid '+
       sl +'                               from chamada_evento ce '+
       sl +'                              where ce.chamada_id = '+ Chamada.ToString +
-      sl +'                                and ce.tipo in(1, 3, 4, 5, 6) '+
+      sl +'                                and ce.tipo in (1, 3, 4, 5, 6) '+
       sl +'                           ) as ce '+
       sl +'                       where ce.rid = 1 /* Apenas o último evento de cada tipo */'+
       sl +'                    ) as ce '+
@@ -1832,7 +1835,7 @@ begin
       sl +'                       join chamada_usuario cu '+
       sl +'                         on cu.chamada_id = c.id '+
       sl +'                      where c.id = '+ Chamada.ToString +
-      sl +'                        and c.status in(1, 3) '+
+      sl +'                        and c.status in (1, 3) '+
       sl +'                      group '+
       sl +'                         by c.id '+
       sl +'                          , c.status '+
@@ -1845,7 +1848,7 @@ begin
       sl +'   and c.novo_status <> chamada.status '+
       sl +'   and c.novo_status <> 0 '+
       sl +'   and c.id = '+ Chamada.ToString +
-      sl +'   and c.status in(1, 3); '
+      sl +'   and c.status in (1, 3); '
     );
 end;
 
