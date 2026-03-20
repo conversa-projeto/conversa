@@ -692,20 +692,23 @@ begin
     );
 
     // Insere os conteudos
-    for Item in pJSON.JsonValue as TJSONArray do
+    if Assigned(pJSON) and (pJSON.JsonValue is TJSONArray) then
     begin
-      oConteudo := TJSONObject.Create;
-      oConteudo.AddPair('mensagem_id', Result.GetValue<Integer>('id'));
-      oConteudo.AddPair('ordem', Item.GetValue<Integer>('ordem'));
-      oConteudo.AddPair('tipo', Item.GetValue<Integer>('tipo'));
-      oConteudo.AddPair('conteudo', Item.GetValue<String>('conteudo'));
-      InsertJSON('mensagem_conteudo', oConteudo);
+      for Item in pJSON.JsonValue as TJSONArray do
+      begin
+        oConteudo := TJSONObject.Create;
+        oConteudo.AddPair('mensagem_id', Result.GetValue<Integer>('id'));
+        oConteudo.AddPair('ordem', Item.GetValue<Integer>('ordem'));
+        oConteudo.AddPair('tipo', Item.GetValue<Integer>('tipo'));
+        oConteudo.AddPair('conteudo', Item.GetValue<String>('conteudo'));
+        InsertJSON('mensagem_conteudo', oConteudo);
 
-      case Item.GetValue<Integer>('tipo') of
-        1: sNotificacao := sNotificacao +' '+ Item.GetValue<String>('conteudo');
-        2: sNotificacao := sNotificacao +' imagem';
-        3: sNotificacao := sNotificacao +' arquivo';
-      end
+        case Item.GetValue<Integer>('tipo') of
+          1: sNotificacao := sNotificacao +' '+ Item.GetValue<String>('conteudo');
+          2: sNotificacao := sNotificacao +' imagem';
+          3: sNotificacao := sNotificacao +' arquivo';
+        end
+      end;
     end;
 
     sNotificacao := sNotificacao.Trim.Replace(' ', ' | ');
@@ -1053,6 +1056,67 @@ var
       QryRef.Next;
     end;
   end;
+  procedure CarregarReferencia(const MensagemID: Integer; DestinoMensagem: TJSONObject; Profundidade: Integer = 0);
+  var
+    QryRefAux: TFDQuery;
+    oRef: TJSONObject;
+    oMsgRef: TJSONObject;
+    iRefTipo: Integer;
+    iRefMsgID: Integer;
+  begin
+    if Profundidade >= 5 then
+      Exit;
+
+    QryRefAux := TFDQuery.Create(nil);
+    try
+      QryRefAux.Connection := Pool.Connection;
+
+      QryRefAux.Open(
+        sl +'select mr.tipo '+
+        sl +'     , mr.destino_mensagem_id '+
+        sl +'  from mensagem_referencia mr '+
+        sl +' where mr.origem_mensagem_id = '+ MensagemID.ToString +
+        sl +' order by mr.id desc '+
+        sl +' limit 1 '
+      );
+
+      if QryRefAux.IsEmpty then
+        Exit;
+
+      iRefTipo := QryRefAux.FieldByName('tipo').AsInteger;
+      iRefMsgID := QryRefAux.FieldByName('destino_mensagem_id').AsInteger;
+
+      oRef := TJSONObject.Create;
+      oRef.AddPair('tipo', iRefTipo);
+      DestinoMensagem.AddPair('mensagem_referencia', oRef);
+
+      QryRefAux.Open(
+        sl +'select m.id '+
+        sl +'     , m.conversa_id '+
+        sl +'     , m.inserida '+
+        sl +'     , substring(trim(u.nome) from ''^([^ ]+)'') as remetente '+
+        sl +'  from mensagem m '+
+        sl +' inner '+
+        sl +'  join usuario u '+
+        sl +'    on u.id = m.usuario_id '+
+        sl +' where m.id = '+ iRefMsgID.ToString
+      );
+
+      if not QryRefAux.IsEmpty then
+      begin
+        oMsgRef := TJSONObject.Create;
+        oMsgRef.AddPair('id', QryRefAux.FieldByName('id').AsInteger);
+        oMsgRef.AddPair('conversa_id', QryRefAux.FieldByName('conversa_id').AsInteger);
+        oMsgRef.AddPair('remetente', QryRefAux.FieldByName('remetente').AsString);
+        oMsgRef.AddPair('inserida', DateToISO8601(QryRefAux.FieldByName('inserida').AsDateTime));
+        CarregarConteudos(QryRefAux.FieldByName('id').AsInteger, oMsgRef);
+        CarregarReferencia(QryRefAux.FieldByName('id').AsInteger, oMsgRef, Profundidade + 1);
+        oRef.AddPair('mensagem', oMsgRef);
+      end;
+    finally
+      FreeAndNil(QryRefAux);
+    end;
+  end;
 begin
   Pool := TPool.Instance;
   Mensagem := TFDQuery.Create(nil);
@@ -1160,7 +1224,12 @@ begin
         QryAux.Open(
           sl +'select m.id '+
           sl +'     , m.conversa_id '+
+          sl +'     , m.inserida '+
+          sl +'     , substring(trim(u.nome) from ''^([^ ]+)'') as remetente '+
           sl +'  from mensagem m '+
+          sl +' inner '+
+          sl +'  join usuario u '+
+          sl +'    on u.id = m.usuario_id '+
           sl +' where m.id = '+ iReferenciaMensagemID.ToString
         );
         if not QryAux.IsEmpty then
@@ -1168,7 +1237,10 @@ begin
           var oMensagemReferenciada := TJSONObject.Create;
           oMensagemReferenciada.AddPair('id', QryAux.FieldByName('id').AsInteger);
           oMensagemReferenciada.AddPair('conversa_id', QryAux.FieldByName('conversa_id').AsInteger);
+          oMensagemReferenciada.AddPair('remetente', QryAux.FieldByName('remetente').AsString);
+          oMensagemReferenciada.AddPair('inserida', DateToISO8601(QryAux.FieldByName('inserida').AsDateTime));
           CarregarConteudos(QryAux.FieldByName('id').AsInteger, oMensagemReferenciada);
+          CarregarReferencia(QryAux.FieldByName('id').AsInteger, oMensagemReferenciada, 1);
           oMensagemReferencia.AddPair('mensagem', oMensagemReferenciada);
         end;
       end;
