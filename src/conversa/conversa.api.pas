@@ -577,14 +577,16 @@ procedure EnviaNotificacoes(const AUsuarioID: Integer; const ATokenDispositivo, 
 begin
   TWebSocket.NovaMensagem(AUsuarioID.ToString, ATitulo, AMensagem);
 
-  // Desabilitado envio de mensagens FCM por enquanto
-  Exit;
-
-  if not ATokenDispositivo.IsEmpty then
+  // Envia push FCM se o usuário não está conectado via WebSocket
+  if not ATokenDispositivo.IsEmpty and not TWebSocket.UsuarioConectado(AUsuarioID.ToString) then
     TThreadQueue.Add(
       procedure
       begin
-        FCM.EnviarNotificacao(ATokenDispositivo, ATitulo, AMensagem, ADadosExtras);
+        try
+          FCM.EnviarNotificacao(ATokenDispositivo, ATitulo, AMensagem, ADadosExtras);
+        except
+          // ignora erro de FCM
+        end;
       end
     );
 end;
@@ -593,26 +595,43 @@ class procedure TConversa.EnviarNotificacao(Usuario, Conversa: Integer; sConteud
 var
   Pool: IConnection;
   Qry: TFDQuery;
+  sNomeRemetente: String;
 begin
   Pool := TPool.Instance;
   Qry := TFDQuery.Create(nil);
   try
     Qry.Connection := Pool.Connection;
+
+    // Busca o nome do remetente
+    Qry.Open(
+      sl +'select nome from usuario where id = '+ Usuario.ToString
+    );
+    sNomeRemetente := Qry.FieldByName('nome').AsString;
+    Qry.Close;
+
+    // Busca os destinatários com token FCM
     Qry.Open(
       sl +'select distinct '+
       sl +'       cu.usuario_id '+
+      sl +'     , d.token_fcm '+
       sl +'  from conversa_usuario as cu '+
-      sl +' inner '+
-      sl +'  join usuario as u '+
-      sl +'    on u.id = '+ Usuario.ToString +
+      sl +'  left '+
+      sl +'  join dispositivo as d '+
+      sl +'    on d.usuario_id = cu.usuario_id '+
+      sl +'   and d.ativo = true '+
+      sl +'   and d.token_fcm is not null '+
       sl +' where cu.conversa_id = '+ Conversa.ToString +
       sl +'   and cu.usuario_id <> '+ Usuario.ToString
     );
     Qry.First;
     while not Qry.Eof do
     begin
-      {TODO -oDaniel -cFCM : Corrigir notificação de FCM}
-      EnviaNotificacoes(Qry.FieldByName('usuario_id').AsInteger, '', '', sConteudo);
+      EnviaNotificacoes(
+        Qry.FieldByName('usuario_id').AsInteger,
+        Qry.FieldByName('token_fcm').AsString,
+        sNomeRemetente,
+        sConteudo
+      );
       Qry.Next;
     end;
   finally

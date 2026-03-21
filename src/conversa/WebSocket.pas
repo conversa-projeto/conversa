@@ -42,6 +42,7 @@ type
     class procedure NovaMensagem(const sUsuario, sTitulo, sMensagem: String); static;
     class procedure AtualizarStatusMensagem(const sUsuario: String; const iGrupo: Integer; const sMensagens: String); static;
 
+    class function UsuarioConectado(const sUsuario: String): Boolean; static;
     class procedure ConversaNotificar(const Conversa, Remetente, Destinatario: Integer; const Msg: TSocketMessageType); static;
     class procedure ChamadaNotificar(const Chamada, Remetente, Destinatario: Integer; const Msg: TSocketMessageType); static;
   end;
@@ -182,6 +183,37 @@ begin
         Continue;
 
       Bird.Send(oJSON.ToJSON);
+    end;
+  finally
+    FWebSocket.Birds.UnLockList;
+    FWebSocket.Contexts.UnlockList;
+  end;
+end;
+
+class function TWebSocket.UsuarioConectado(const sUsuario: String): Boolean;
+var
+  Birds: TList<TBirdSocketConnection>;
+  Bird: TBirdSocketConnection;
+  Data: TObject;
+  Context: TIdContext;
+begin
+  Result := False;
+  if sUsuario.IsEmpty then
+    Exit;
+
+  FWebSocket.Contexts.LockList;
+  Birds := FWebSocket.Birds.LockList;
+  try
+    for Bird in Birds do
+    begin
+      Context := TBirdSocketConnectionHack(Bird).FIdContext;
+      if not Assigned(Context) then
+        Continue;
+
+      Data := Context.Data;
+
+      if Assigned(Data) and (Data is TWSUser) and (TWSUser(Data).ID = sUsuario) then
+        Exit(True);
     end;
   finally
     FWebSocket.Birds.UnLockList;
