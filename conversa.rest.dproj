@@ -4,7 +4,7 @@
         <ProjectVersion>20.1</ProjectVersion>
         <FrameworkType>None</FrameworkType>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <TargetedPlatforms>2</TargetedPlatforms>
         <AppType>Console</AppType>
@@ -78,7 +78,7 @@
         <DCC_K>false</DCC_K>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
         <SanitizedProjectName>conversa_rest</SanitizedProjectName>
-        <DCC_UnitSearchPath>src\horse;src\horse-cors;src\jhonson;src\handle-exception;src\horse-octetstream;src\horse-jwt;src\horse-jwt\delphi-jose-jwt;src\horse-jwt\delphi-jose-jwt\Common;src\horse-jwt\delphi-jose-jwt\JOSE;src\bird-socket-server;src\tcp;src\horse-server-static;src\bcrypt;src\minio;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>src\horse;src\horse-cors;src\jhonson;src\handle-exception;src\horse-octetstream;src\horse-jwt;src\horse-jwt\delphi-jose-jwt;src\horse-jwt\delphi-jose-jwt\Common;src\horse-jwt\delphi-jose-jwt\JOSE;src\bird-socket-server;src\tcp;src\bcrypt;src\minio;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <VerInfo_Locale>1046</VerInfo_Locale>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
         <PreBuildEventCancelOnError>false</PreBuildEventCancelOnError>

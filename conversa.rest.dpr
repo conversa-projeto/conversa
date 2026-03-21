@@ -20,7 +20,6 @@ uses
   Horse.CORS,
   Horse.OctetStream,
   Horse.JWT,
-  Horse.ServerStatic,
   IdSSLOpenSSL,
   JOSE.Core.JWT,
   JOSE.Core.Builder,
@@ -67,7 +66,6 @@ begin
       TConfiguracao.LoadFromDataBase;
 
       THorse
-        .Use(ServerStatic('web'))
         .Use(Jhonson)
         .Use(OctetStream)
         .Use(HandleException)
@@ -78,9 +76,8 @@ begin
             THorseJWTConfig.New
               .SessionClass(TJWTClaims)
               .SkipRoutes([
-                'favicon.ico',
-                'login',
-                'cadastro'
+                '/api/login',
+                '/api/cadastro'
               ])
           )
         );
@@ -102,7 +99,7 @@ begin
       );
 
       THorse.Post(
-        '/login',
+        '/api/login',
         procedure(Req: THorseRequest; Res: THorseResponse)
         var
           LJWT: TJWT;
@@ -128,7 +125,7 @@ begin
       );
 
       THorse.Post(
-        '/alterar-senha',
+        '/api/alterar-senha',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           TConversa.AlterarSenha(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req));
@@ -137,7 +134,7 @@ begin
       );
 
       THorse.Patch(
-        '/dispositivo',
+        '/api/dispositivo',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.DispositivoAlterar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -145,7 +142,7 @@ begin
       );
 
       THorse.Put(
-        '/dispositivo/usuario',
+        '/api/dispositivo/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('dispositivo_id').Required(True);
@@ -154,7 +151,7 @@ begin
       );
 
       THorse.Put(
-        '/usuario',
+        '/api/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.UsuarioIncluir(Conteudo(Req)));
@@ -162,7 +159,7 @@ begin
       );
 
       THorse.Patch(
-        '/usuario',
+        '/api/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.UsuarioAlterar(Conteudo(Req)));
@@ -170,7 +167,7 @@ begin
       );
 
       THorse.Delete(
-        '/usuario',
+        '/api/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('id').Required(True);
@@ -179,7 +176,7 @@ begin
       );
 
       THorse.Put(
-        '/usuario/contato',
+        '/api/usuario/contato',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('relacionamento_id').Required(True);
@@ -188,7 +185,7 @@ begin
       );
 
       THorse.Delete(
-        '/usuario/contato',
+        '/api/usuario/contato',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('id').Required(True);
@@ -197,7 +194,7 @@ begin
       );
 
       THorse.Get(
-        '/usuario/contatos',
+        '/api/usuario/contatos',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONArray>(TConversa.UsuarioContatos(Req.Session<TJWTClaims>.Subject.ToInteger));
@@ -205,7 +202,7 @@ begin
       );
 
       THorse.Put(
-        '/conversa',
+        '/api/conversa',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ConversaIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -213,7 +210,7 @@ begin
       );
 
       THorse.Patch(
-        '/conversa',
+        '/api/conversa',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ConversaAlterar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -221,7 +218,7 @@ begin
       );
 
       THorse.Delete(
-        '/conversa',
+        '/api/conversa',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('id').Required(True);
@@ -230,7 +227,7 @@ begin
       );
 
       THorse.Get(
-        '/conversas',
+        '/api/conversas',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONArray>(TConversa.Conversas(Req.Session<TJWTClaims>.Subject.ToInteger));
@@ -238,7 +235,7 @@ begin
       );
 
       THorse.Get(
-        '/conversa/usuarios',
+        '/api/conversa/usuarios',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('conversa').Required(True);
@@ -247,7 +244,7 @@ begin
       );
 
       THorse.Put(
-        '/conversa/usuario',
+        '/api/conversa/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ConversaUsuarioIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -255,7 +252,7 @@ begin
       );
 
       THorse.Delete(
-        '/conversa/usuario',
+        '/api/conversa/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('id').Required(True);
@@ -264,7 +261,7 @@ begin
       );
 
       THorse.Post(
-        '/conversa/digitando',
+        '/api/conversa/digitando',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           if not Assigned(Conteudo(Req).FindValue('id')) then
@@ -275,7 +272,7 @@ begin
       );
 
       THorse.Post(
-        '/conversa/gravando',
+        '/api/conversa/gravando',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           if not Assigned(Conteudo(Req).FindValue('id')) then
@@ -286,7 +283,7 @@ begin
       );
 
       THorse.Put(
-        '/mensagem',
+        '/api/mensagem',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.MensagemIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -294,7 +291,7 @@ begin
       );
 
       THorse.Delete(
-        '/mensagem',
+        '/api/mensagem',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('id').Required(True);
@@ -303,7 +300,7 @@ begin
       );
 
       THorse.Get(
-        '/anexo/existe',
+        '/api/anexo/existe',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('identificador').Required(True);
@@ -312,7 +309,7 @@ begin
       );
 
       THorse.Get(
-        '/anexo',
+        '/api/anexo',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('identificador').Required(True);
@@ -321,7 +318,7 @@ begin
       );
 
       THorse.Put(
-        '/anexo',
+        '/api/anexo',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(
@@ -337,7 +334,7 @@ begin
       );
 
       THorse.Get(
-        '/mensagens',
+        '/api/mensagens',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('conversa').Required(True);
@@ -353,7 +350,7 @@ begin
       );
 
       THorse.Post(
-        '/mensagem/visualizar',
+        '/api/mensagem/visualizar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.MensagemVisualizada(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -361,7 +358,7 @@ begin
       );
 
       THorse.Post(
-        '/mensagem/reproduzir',
+        '/api/mensagem/reproduzir',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.MensagemReproduzida(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -369,7 +366,7 @@ begin
       );
 
       THorse.Get(
-        '/mensagem/status',
+        '/api/mensagem/status',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('conversa').Required(True);
@@ -385,7 +382,7 @@ begin
       );
 
       THorse.Get(
-        '/mensagens/novas',
+        '/api/mensagens/novas',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONArray>(TConversa.NovasMensagens(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('ultima').AsInteger));
@@ -393,7 +390,7 @@ begin
       );
 
       THorse.Put(
-        '/chamada/iniciar',
+        '/api/chamada/iniciar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaIniciar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -401,7 +398,7 @@ begin
       );
 
       THorse.Post(
-        '/chamada/cancelar',
+        '/api/chamada/cancelar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaCancelar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -409,7 +406,7 @@ begin
       );
 
       THorse.Post(
-        '/chamada/entrar',
+        '/api/chamada/entrar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaEntrar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -417,7 +414,7 @@ begin
       );
 
       THorse.Post(
-        '/chamada/recusar',
+        '/api/chamada/recusar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaRecusar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -425,7 +422,7 @@ begin
       );
 
       THorse.Post(
-        '/chamada/sair',
+        '/api/chamada/sair',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaSair(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -433,7 +430,7 @@ begin
       );
 
       THorse.Put(
-        '/chamada/usuario',
+        '/api/chamada/usuario',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaUsuario(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -441,7 +438,7 @@ begin
       );
 
       THorse.Post(
-        '/chamada/finalizar',
+        '/api/chamada/finalizar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaFinalizar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -449,7 +446,7 @@ begin
       );
 
       THorse.Get(
-        '/chamada/dados',
+        '/api/chamada/dados',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaDados(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('id').AsInteger));
@@ -457,14 +454,14 @@ begin
       );
 
       THorse.Get(
-        '/chamadas/pendentes',
+        '/api/chamadas/pendentes',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONArray>(TConversa.ChamadasPendentes(Req.Session<TJWTClaims>.Subject.ToInteger));
         end
       );
 
-      THorse.Post('/chamada/video',
+      THorse.Post('/api/chamada/video',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           if not Assigned(Conteudo(Req).FindValue('id')) then
@@ -475,7 +472,7 @@ begin
       );
 
       THorse.Put(
-        '/chamadaevento',
+        '/api/chamadaevento',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ChamadaEventoIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -483,7 +480,7 @@ begin
       );
 
       THorse.Get(
-        '/pesquisar',
+        '/api/pesquisar',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Req.Query.Field('usuario').Required(True);
@@ -496,7 +493,7 @@ begin
       );
 
       THorse.Get(
-        '/sip',
+        '/api/sip',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.SIP(Req.Session<TJWTClaims>.Subject.ToInteger));
@@ -504,7 +501,7 @@ begin
       );
 
       THorse.Put(
-        '/sip',
+        '/api/sip',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.SIPIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
@@ -512,14 +509,14 @@ begin
       );
 
       THorse.Patch(
-        '/sip',
+        '/api/sip',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.SIPAlterar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 
-      TWebSocket.Iniciar(19090, Configuracao.JWTKEY);
+      TWebSocket.Iniciar(9090, Configuracao.JWTKEY);
       try
         TThreadQueue.Create;
         try
@@ -533,11 +530,10 @@ begin
           FCM := TFCMNotification.Create(Configuracao.FCM);
           try
             THorse.Listen(
-              18080,
+              8080,
               procedure
               begin
                 Writeln('Servidor iniciado 🚀');
-                Writeln('Acesso usando https://...');
               end
             );
           finally

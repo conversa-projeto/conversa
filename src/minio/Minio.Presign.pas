@@ -57,6 +57,9 @@ class function TMinioPresign.PresignedURL(Method: String; Config: TMinioConfig; 
 var
   Endpoint: String;
   Host: String;
+  HostAndPath: String;
+  PathPrefix: String;
+  SlashPos: Integer;
   CanonicalURI: String;
   CanonicalQuery: String;
   CanonicalHeaders: String;
@@ -74,9 +77,9 @@ var
 begin
   Endpoint := Trim(Config.Endpoint);
   if Endpoint.IsEmpty then
-    raise Exception.Create('MinIO endpoint n�o informado.');
+    raise Exception.Create('MinIO endpoint não informado.');
 
-  // for�a https para evitar Mixed Content no browser
+  // força https para evitar Mixed Content no browser
   if Endpoint.StartsWith('http://', True) then
     Endpoint := 'https://' + Copy(Endpoint, Length('http://') + 1, MaxInt)
   else if not Endpoint.StartsWith('https://', True) then
@@ -84,9 +87,23 @@ begin
 
   Endpoint := Endpoint.TrimRight(['/']);
 
-  Host := Endpoint.Replace('https://', '').Replace('http://', '');
-  Host := Host.TrimRight(['/']);
+  // Separa host:porta do path prefix
+  // Ex: https://192.168.100.5:4430/storage → Host=192.168.100.5:4430, PathPrefix=/storage
+  // Ex: https://127.0.0.1:9000             → Host=127.0.0.1:9000,     PathPrefix=
+  HostAndPath := Endpoint.Replace('https://', '').Replace('http://', '');
+  SlashPos := Pos('/', HostAndPath);
+  if SlashPos > 0 then
+  begin
+    Host := Copy(HostAndPath, 1, SlashPos - 1);
+    PathPrefix := Copy(HostAndPath, SlashPos, MaxInt).TrimRight(['/']);
+  end
+  else
+  begin
+    Host := HostAndPath;
+    PathPrefix := '';
+  end;
 
+  // CanonicalURI é o path que o MinIO realmente recebe (sem path prefix do nginx)
   CanonicalURI := '/' + Config.Bucket + '/' + ObjectKey;
 
   UTCNow := TTimeZone.Local.ToUniversalTime(Now);
@@ -124,7 +141,9 @@ begin
   SigningKey := GetSignatureKey(Config.SecretKey, DateStamp, Region, 's3');
   Signature := LowerCase(HexEncode(HmacSHA256(SigningKey, StringToSign)));
 
-  Result := Endpoint + CanonicalURI + '?' + CanonicalQuery + '&X-Amz-Signature=' + Signature;
+  // URL pública: inclui o path prefix para o browser acessar via nginx
+  // Ex: https://host:4430/storage/chat/key?... (nginx strip /storage/, MinIO recebe /chat/key)
+  Result := 'https://' + Host + PathPrefix + CanonicalURI + '?' + CanonicalQuery + '&X-Amz-Signature=' + Signature;
 end;
 
 end.

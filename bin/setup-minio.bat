@@ -4,8 +4,8 @@ setlocal
 echo [1/5] Parando/removendo container antigo (se existir)...
 docker rm -f minio >nul 2>nul
 
-echo [2/5] Iniciando MinIO nas portas internas 19000/19001...
-docker run --detach --restart always --name minio -p 19000:9000 -p 19001:9001 -v minio:/data -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=admin123 quay.io/minio/minio server /data --console-address ":9001"
+echo [2/5] Iniciando MinIO nas portas internas 9000/9001...
+docker run --detach --restart always --name minio -p 9000:9000 -p 9001:9001 -v minio:/data -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=admin123 quay.io/minio/minio server /data --console-address ":9001"
 
 if errorlevel 1 (
   echo [ERRO] Falha ao iniciar MinIO.
@@ -34,9 +34,9 @@ if errorlevel 1 (
 
 echo.
 echo MinIO pronto:
-echo - interno:  http://127.0.0.1:19000
-echo - console:  http://127.0.0.1:19001
-echo - publico via nginx: https://SEU_HOST:9000
+echo - S3:       http://127.0.0.1:9000
+echo - Console:  http://127.0.0.1:9001
+echo - Publico:  https://SEU_HOST/storage/
 echo.
 pause
 endlocal

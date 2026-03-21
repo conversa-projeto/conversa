@@ -25,20 +25,12 @@ if errorlevel 1 (
   set MKCERT=mkcert
 )
 
-:: Pega o IP local
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do (
-  set LOCAL_IP=%%a
-  goto :found
-)
-:found
-set LOCAL_IP=%LOCAL_IP: =%
+set /p LOCAL_IP="Digite o IP da sua maquina: "
 
-echo IP detectado automaticamente: %LOCAL_IP%
-echo.
-set /p CONFIRM_IP="Este IP esta correto? (S para sim, ou digite o IP correto): "
-
-if /i not "%CONFIRM_IP%"=="S" (
-  if not "%CONFIRM_IP%"=="" set LOCAL_IP=%CONFIRM_IP%
+if "%LOCAL_IP%"=="" (
+  echo [ERRO] IP nao informado.
+  pause
+  exit /b 1
 )
 
 echo.
