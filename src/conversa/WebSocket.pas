@@ -24,6 +24,7 @@ type
     AtualizacaoStatusMensagem,
     Digitando,
     GravandoAudio,
+    ReacaoMensagem = 7,
     ConversaNova = 40, // Nova conversa
     ChamadaRecebida = 51, // Usuário inicia uma chamada
     ChamadaFinalizada = 52, // Usuário que criou, cancela a chamada antes mesmo de algum usuário entrar ou finaliza a chamada de modo forçado
@@ -44,6 +45,7 @@ type
 
     class function UsuarioConectado(const sUsuario: String): Boolean; static;
     class procedure ConversaNotificar(const Conversa, Remetente, Destinatario: Integer; const Msg: TSocketMessageType); static;
+    class procedure ReacaoNotificar(const Conversa, Mensagem, Remetente, Destinatario: Integer; const Emoji, Acao: String); static;
     class procedure ChamadaNotificar(const Chamada, Remetente, Destinatario: Integer; const Msg: TSocketMessageType); static;
   end;
 
@@ -260,6 +262,24 @@ begin
     jo.AddPair('tipo', Integer(Msg));
     jo.AddPair('conversa_id', Conversa);
     jo.AddPair('usuario_id', Remetente);
+    TWebSocket.Enviar(Destinatario.ToString, jo);
+  finally
+    jo.Free;
+  end;
+end;
+
+class procedure TWebSocket.ReacaoNotificar(const Conversa, Mensagem, Remetente, Destinatario: Integer; const Emoji, Acao: String);
+var
+  jo: TJSONObject;
+begin
+  jo := TJSONObject.Create;
+  try
+    jo.AddPair('tipo', Integer(TSocketMessageType.ReacaoMensagem));
+    jo.AddPair('conversa_id', Conversa);
+    jo.AddPair('mensagem_id', Mensagem);
+    jo.AddPair('usuario_id', Remetente);
+    jo.AddPair('emoji', Emoji);
+    jo.AddPair('acao', Acao);
     TWebSocket.Enviar(Destinatario.ToString, jo);
   finally
     jo.Free;

@@ -471,14 +471,6 @@ begin
         end
       );
 
-      THorse.Put(
-        '/api/chamadaevento',
-        procedure(Req: THorseRequest; Res: THorseResponse)
-        begin
-          Res.Send<TJSONObject>(TConversa.ChamadaEventoIncluir(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
-        end
-      );
-
       THorse.Get(
         '/api/pesquisar',
         procedure(Req: THorseRequest; Res: THorseResponse)
@@ -513,6 +505,14 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.SIPAlterar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
+      THorse.Put(
+        '/api/mensagem/reacao',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.ReacaoAlternar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
         end
       );
 

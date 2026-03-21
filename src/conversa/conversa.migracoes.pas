@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..17] of String = (
+  Versoes: Array[0..18] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -366,7 +366,21 @@ const
     sl +'create trigger trg_exclusao after delete on mensagem_referencia for each row execute function auditoria.fn_exclusao(); '+
     sl +'create index ix_mensagem_referencia on mensagem_referencia(origem_mensagem_id, destino_mensagem_id); '+
     sl +'alter table public.mensagem drop constraint mensagem_resposta_mensagem_id_fkey; '+
-    sl +'alter table public.mensagem drop column resposta_mensagem_id; '
+    sl +'alter table public.mensagem drop column resposta_mensagem_id; ',
+
+    sl +'create '+
+    sl +' table reacao '+
+    sl +'     ( id serial primary key '+
+    sl +'     , mensagem_id int4 not null references mensagem(id) '+
+    sl +'     , usuario_id int4 not null references usuario(id) '+
+    sl +'     , emoji varchar(10) not null '+
+    sl +'     , criado_em timestamp default current_timestamp '+
+    sl +'     , criado_por int default nullif(current_setting(''app.usuario_id'', true), '''')::int references usuario(id) '+
+    sl +'     , constraint reacao_unique unique (mensagem_id, usuario_id, emoji) '+
+    sl +'     ); '+
+    sl +'create trigger trg_alteracao after update on reacao for each row execute function auditoria.fn_alteracao(); '+
+    sl +'create trigger trg_exclusao after delete on reacao for each row execute function auditoria.fn_exclusao(); '+
+    sl +'create index ix_reacao_mensagem on reacao(mensagem_id); '
   );
 
 procedure Migracoes;

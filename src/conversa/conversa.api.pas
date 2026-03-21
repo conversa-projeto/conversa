@@ -75,13 +75,13 @@ type
     class function ChamadaFinalizar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaDados(Usuario: Integer; Chamada: Integer): TJSONObject; static;
     class function ChamadasPendentes(Usuario: Integer): TJSONArray; static;
-    class function ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class procedure ConversaDigitando(const Usuario, Conversa: Integer); static;
     class procedure ConversaGravando(const Usuario, Conversa: Integer); static;
     class procedure ChamadaVideo(const Usuario, Chamada: Integer); static;
     class function SIP(Usuario: Integer): TJSONObject; static;
     class function SIPIncluir(Usuario: Integer; oSIP: TJSONObject): TJSONObject; static;
     class function SIPAlterar(Usuario: Integer; oSIP: TJSONObject): TJSONObject; static;
+    class function ReacaoAlternar(Usuario: Integer; oReacao: TJSONObject): TJSONObject; static;
   end;
 
 implementation
@@ -121,7 +121,7 @@ begin
   or ((Result.GetValue<String>('senha').Length <> 60) and (oAutenticacao.GetValue<String>('senha') <> Result.GetValue<String>('senha'))) then
   begin
     FreeAndNil(Result);
-    raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Acesso negado!');
+    raise EHorseException.New.Status(THTTPStatus.Unauthorized).Error('Senha incorreta!');
   end;
 
   // Se a senha não está usando bcrypt mais está correta.. converte para bcrypt
@@ -325,7 +325,6 @@ begin
     sl +'     , u.email '+
     sl +'     , u.telefone '+
     sl +'  from usuario as u '+
-    sl +' where u.id <> '+ Usuario.ToString +
     sl +' order '+
     sl +'    by u.id '
   );
@@ -397,7 +396,7 @@ begin
   Result := Open(
     sl +'   drop table if exists temp_conversa; '+
     sl +' create temp table temp_conversa as '+
-    sl +' select c.id '+
+    sl +' select distinct c.id '+
     sl +'      , c.descricao '+
     sl +'      , c.tipo '+
     sl +'      , c.inserida '+
@@ -429,18 +428,18 @@ begin
     sl +'             , u.nome '+
     sl +'             , a.objeto as avatar_objeto '+
     sl +'          from '+
-    sl +'             ( select cu.conversa_id '+
+    sl +'             ( select distinct on (cu.conversa_id) '+
+    sl +'                      cu.conversa_id '+
     sl +'                    , cu.usuario_id as destinatario_id '+
     sl +'                 from temp_conversa tc '+
     sl +'                inner '+
     sl +'                 join conversa_usuario cu '+
     sl +'                   on cu.conversa_id = tc.id '+
-    sl +'                  and cu.usuario_id <> '+ Usuario.ToString +
     sl +'                where tc.tipo = 1 /* 1-Chat */ '+
-    sl +'                group '+
+    sl +'                order '+
     sl +'                   by cu.conversa_id '+
+    sl +'                    , case when cu.usuario_id = '+ Usuario.ToString +' then 1 else 0 end '+
     sl +'                    , cu.usuario_id '+
-    sl +'               having count(1) = 1 '+
     sl +'             ) d '+
     sl +'         inner '+
     sl +'          join usuario u '+
@@ -1282,6 +1281,35 @@ begin
       oMensagem.AddPair('reproduzida', QryAux.FieldByName('reproduzida').AsInteger = QryAux.FieldByName('total').AsInteger);
 
       CarregarConteudos(Mensagem.FieldByName('id').AsInteger, oMensagem);
+
+      // Carregar reações da mensagem
+      QryAux.Open(
+        sl +'select r.emoji '+
+        sl +'     , count(1) as quantidade '+
+        sl +'     , bool_or(r.usuario_id = '+ Usuario.ToString +') as reagiu '+
+        sl +'  from reacao r '+
+        sl +' where r.mensagem_id = '+ Mensagem.FieldByName('id').AsString +
+        sl +' group '+
+        sl +'    by r.emoji '+
+        sl +' order '+
+        sl +'    by min(r.id) '
+      );
+      if not QryAux.IsEmpty then
+      begin
+        var aReacoes := TJSONArray.Create;
+        oMensagem.AddPair('reacoes', aReacoes);
+        QryAux.First;
+        while not QryAux.Eof do
+        begin
+          var oReacao := TJSONObject.Create;
+          aReacoes.Add(oReacao);
+          oReacao.AddPair('emoji', QryAux.FieldByName('emoji').AsString);
+          oReacao.AddPair('quantidade', QryAux.FieldByName('quantidade').AsInteger);
+          oReacao.AddPair('reagiu', QryAux.FieldByName('reagiu').AsBoolean);
+          QryAux.Next;
+        end;
+      end;
+
       Mensagem.Next;
     end;
   finally
@@ -1943,12 +1971,6 @@ begin
     );
 end;
 
-class function TConversa.ChamadaEventoIncluir(Usuario: Integer; joParam: TJSONObject): TJSONObject;
-begin
-  CamposObrigatorios(joParam, ['chamada_id', 'usuario_id', 'evento_tipo_id']);
-  Result := InsertJSON('chamada_evento', joParam);
-end;
-
 class procedure TConversa.AtualizaMensagemSocket(const Usuario, Conversa: Integer; const Mensagens: String);
 var
   Pool: IConnection;
@@ -2007,6 +2029,102 @@ class function TConversa.SIPAlterar(Usuario: Integer; oSIP: TJSONObject): TJSONO
 begin
   {TODO: Só permitir alterar um SIP do usuário atual}
   Result := UpdateJSON('sip', oSIP);
+end;
+
+class function TConversa.ReacaoAlternar(Usuario: Integer; oReacao: TJSONObject): TJSONObject;
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+  iMensagemID: Integer;
+  iConversaID: Integer;
+  sEmoji: String;
+  sAcao: String;
+begin
+  CamposObrigatorios(oReacao, ['mensagem_id', 'emoji']);
+
+  iMensagemID := oReacao.GetValue<Integer>('mensagem_id');
+  sEmoji := oReacao.GetValue<String>('emoji');
+
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+
+    // Buscar conversa_id da mensagem
+    Qry.Open(
+      sl +'select conversa_id '+
+      sl +'  from mensagem '+
+      sl +' where id = '+ iMensagemID.ToString
+    );
+
+    if Qry.IsEmpty then
+      raise EHorseException.New.Status(THTTPStatus.NotFound).Error('Mensagem não encontrada!');
+
+    iConversaID := Qry.FieldByName('conversa_id').AsInteger;
+
+    // Verificar se a reação já existe
+    Qry.Open(
+      sl +'select id '+
+      sl +'  from reacao '+
+      sl +' where mensagem_id = '+ iMensagemID.ToString +
+      sl +'   and usuario_id  = '+ Usuario.ToString +
+      sl +'   and emoji       = '+ Qt(sEmoji)
+    );
+
+    if not Qry.IsEmpty then
+    begin
+      // Remover reação existente (toggle off)
+      Pool.Connection.ExecSQL(
+        sl +'delete '+
+        sl +'  from reacao '+
+        sl +' where mensagem_id = '+ iMensagemID.ToString +
+        sl +'   and usuario_id  = '+ Usuario.ToString +
+        sl +'   and emoji       = '+ Qt(sEmoji)
+      );
+      sAcao := 'remove';
+    end
+    else
+    begin
+      // Inserir nova reação (toggle on)
+      Pool.Connection.ExecSQL(
+        sl +'insert '+
+        sl +'  into reacao '+
+        sl +'     ( mensagem_id '+
+        sl +'     , usuario_id '+
+        sl +'     , emoji '+
+        sl +'     ) '+
+        sl +'values '+
+        sl +'     ( '+ iMensagemID.ToString +
+        sl +'     , '+ Usuario.ToString +
+        sl +'     , '+ Qt(sEmoji) +
+        sl +'     ) '
+      );
+      sAcao := 'add';
+    end;
+
+    // Notificar membros da conversa via WebSocket
+    Qry.Open(
+      sl +'select usuario_id '+
+      sl +'  from conversa_usuario '+
+      sl +' where conversa_id = '+ iConversaID.ToString +
+      sl +'   and usuario_id <> '+ Usuario.ToString
+    );
+
+    Qry.FetchAll;
+    Qry.First;
+    while not Qry.Eof do
+    begin
+      TWebSocket.ReacaoNotificar(iConversaID, iMensagemID, Usuario, Qry.FieldByName('usuario_id').AsInteger, sEmoji, sAcao);
+      Qry.Next;
+    end;
+
+    Result := TJSONObject.Create;
+    Result.AddPair('mensagem_id', iMensagemID);
+    Result.AddPair('emoji', sEmoji);
+    Result.AddPair('acao', sAcao);
+  finally
+    FreeAndNil(Qry);
+  end;
 end;
 
 end.
