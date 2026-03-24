@@ -207,7 +207,7 @@ const
     sl +'     )  '+
     sl +'values '+
     sl +'     ( ''s3_endpoint'' '+
-    sl +'     , ''https://127.0.0.1:9000'' '+
+    sl +'     , ''https://localhost:4430/storage'' '+
     sl +'     ), '+
     sl +'     ( ''s3_accesskey'' '+
     sl +'     , ''admin'' '+

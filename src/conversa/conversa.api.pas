@@ -57,7 +57,7 @@ type
     class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject; static;
     class function MensagemExcluir(Usuario, Mensagem: Integer): TJSONObject; static;
     class function Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray; static;
-    class function Pesquisar(Usuario: Integer; Texto: String): TJSONArray; static;
+    class function Pesquisar(Conversa, Usuario: Integer; Texto: String): TJSONArray; static;
     class function GetMensagens(Conversa, Usuario: Integer; Script: String; MarcarComoRecebida: Boolean): TJSONArray; static;
     class function MensagemVisualizada(Usuario: Integer; oConversaMensagem: TJSONObject): TJSONObject; static;
     class function MensagemReproduzida(Usuario: Integer; oConversaMensagem: TJSONObject): TJSONObject; static;
@@ -522,15 +522,23 @@ begin
 end;
 
 class function TConversa.ConversaUsuarios(Usuario: Integer; Conversa: Integer): TJSONArray;
+var
+  Item: TJSONValue;
+  Objeto: TJSONPair;
+  URL: String;
 begin
   Result := Open(
     sl +'select cu.id '+
     sl +'     , cu.usuario_id '+
     sl +'     , u.nome '+
+    sl +'     , a.objeto as avatar_objeto '+
     sl +'  from conversa_usuario as cu '+
     sl +' inner '+
     sl +'  join usuario as u '+
     sl +'    on u.id = cu.usuario_id '+
+    sl +'  left '+
+    sl +'  join anexo as a '+
+    sl +'    on a.id = u.avatar_anexo_id '+
     sl +' where cu.conversa_id = '+ Conversa.ToString +
     sl +'   and exists( '+
     sl +'       select cu2.id '+
@@ -539,6 +547,25 @@ begin
     sl +'          and cu2.usuario_id = '+ Usuario.ToString +
     sl +'       ) '
   );
+
+  for Item in Result do
+  begin
+    Objeto := TJSONObject(Item).RemovePair('avatar_objeto');
+    try
+      if not Assigned(Objeto) then
+        Continue;
+
+      if Objeto.JsonValue is TJSONNull then
+        TJSONObject(Item).AddPair('avatar_url', TJSONNull.Create)
+      else
+      begin
+        URL := TMinioPresign.PresignedURL('GET', Configuracao.S3, TJSONString(Objeto.JsonValue).Value, 'us-east-1', 600);
+        TJSONObject(Item).AddPair('avatar_url', URL);
+      end;
+    finally
+      Objeto.Free;
+    end;
+  end;
 end;
 
 class function TConversa.ConversaUsuarioIncluir(Usuario: Integer; oConversaUsuario: TJSONObject): TJSONObject;
@@ -961,7 +988,7 @@ begin
   Result := GetMensagens(Conversa, Usuario, Script, True);
 end;
 
-class function TConversa.Pesquisar(Usuario: Integer; Texto: String): TJSONArray;
+class function TConversa.Pesquisar(Conversa, Usuario: Integer; Texto: String): TJSONArray;
 var
   Script: String;
 begin
@@ -970,27 +997,31 @@ begin
   Assert(not Texto.Trim.IsEmpty, 'Texto inválido!');
   Texto := '%'+ Texto.Replace(' ', ' ').Replace(' ', '%') +'%';
 
+  if Conversa > 0 then
+    Script := '                               and conversa_id = '+ Conversa.ToString;
+
   Script :=
-  sl +'              /* Retorna mensagens posteriores */ '+
-  sl +'              select id '+
-  sl +'                from '+
-  sl +'                   ( select m.id '+
-  sl +'                       from mensagem m '+
-  sl +'                      inner '+
-  sl +'                       join '+
-  sl +'                          ( select conversa_id '+
-  sl +'                              from conversa_usuario '+
-  sl +'                             where usuario_id = '+ Usuario.ToString +
-  sl +'                          ) as c '+
-  sl +'                         on c.conversa_id = m.conversa_id '+
-  sl +'                      inner '+
-  sl +'                       join mensagem_conteudo mc '+
-  sl +'                         on mc.mensagem_id = m.id '+
-  sl +'                        and mc.tipo = 1 /* 1-Texto */ '+
-  sl +'                        and mc.conteudo like '+ Texto.QuotedString +
-  sl +'                      order '+
-  sl +'                         by m.id '+
-  sl +'                   ) as tbl ';
+    sl +'              /* Retorna mensagens posteriores */ '+
+    sl +'              select id '+
+    sl +'                from '+
+    sl +'                   ( select m.id '+
+    sl +'                       from mensagem m '+
+    sl +'                      inner '+
+    sl +'                       join '+
+    sl +'                          ( select conversa_id '+
+    sl +'                              from conversa_usuario '+
+    sl +'                             where usuario_id = '+ Usuario.ToString +
+    sl + Script +
+    sl +'                          ) as c '+
+    sl +'                         on c.conversa_id = m.conversa_id '+
+    sl +'                      inner '+
+    sl +'                       join mensagem_conteudo mc '+
+    sl +'                         on mc.mensagem_id = m.id '+
+    sl +'                        and mc.tipo = 1 /* 1-Texto */ '+
+    sl +'                        and mc.conteudo like '+ Texto.QuotedString +
+    sl +'                      order '+
+    sl +'                         by m.id '+
+    sl +'                   ) as tbl ';
 
   Result := GetMensagens(0, Usuario, Script, False);
 end;

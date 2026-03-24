@@ -478,6 +478,7 @@ begin
           Req.Query.Field('usuario').Required(True);
           Res.Send<TJSONArray>(
             TConversa.Pesquisar(
+              Req.Query.Field('conversa').AsInteger,
               Req.Query.Field('usuario').AsInteger,
               Req.Query.Field('texto').AsString
           ));
