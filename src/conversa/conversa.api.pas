@@ -1318,7 +1318,13 @@ begin
         sl +'select r.emoji '+
         sl +'     , count(1) as quantidade '+
         sl +'     , bool_or(r.usuario_id = '+ Usuario.ToString +') as reagiu '+
+        sl +'     , json_agg(json_build_object(''usuario_id'', r.usuario_id, ''nome'', u.nome, ''avatar_objeto'', a.objeto, ''reagido_em'', r.criado_em) order by r.id) as usuarios '+
         sl +'  from reacao r '+
+        sl +'  join usuario u '+
+        sl +'    on u.id = r.usuario_id '+
+        sl +'  left '+
+        sl +'  join anexo as a '+
+        sl +'    on a.id = u.avatar_anexo_id '+
         sl +' where r.mensagem_id = '+ Mensagem.FieldByName('id').AsString +
         sl +' group '+
         sl +'    by r.emoji '+
@@ -1337,6 +1343,27 @@ begin
           oReacao.AddPair('emoji', QryAux.FieldByName('emoji').AsString);
           oReacao.AddPair('quantidade', QryAux.FieldByName('quantidade').AsInteger);
           oReacao.AddPair('reagiu', QryAux.FieldByName('reagiu').AsBoolean);
+
+          var aUsuarios := TJSONObject.ParseJSONValue(QryAux.FieldByName('usuarios').AsString) as TJSONArray;
+          oReacao.AddPair('usuarios', aUsuarios);
+
+          for var I := 0 to aUsuarios.Count - 1 do
+          begin
+            var oUsuario := aUsuarios.Items[I] as TJSONObject;
+            var Objeto := oUsuario.RemovePair('avatar_objeto');
+            try
+              if (not Assigned(Objeto)) or (Objeto.JsonValue is TJSONNull) then
+                oUsuario.AddPair('avatar_url', TJSONNull.Create)
+              else
+              begin
+                var URL := TMinioPresign.PresignedURL('GET', Configuracao.S3, TJSONString(Objeto.JsonValue).Value, 'us-east-1', 600);
+                oUsuario.AddPair('avatar_url', URL);
+              end;
+            finally
+              Objeto.Free;
+            end;
+          end;
+
           QryAux.Next;
         end;
       end;
