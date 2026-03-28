@@ -31,7 +31,8 @@ type
     UsuarioRecusou = 53,
     UsuarioEntrou = 54,
     UsuarioSaiu = 55,
-    VideoAtivado = 56
+    VideoAtivado = 56,
+    StatusUsuario = 60
   );
 
   TWebSocket = record
@@ -47,6 +48,8 @@ type
     class procedure ConversaNotificar(const Conversa, Remetente, Destinatario: Integer; const Msg: TSocketMessageType); static;
     class procedure ReacaoNotificar(const Conversa, Mensagem, Remetente, Destinatario: Integer; const Emoji, Acao: String); static;
     class procedure ChamadaNotificar(const Chamada, Remetente, Destinatario: Integer; const Msg: TSocketMessageType); static;
+    class procedure StatusUsuarioNotificar(const UsuarioAlvo, UsuarioMudou: Integer; const Online: Boolean); static;
+    class procedure NotificarContatosStatus(const UsuarioId: Integer; const Online: Boolean); static;
   end;
 
   TWSUser = class
@@ -58,15 +61,47 @@ implementation
 uses
   System.Classes,
   System.Generics.Collections,
+  Data.DB,
+  FireDAC.Comp.Client,
   Bird.Socket,
   IdSSLOpenSSL,
   JOSE.Context,
   JOSE.Core.JWT,
-  JOSE.Consumer;
+  JOSE.Consumer,
+  Postgres;
 
 var
   FWebSocket: TBirdSocket;
   FJWTKey: String;
+
+function ContarConexoesUsuario(const sUsuario: String): Integer;
+var
+  Birds: TList<TBirdSocketConnection>;
+  Bird: TBirdSocketConnection;
+  Data: TObject;
+  Context: TIdContext;
+begin
+  Result := 0;
+  if sUsuario.IsEmpty then
+    Exit;
+
+  FWebSocket.Contexts.LockList;
+  Birds := FWebSocket.Birds.LockList;
+  try
+    for Bird in Birds do
+    begin
+      Context := TBirdSocketConnectionHack(Bird).FIdContext;
+      if not Assigned(Context) then
+        Continue;
+      Data := Context.Data;
+      if Assigned(Data) and (Data is TWSUser) and (TWSUser(Data).ID = sUsuario) then
+        Inc(Result);
+    end;
+  finally
+    FWebSocket.Birds.UnLockList;
+    FWebSocket.Contexts.UnlockList;
+  end;
+end;
 
 procedure Execute(const ABird: TBirdSocketConnection);
 var
@@ -141,6 +176,10 @@ begin
           finally
             FWebSocket.Contexts.UnlockList;
           end;
+
+          // Notificar contatos que o usuário ficou online (só na primeira conexão)
+          if ContarConexoesUsuario(User.ID) <= 1 then
+            TWebSocket.NotificarContatosStatus(User.ID.ToInteger, True);
         finally
           LJWT.Free;
         end;
@@ -151,12 +190,37 @@ begin
   end;
 end;
 
+procedure Disconnect(const ABird: TBirdSocketConnection);
+var
+  Context: TIdContext;
+  Data: TObject;
+  UserId: Integer;
+  sUserId: String;
+begin
+  Context := TBirdSocketConnectionHack(ABird).FIdContext;
+  if not Assigned(Context) then
+    Exit;
+
+  Data := Context.Data;
+  if not Assigned(Data) or not (Data is TWSUser) then
+    Exit;
+
+  sUserId := TWSUser(Data).ID;
+  UserId := StrToIntDef(sUserId, 0);
+
+  // Só notifica offline se esta é a última conexão do usuário
+  // (ContarConexoesUsuario conta incluindo esta que ainda está na lista)
+  if (UserId > 0) and (ContarConexoesUsuario(sUserId) <= 1) then
+    TWebSocket.NotificarContatosStatus(UserId, False);
+end;
+
 class procedure TWebSocket.Iniciar(const iPort: Integer; const sJWTKey: String);
 begin
   FJWTKey := sJWTKey;
   FWebSocket := TBirdSocket.Create(iPort);
   FWebSocket.Active := True;
   FWebSocket.AddEventListener(TEventType.EXECUTE, Execute);
+  FWebSocket.AddEventListener(TEventType.DISCONNECT, Disconnect);
 end;
 
 class procedure TWebSocket.Enviar(const sUsuario: String; const oJSON: TJSONObject);
@@ -298,6 +362,55 @@ begin
     TWebSocket.Enviar(Destinatario.ToString, jo);
   finally
     jo.Free;
+  end;
+end;
+
+class procedure TWebSocket.StatusUsuarioNotificar(const UsuarioAlvo, UsuarioMudou: Integer; const Online: Boolean);
+var
+  jo: TJSONObject;
+begin
+  jo := TJSONObject.Create;
+  try
+    jo.AddPair('tipo', Integer(TSocketMessageType.StatusUsuario));
+    jo.AddPair('usuario_id', UsuarioMudou);
+    jo.AddPair('online', TJSONBool.Create(Online));
+    TWebSocket.Enviar(UsuarioAlvo.ToString, jo);
+  finally
+    jo.Free;
+  end;
+end;
+
+class procedure TWebSocket.NotificarContatosStatus(const UsuarioId: Integer; const Online: Boolean);
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+begin
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    // Busca todos os usuários que compartilham conversas diretas (tipo=1) com o usuário
+    Qry.Open(
+      'select distinct cu2.usuario_id '+
+      '  from conversa_usuario cu1 '+
+      ' inner join conversa c on c.id = cu1.conversa_id and c.tipo = 1 '+
+      ' inner join conversa_usuario cu2 on cu2.conversa_id = cu1.conversa_id and cu2.usuario_id <> cu1.usuario_id '+
+      ' where cu1.usuario_id = '+ UsuarioId.ToString
+    );
+
+    if Qry.IsEmpty then
+      Exit;
+
+    Qry.FetchAll;
+    Qry.First;
+    while not Qry.Eof do
+    try
+      TWebSocket.StatusUsuarioNotificar(Qry.FieldByName('usuario_id').AsInteger, UsuarioId, Online);
+    finally
+      Qry.Next;
+    end;
+  finally
+    FreeAndNil(Qry);
   end;
 end;
 

@@ -75,6 +75,7 @@ type
     class function ChamadaFinalizar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaDados(Usuario: Integer; Chamada: Integer): TJSONObject; static;
     class function ChamadasPendentes(Usuario: Integer): TJSONArray; static;
+    class function ContatosOnline(Usuario: Integer): TJSONArray; static;
     class procedure ConversaDigitando(const Usuario, Conversa: Integer); static;
     class procedure ConversaGravando(const Usuario, Conversa: Integer); static;
     class procedure ChamadaVideo(const Usuario, Chamada: Integer); static;
@@ -328,6 +329,42 @@ begin
     sl +' order '+
     sl +'    by u.id '
   );
+end;
+
+class function TConversa.ContatosOnline(Usuario: Integer): TJSONArray;
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+begin
+  Result := TJSONArray.Create;
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    // Busca todos os usuários que compartilham conversas diretas (tipo=1) com o usuário
+    Qry.Open(
+      'select distinct cu2.usuario_id '+
+      '  from conversa_usuario cu1 '+
+      ' inner join conversa c on c.id = cu1.conversa_id and c.tipo = 1 '+
+      ' inner join conversa_usuario cu2 on cu2.conversa_id = cu1.conversa_id and cu2.usuario_id <> cu1.usuario_id '+
+      ' where cu1.usuario_id = '+ Usuario.ToString
+    );
+
+    if Qry.IsEmpty then
+      Exit;
+
+    Qry.FetchAll;
+    Qry.First;
+    while not Qry.Eof do
+    try
+      if TWebSocket.UsuarioConectado(Qry.FieldByName('usuario_id').AsInteger.ToString) then
+        Result.Add(Qry.FieldByName('usuario_id').AsInteger);
+    finally
+      Qry.Next;
+    end;
+  finally
+    FreeAndNil(Qry);
+  end;
 end;
 
 class procedure TConversa.ConversaNotificar(const Conversa, Usuario: Integer; Msg: TSocketMessageType);

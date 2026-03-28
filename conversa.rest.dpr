@@ -201,6 +201,14 @@ begin
         end
       );
 
+      THorse.Get(
+        '/api/contatos/online',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONArray>(TConversa.ContatosOnline(Req.Session<TJWTClaims>.Subject.ToInteger));
+        end
+      );
+
       THorse.Put(
         '/api/conversa',
         procedure(Req: THorseRequest; Res: THorseResponse)
