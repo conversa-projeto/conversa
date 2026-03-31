@@ -24,7 +24,7 @@ uses
   Thread.Queue,
   WebSocket,
   Bcrypt,
-  Minio.Presign;
+  Minio;
 
 type
   TConversa = record
@@ -65,6 +65,7 @@ type
     class function AnexoExiste(Identificador: String): TJSONObject; static;
     class function AnexoIncluir(Identificador: String; Tipo: Integer; Nome: String; Extensao: String; Tamanho: Int64): TJSONObject; static;
     class function Anexo(Identificador: String): TJSONObject; static;
+    class function AnexoConfirmarUpload(Identificador: String): TJSONObject; static;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray; static;
     class function ChamadaIniciar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaCancelar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
@@ -832,6 +833,7 @@ begin
       sl +'     , a.identificador '+
       sl +'     , a.tipo '+
       sl +'     , a.tamanho '+
+      sl +'     , a.upload_status '+
       sl +'  from anexo as a '+
       sl +' where a.identificador = '+ Qt(Identificador)
     );
@@ -844,6 +846,7 @@ begin
       Result.AddPair('identificador', Qry.FieldByName('identificador').AsString);
       Result.AddPair('tipo', Qry.FieldByName('tipo').AsInteger);
       Result.AddPair('tamanho', Qry.FieldByName('tamanho').AsLargeInt);
+      Result.AddPair('upload_status', Qry.FieldByName('upload_status').AsInteger);
     end;
   finally
     FreeAndNil(Qry);
@@ -863,12 +866,19 @@ begin
 
     Qry.Open(
       sl +'select objeto '+
+      sl +'     , upload_status '+
       sl +'  from anexo '+
       sl +' where identificador = '+ Qt(Identificador)
     );
 
     if Qry.IsEmpty then
       raise Exception.Create('Anexo não encontrado');
+
+    if Qry.FieldByName('upload_status').AsInteger = 0 then
+      raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Upload ainda não foi concluído');
+
+    if Qry.FieldByName('upload_status').AsInteger = 2 then
+      raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Upload falhou');
 
     URL := TMinioPresign.PresignedURL('GET', Configuracao.S3, Qry.FieldByName('objeto').AsString, 'us-east-1', 600);
 
@@ -944,6 +954,60 @@ begin
   Result.AddPair('existe', False);
   Result.AddPair('id', TJSONNumber.Create(ID));
   Result.AddPair('upload_url', URL);
+  Result.AddPair('upload_status', TJSONNumber.Create(0));
+end;
+
+class function TConversa.AnexoConfirmarUpload(Identificador: String): TJSONObject;
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+  Objeto: String;
+  Existe: Boolean;
+begin
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    Qry.Open(
+      sl +'select id '+
+      sl +'     , objeto '+
+      sl +'     , upload_status '+
+      sl +'  from anexo '+
+      sl +' where identificador = '+ Qt(Identificador)
+    );
+
+    if Qry.IsEmpty then
+      raise Exception.Create('Anexo não encontrado');
+
+    if Qry.FieldByName('upload_status').AsInteger = 1 then
+    begin
+      Result := TJSONObject.Create;
+      Result.AddPair('confirmado', True);
+      Result.AddPair('upload_status', TJSONNumber.Create(1));
+      Exit;
+    end;
+
+    Objeto := Qry.FieldByName('objeto').AsString;
+  finally
+    FreeAndNil(Qry);
+  end;
+
+  Existe := TMinioHeadObject.Exists(Configuracao.S3, Objeto, 'us-east-1');
+
+  if Existe then
+  begin
+    Pool.Connection.ExecSQL(
+      sl +'update anexo '+
+      sl +'   set upload_status = 1 '+
+      sl +' where identificador = '+ Qt(Identificador)
+    );
+
+    Result := TJSONObject.Create;
+    Result.AddPair('confirmado', True);
+    Result.AddPair('upload_status', TJSONNumber.Create(1));
+  end
+  else
+    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Arquivo não encontrado no armazenamento');
 end;
 
 class function TConversa.Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray;

@@ -1,11 +1,12 @@
-// Eduardo - 07/03/2026
-unit Minio.Presign;
+﻿// Eduardo - 07/03/2026
+unit Minio;
 
 interface
 
 uses
   System.SysUtils,
   System.Classes,
+  System.Net.HttpClient,
   System.Hash,
   System.DateUtils,
   System.NetEncoding;
@@ -25,6 +26,11 @@ type
     class function GetSignatureKey(Key, DateStamp, Region, Service: String): TBytes;
   public
     class function PresignedURL(Method: String; Config: TMinioConfig; ObjectKey, Region: String; Expires: Integer): String;
+  end;
+
+  TMinioHeadObject = class
+  public
+    class function Exists(Config: TMinioConfig; ObjectKey, Region: String): Boolean;
   end;
 
 implementation
@@ -144,6 +150,26 @@ begin
   // URL pública: inclui o path prefix para o browser acessar via nginx
   // Ex: https://host:4430/storage/chat/key?... (nginx strip /storage/, MinIO recebe /chat/key)
   Result := 'https://' + Host + PathPrefix + CanonicalURI + '?' + CanonicalQuery + '&X-Amz-Signature=' + Signature;
+end;
+
+class function TMinioHeadObject.Exists(Config: TMinioConfig; ObjectKey, Region: String): Boolean;
+var
+  HTTP: THTTPClient;
+  Response: IHTTPResponse;
+begin
+  HTTP := THTTPClient.Create;
+  try
+    HTTP.ConnectionTimeout := 5000;
+    HTTP.ResponseTimeout := 10000;
+    try
+      Response := HTTP.Head(TMinioPresign.PresignedURL('HEAD', Config, ObjectKey, Region, 60));
+      Result := Response.StatusCode = 200;
+    except
+      Result := False;
+    end;
+  finally
+    HTTP.Free;
+  end;
 end;
 
 end.

@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..18] of String = (
+  Versoes: Array[0..19] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -381,6 +381,11 @@ const
     sl +'create trigger trg_alteracao after update on reacao for each row execute function auditoria.fn_alteracao(); '+
     sl +'create trigger trg_exclusao after delete on reacao for each row execute function auditoria.fn_exclusao(); '+
     sl +'create index ix_reacao_mensagem on reacao(mensagem_id); '
+
+    // 19 - Upload verification status
+   ,sl +'alter table anexo add column upload_status int4 default 0 not null; '+
+    sl +'update anexo set upload_status = 1; '+
+    sl +'create index ix_anexo_upload_status on anexo(upload_status) where upload_status = 0; '
   );
 
 procedure Migracoes;

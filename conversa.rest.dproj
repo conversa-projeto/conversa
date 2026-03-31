@@ -4,7 +4,7 @@
         <ProjectVersion>20.1</ProjectVersion>
         <FrameworkType>None</FrameworkType>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <TargetedPlatforms>2</TargetedPlatforms>
         <AppType>Console</AppType>
@@ -189,6 +189,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\conversa\FCMNotification.pas"/>
         <DCCReference Include="src\conversa\Thread.Queue.pas"/>
         <DCCReference Include="src\conversa\WebSocket.pas"/>
+        <DCCReference Include="src\conversa\Anexo.Verificacao.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

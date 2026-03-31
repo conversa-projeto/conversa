@@ -9,7 +9,7 @@ uses
   Data.DB,
   Postgres,
   FCMNotification,
-  Minio.Presign;
+  Minio;
 
 type
   TConfiguracao = record

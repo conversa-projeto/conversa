@@ -31,7 +31,8 @@ uses
   conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas',
   FCMNotification in 'src\conversa\FCMNotification.pas',
   Thread.Queue in 'src\conversa\Thread.Queue.pas',
-  WebSocket in 'src\conversa\WebSocket.pas';
+  WebSocket in 'src\conversa\WebSocket.pas',
+  Anexo.Verificacao in 'src\conversa\Anexo.Verificacao.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
 begin
@@ -341,6 +342,15 @@ begin
         end
       );
 
+      THorse.Post(
+        '/api/anexo/confirmar',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Req.Query.Field('identificador').Required(True);
+          Res.Send<TJSONObject>(TConversa.AnexoConfirmarUpload(Req.Query.Field('identificador').AsString));
+        end
+      );
+
       THorse.Get(
         '/api/mensagens',
         procedure(Req: THorseRequest; Res: THorseResponse)
@@ -536,17 +546,22 @@ begin
             end
           );
 
-          FCM := TFCMNotification.Create(Configuracao.FCM);
+          TAnexoVerificacao.Start(Configuracao.S3);
           try
-            THorse.Listen(
-              8080,
-              procedure
-              begin
-                Writeln('Servidor iniciado 🚀');
-              end
-            );
+            FCM := TFCMNotification.Create(Configuracao.FCM);
+            try
+              THorse.Listen(
+                8080,
+                procedure
+                begin
+                  Writeln('Servidor iniciado 🚀');
+                end
+              );
+            finally
+              FreeAndNil(FCM);
+            end;
           finally
-            FreeAndNil(FCM);
+            TAnexoVerificacao.Stop;
           end;
         finally
           TThreadQueue.Destroy;
