@@ -875,7 +875,14 @@ begin
       raise Exception.Create('Anexo não encontrado');
 
     if Qry.FieldByName('upload_status').AsInteger = 0 then
-      raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Upload ainda não foi concluído');
+    begin
+      if TMinioHeadObject.Exists(Configuracao.S3, Qry.FieldByName('objeto').AsString, 'us-east-1') then
+        Pool.Connection.ExecSQL(
+          sl +'update anexo set upload_status = 1 where identificador = '+ Qt(Identificador)
+        )
+      else
+        raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Upload ainda não foi concluído');
+    end;
 
     if Qry.FieldByName('upload_status').AsInteger = 2 then
       raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Upload falhou');
