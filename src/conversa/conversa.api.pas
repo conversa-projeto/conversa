@@ -34,6 +34,7 @@ type
     class procedure AtualizaMensagemSocket(const Usuario, Conversa: Integer; const Mensagens: String); static;
     class procedure ChamadaNotificar(const Chamada, Usuario: Integer; Msg: TSocketMessageType); static;
     class procedure AtualizarStatusChamada(const Chamada: Integer; const Status: Integer = 0); static;
+    class procedure InserirMensagemChamada(const Chamada: Integer); static;
     class function InternalChamadaDados(Chamada: Integer): TJSONObject; static;
     class procedure ConversaNotificar(const Conversa, Usuario: Integer; Msg: TSocketMessageType); static;
   public
@@ -64,6 +65,7 @@ type
     class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray; static;
     class function AnexoExiste(Identificador: String): TJSONObject; static;
     class function AnexoIncluir(Identificador: String; Tipo: Integer; Nome: String; Extensao: String; Tamanho: Int64): TJSONObject; static;
+    class function Chamadas(Usuario: Integer): TJSONArray; static;
     class function Anexo(Identificador: String): TJSONObject; static;
     class function AnexoConfirmarUpload(Identificador: String): TJSONObject; static;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray; static;
@@ -1170,7 +1172,7 @@ var
       sl +'            , null as extensao '+
       sl +'         from mensagem_conteudo '+
       sl +'        where mensagem_id = '+ MensagemID.ToString +
-      sl +'          and tipo = 1 /* 1-Texto */ '+
+      sl +'          and tipo in (1, 6) /* 1-Texto, 6-Chamada */ '+
       sl +
       sl +'        union '+
       sl +
@@ -1654,10 +1656,13 @@ begin
     sl +'   into chamada '+
     sl +'      ( tipo '+
     sl +'      , criado_por '+
+    sl +'      , conversa_id '+
     sl +'      ) '+
     sl +' values '+
     sl +'      ( '+ joParam.GetValue<Integer>('tipo', IfThen(joParam.GetValue<TJSONArray>('usuarios').Count = 2, 1, 2)).ToString +
     sl +'      , '+ Usuario.ToString +
+    sl +'      , '+ IfThen(joParam.GetValue<Integer>('conversa_id', 0) > 0,
+                     joParam.GetValue<Integer>('conversa_id', 0).ToString, 'null') +
     sl +'      ) '+
     sl +
     sl +'returning id; '
@@ -1747,6 +1752,11 @@ begin
 
   AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0), 6); // 6-Cancelada
 
+  try
+    InserirMensagemChamada(joParam.GetValue<Integer>('id', 0));
+  except
+  end;
+
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.ChamadaFinalizada);
 end;
 
@@ -1796,6 +1806,11 @@ begin
 
   AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0));
 
+  try
+    InserirMensagemChamada(joParam.GetValue<Integer>('id', 0));
+  except
+  end;
+
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.UsuarioRecusou);
 end;
 
@@ -1806,6 +1821,7 @@ begin
   TPool.Instance.Connection.ExecSQL(
     sl +'update chamada_usuario '+
     sl +'   set status = 3 /* 3-Entrou */'+
+    sl +'     , entrou_em = current_timestamp '+
     sl +' where chamada_id = '+ joParam.GetValue<String>('id') +
     sl +'   and usuario_id = '+ Usuario.ToString +
     sl +'   and entrou_em is null; '+
@@ -1838,6 +1854,7 @@ begin
   TPool.Instance.Connection.ExecSQL(
     sl +'update chamada_usuario '+
     sl +'   set status = 4 /* 4-Saiu */'+
+    sl +'     , saiu_em = current_timestamp '+
     sl +' where chamada_id = '+ joParam.GetValue<String>('id') +
     sl +'   and usuario_id = '+ Usuario.ToString +';'+
     sl +
@@ -1857,6 +1874,11 @@ begin
   );
 
   AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0));
+
+  try
+    InserirMensagemChamada(joParam.GetValue<Integer>('id', 0));
+  except
+  end;
 
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.UsuarioSaiu);
 end;
@@ -1927,6 +1949,11 @@ begin
   );
 
   AtualizarStatusChamada(joParam.GetValue<Integer>('id', 0), 4); // 4-Encerrada
+
+  try
+    InserirMensagemChamada(joParam.GetValue<Integer>('id', 0));
+  except
+  end;
 
   ChamadaNotificar(joParam.GetValue<Integer>('id'), Usuario, TSocketMessageType.ChamadaFinalizada);
 
@@ -2074,6 +2101,127 @@ begin
   );
 end;
 
+class function TConversa.Chamadas(Usuario: Integer): TJSONArray;
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+  QryPart: TFDQuery;
+  oChamada: TJSONObject;
+  aParticipantes: TJSONArray;
+  oParticipante: TJSONObject;
+  URL: String;
+begin
+  Result := TJSONArray.Create;
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  QryPart := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+    QryPart.Connection := Pool.Connection;
+
+    Qry.Open(
+      sl +'select c.id '+
+      sl +'     , c.tipo '+
+      sl +'     , c.status '+
+      sl +'     , to_char(c.criado_em, ''YYYY-MM-DD"T"HH24:MI:SS'') as criado_em '+
+      sl +'     , c.criado_por '+
+      sl +'     , c.conversa_id '+
+      sl +'     , to_char(c.iniciada, ''YYYY-MM-DD"T"HH24:MI:SS'') as iniciada '+
+      sl +'     , to_char(c.finalizada, ''YYYY-MM-DD"T"HH24:MI:SS'') as finalizada '+
+      sl +'     , case when c.iniciada is not null and c.finalizada is not null '+
+      sl +'            then extract(epoch from c.finalizada - c.iniciada)::int '+
+      sl +'            else null end as duracao '+
+      sl +'  from chamada c '+
+      sl +' inner join chamada_usuario cu on cu.chamada_id = c.id '+
+      sl +' where cu.usuario_id = '+ Usuario.ToString +
+      sl +'   and c.status in (2, 4, 5, 6) '+
+      sl +' order by c.criado_em desc '+
+      sl +' limit 100 '
+    );
+
+    if Qry.IsEmpty then
+      Exit;
+
+    Qry.FetchAll;
+    Qry.First;
+    while not Qry.Eof do
+    begin
+      oChamada := TJSONObject.Create;
+      Result.Add(oChamada);
+      oChamada.AddPair('id', Qry.FieldByName('id').AsInteger);
+      oChamada.AddPair('tipo', Qry.FieldByName('tipo').AsInteger);
+      oChamada.AddPair('status', Qry.FieldByName('status').AsInteger);
+      oChamada.AddPair('criado_em', Qry.FieldByName('criado_em').AsString);
+      oChamada.AddPair('criado_por', Qry.FieldByName('criado_por').AsInteger);
+      if Qry.FieldByName('conversa_id').IsNull then
+        oChamada.AddPair('conversa_id', TJSONNull.Create)
+      else
+        oChamada.AddPair('conversa_id', Qry.FieldByName('conversa_id').AsInteger);
+      if Qry.FieldByName('iniciada').IsNull then
+        oChamada.AddPair('iniciada', TJSONNull.Create)
+      else
+        oChamada.AddPair('iniciada', Qry.FieldByName('iniciada').AsString);
+      if Qry.FieldByName('finalizada').IsNull then
+        oChamada.AddPair('finalizada', TJSONNull.Create)
+      else
+        oChamada.AddPair('finalizada', Qry.FieldByName('finalizada').AsString);
+      if Qry.FieldByName('duracao').IsNull then
+        oChamada.AddPair('duracao', TJSONNull.Create)
+      else
+        oChamada.AddPair('duracao', Qry.FieldByName('duracao').AsInteger);
+
+      // Participantes
+      aParticipantes := TJSONArray.Create;
+      oChamada.AddPair('participantes', aParticipantes);
+
+      QryPart.Open(
+        sl +'select cu.usuario_id '+
+        sl +'     , u.nome '+
+        sl +'     , cu.status '+
+        sl +'     , case when cu.entrou_em is not null and cu.saiu_em is not null '+
+        sl +'            then extract(epoch from cu.saiu_em - cu.entrou_em)::int '+
+        sl +'            else null end as duracao '+
+        sl +'     , a.objeto as avatar_objeto '+
+        sl +'  from chamada_usuario cu '+
+        sl +' inner join usuario u on u.id = cu.usuario_id '+
+        sl +'  left join anexo a on a.id = u.avatar_anexo_id '+
+        sl +' where cu.chamada_id = '+ Qry.FieldByName('id').AsString +
+        sl +' order by cu.id '
+      );
+      QryPart.FetchAll;
+      QryPart.First;
+      while not QryPart.Eof do
+      begin
+        oParticipante := TJSONObject.Create;
+        aParticipantes.Add(oParticipante);
+        oParticipante.AddPair('usuario_id', QryPart.FieldByName('usuario_id').AsInteger);
+        oParticipante.AddPair('nome', QryPart.FieldByName('nome').AsString);
+        oParticipante.AddPair('status', QryPart.FieldByName('status').AsInteger);
+        if QryPart.FieldByName('duracao').IsNull then
+          oParticipante.AddPair('duracao', TJSONNull.Create)
+        else
+          oParticipante.AddPair('duracao', QryPart.FieldByName('duracao').AsInteger);
+
+        // Avatar presigned URL
+        if QryPart.FieldByName('avatar_objeto').IsNull then
+          oParticipante.AddPair('avatar_url', TJSONNull.Create)
+        else
+        begin
+          URL := TMinioPresign.PresignedURL('GET', Configuracao.S3, QryPart.FieldByName('avatar_objeto').AsString, 'us-east-1', 600);
+          oParticipante.AddPair('avatar_url', URL);
+        end;
+
+        QryPart.Next;
+      end;
+
+      Qry.Next;
+    end;
+  finally
+    FreeAndNil(QryPart);
+    FreeAndNil(Qry);
+  end;
+end;
+
 class procedure TConversa.AtualizarStatusChamada(const Chamada: Integer; const Status: Integer = 0);
 begin
   if Status > 0 then
@@ -2135,6 +2283,156 @@ begin
       sl +'   and c.id = '+ Chamada.ToString +
       sl +'   and c.status in (1, 3); '
     );
+end;
+
+class procedure TConversa.InserirMensagemChamada(const Chamada: Integer);
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+  QryPart: TFDQuery;
+  joRoot: TJSONObject;
+  jaPart: TJSONArray;
+  joPart: TJSONObject;
+  iMsgID: Integer;
+  sJSON: String;
+  iConversaID: Integer;
+  iCriadoPor: Integer;
+begin
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+
+    // Busca dados da chamada
+    Qry.Open(
+      sl +'select c.id '+
+      sl +'     , c.tipo '+
+      sl +'     , c.status '+
+      sl +'     , to_char(c.iniciada, ''YYYY-MM-DD"T"HH24:MI:SS'') as iniciada '+
+      sl +'     , to_char(c.finalizada, ''YYYY-MM-DD"T"HH24:MI:SS'') as finalizada '+
+      sl +'     , case when c.iniciada is not null and c.finalizada is not null '+
+      sl +'            then extract(epoch from c.finalizada - c.iniciada)::int '+
+      sl +'            else null end as duracao '+
+      sl +'     , c.criado_por '+
+      sl +'     , c.conversa_id '+
+      sl +'  from chamada c '+
+      sl +' where c.id = '+ Chamada.ToString
+    );
+
+    if Qry.IsEmpty then
+      Exit;
+
+    if Qry.FieldByName('conversa_id').IsNull then
+      Exit;
+
+    // Só insere mensagem para chamadas em status terminal
+    if not (Qry.FieldByName('status').AsInteger in [2, 4, 5, 6]) then
+      Exit;
+
+    iConversaID := Qry.FieldByName('conversa_id').AsInteger;
+    iCriadoPor := Qry.FieldByName('criado_por').AsInteger;
+
+    // Verifica se já existe mensagem de chamada para esta chamada (evita duplicação)
+    if Pool.Connection.ExecSQLScalar(
+      sl +'select count(1) from mensagem_conteudo mc '+
+      sl +' where mc.tipo = 6 '+
+      sl +'   and convert_from(mc.conteudo, ''utf-8'')::jsonb ->> ''chamada_id'' = '+ IntToStr(Chamada).QuotedString
+    ) > 0 then
+      Exit;
+
+    // Monta JSON usando TJSONObject para evitar problemas de escaping
+    joRoot := TJSONObject.Create;
+    try
+      joRoot.AddPair('chamada_id', Qry.FieldByName('id').AsInteger);
+      joRoot.AddPair('tipo', Qry.FieldByName('tipo').AsInteger);
+      joRoot.AddPair('status', Qry.FieldByName('status').AsInteger);
+
+      if Qry.FieldByName('iniciada').IsNull then
+        joRoot.AddPair('iniciada', TJSONNull.Create)
+      else
+        joRoot.AddPair('iniciada', Qry.FieldByName('iniciada').AsString);
+
+      if Qry.FieldByName('finalizada').IsNull then
+        joRoot.AddPair('finalizada', TJSONNull.Create)
+      else
+        joRoot.AddPair('finalizada', Qry.FieldByName('finalizada').AsString);
+
+      if Qry.FieldByName('duracao').IsNull then
+        joRoot.AddPair('duracao', TJSONNull.Create)
+      else
+        joRoot.AddPair('duracao', Qry.FieldByName('duracao').AsInteger);
+
+      // Participantes
+      jaPart := TJSONArray.Create;
+      joRoot.AddPair('participantes', jaPart);
+
+      QryPart := TFDQuery.Create(nil);
+      try
+        QryPart.Connection := Pool.Connection;
+        QryPart.Open(
+          sl +'select cu.usuario_id '+
+          sl +'     , u.nome '+
+          sl +'     , cu.status '+
+          sl +'     , case when cu.entrou_em is not null and cu.saiu_em is not null '+
+          sl +'            then extract(epoch from cu.saiu_em - cu.entrou_em)::int '+
+          sl +'            else null end as duracao '+
+          sl +'  from chamada_usuario cu '+
+          sl +' inner join usuario u on u.id = cu.usuario_id '+
+          sl +' where cu.chamada_id = '+ Chamada.ToString +
+          sl +' order by cu.id '
+        );
+        QryPart.FetchAll;
+        QryPart.First;
+        while not QryPart.Eof do
+        begin
+          joPart := TJSONObject.Create;
+          jaPart.Add(joPart);
+          joPart.AddPair('usuario_id', QryPart.FieldByName('usuario_id').AsInteger);
+          joPart.AddPair('nome', QryPart.FieldByName('nome').AsString);
+          joPart.AddPair('status', QryPart.FieldByName('status').AsInteger);
+          if QryPart.FieldByName('duracao').IsNull then
+            joPart.AddPair('duracao', TJSONNull.Create)
+          else
+            joPart.AddPair('duracao', QryPart.FieldByName('duracao').AsInteger);
+          QryPart.Next;
+        end;
+      finally
+        FreeAndNil(QryPart);
+      end;
+
+      sJSON := joRoot.ToJSON;
+    finally
+      FreeAndNil(joRoot);
+    end;
+
+    // Insere mensagem
+    iMsgID := Pool.Connection.ExecSQLScalar(
+      sl +'insert into mensagem (conversa_id, usuario_id) '+
+      sl +'values ('+ iConversaID.ToString +', '+ iCriadoPor.ToString +') '+
+      sl +'returning id; '
+    );
+
+    // Insere conteúdo tipo 6 (Chamada)
+    Pool.Connection.ExecSQL(
+      sl +'insert into mensagem_conteudo (mensagem_id, ordem, tipo, conteudo) '+
+      sl +'values ('+ iMsgID.ToString +', 1, 6, convert_to('+ sJSON.QuotedString +', ''utf-8'')); '
+    );
+
+    // Insere mensagem_status para os demais participantes da conversa
+    Pool.Connection.ExecSQL(
+      sl +'insert into mensagem_status (conversa_id, usuario_id, mensagem_id) '+
+      sl +'select cu.conversa_id, cu.usuario_id, '+ iMsgID.ToString +
+      sl +'  from conversa_usuario cu '+
+      sl +' where cu.conversa_id = '+ iConversaID.ToString +
+      sl +'   and cu.usuario_id <> '+ iCriadoPor.ToString
+    );
+
+    // Notifica via WebSocket
+    AtualizaMensagemSocket(iCriadoPor, iConversaID, iMsgID.ToString);
+
+  finally
+    FreeAndNil(Qry);
+  end;
 end;
 
 class procedure TConversa.AtualizaMensagemSocket(const Usuario, Conversa: Integer; const Mensagens: String);

@@ -479,6 +479,14 @@ begin
         end
       );
 
+      THorse.Get(
+        '/api/chamadas',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONArray>(TConversa.Chamadas(Req.Session<TJWTClaims>.Subject.ToInteger));
+        end
+      );
+
       THorse.Post('/api/chamada/video',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
