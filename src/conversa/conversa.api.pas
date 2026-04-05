@@ -65,7 +65,7 @@ type
     class function MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray; static;
     class function AnexoExiste(Identificador: String): TJSONObject; static;
     class function AnexoIncluir(Identificador: String; Tipo: Integer; Nome: String; Extensao: String; Tamanho: Int64): TJSONObject; static;
-    class function Chamadas(Usuario: Integer): TJSONArray; static;
+    class function Chamadas(Usuario, Participante: Integer; DataDe, DataAte: String): TJSONArray; static;
     class function Anexo(Identificador: String): TJSONObject; static;
     class function AnexoConfirmarUpload(Identificador: String): TJSONObject; static;
     class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray; static;
@@ -2101,7 +2101,7 @@ begin
   );
 end;
 
-class function TConversa.Chamadas(Usuario: Integer): TJSONArray;
+class function TConversa.Chamadas(Usuario, Participante: Integer; DataDe, DataAte: String): TJSONArray;
 var
   Pool: IConnection;
   Qry: TFDQuery;
@@ -2110,6 +2110,8 @@ var
   aParticipantes: TJSONArray;
   oParticipante: TJSONObject;
   URL: String;
+  sFiltros: String;
+  bTemFiltro: Boolean;
 begin
   Result := TJSONArray.Create;
   Pool := TPool.Instance;
@@ -2118,6 +2120,30 @@ begin
   try
     Qry.Connection := Pool.Connection;
     QryPart.Connection := Pool.Connection;
+
+    sFiltros := EmptyStr;
+    bTemFiltro := False;
+
+    if Participante > 0 then
+    begin
+      sFiltros := sFiltros +
+        sl +'   and exists (select 1 from chamada_usuario cu2 where cu2.chamada_id = c.id and cu2.usuario_id = '+ Participante.ToString +') ';
+      bTemFiltro := True;
+    end;
+
+    if DataDe.Trim <> '' then
+    begin
+      sFiltros := sFiltros +
+        sl +'   and c.criado_em >= '+ Qt(DataDe) +'::timestamp ';
+      bTemFiltro := True;
+    end;
+
+    if DataAte.Trim <> '' then
+    begin
+      sFiltros := sFiltros +
+        sl +'   and c.criado_em < ('+ Qt(DataAte) +'::date + 1) ';
+      bTemFiltro := True;
+    end;
 
     Qry.Open(
       sl +'select c.id '+
@@ -2135,8 +2161,9 @@ begin
       sl +' inner join chamada_usuario cu on cu.chamada_id = c.id '+
       sl +' where cu.usuario_id = '+ Usuario.ToString +
       sl +'   and c.status in (2, 4, 5, 6) '+
+      sFiltros +
       sl +' order by c.criado_em desc '+
-      sl +' limit 100 '
+      sl +' limit '+ IfThen(bTemFiltro, '250', '25')
     );
 
     if Qry.IsEmpty then

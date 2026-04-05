@@ -483,7 +483,12 @@ begin
         '/api/chamadas',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONArray>(TConversa.Chamadas(Req.Session<TJWTClaims>.Subject.ToInteger));
+          Res.Send<TJSONArray>(TConversa.Chamadas(
+            Req.Session<TJWTClaims>.Subject.ToInteger,
+            Req.Query.Field('participante').AsInteger,
+            Req.Query.Field('de').AsString,
+            Req.Query.Field('ate').AsString
+          ));
         end
       );
 
