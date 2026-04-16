@@ -28,6 +28,7 @@ uses
   conversa.migracoes in 'src\conversa\conversa.migracoes.pas',
   Postgres in 'src\conversa\Postgres.pas',
   conversa.comum in 'src\conversa\conversa.comum.pas',
+  conversa.autorizacao in 'src\conversa\conversa.autorizacao.pas',
   conversa.configuracoes in 'src\conversa\conversa.configuracoes.pas',
   FCMNotification in 'src\conversa\FCMNotification.pas',
   Thread.Queue in 'src\conversa\Thread.Queue.pas',

@@ -19,6 +19,7 @@ uses
   Horse,
   Postgres,
   conversa.comum,
+  conversa.autorizacao,
   conversa.configuracoes,
   FCMNotification,
   Thread.Queue,
@@ -130,7 +131,11 @@ begin
 
   // Se a senha não está usando bcrypt mais está correta.. converte para bcrypt
   if (Result.GetValue<String>('senha').Length <> 60) and (oAutenticacao.GetValue<String>('senha') = Result.GetValue<String>('senha')) then
+  begin
+    // AlterarSenha agora exige senha_atual; como já validamos acima, replicamos senha como senha_atual.
+    oAutenticacao.AddPair('senha_atual', oAutenticacao.GetValue<String>('senha'));
     TConversa.AlterarSenha(Result.GetValue<Integer>('id'), oAutenticacao);
+  end;
 
   Result.RemovePair('senha').Free;
 
@@ -180,8 +185,8 @@ var
   sHash: String;
   sSenhaUsuario: String;
 begin
-  {TODO: Verificar se a senha atual está correta antes de permitir colocar a nova}
-  CamposObrigatorios(oAutenticacao, ['senha']);
+  CamposObrigatorios(oAutenticacao, ['senha_atual', 'senha']);
+  ValidarSenhaAtual(Usuario, oAutenticacao.GetValue<String>('senha_atual'));
 
   if oAutenticacao.GetValue<String>('senha').Length > 72 then
     raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Senha inválida!');
@@ -316,7 +321,7 @@ end;
 
 class function TConversa.UsuarioContatoExcluir(Usuario, UsuarioContato: Integer): TJSONObject;
 begin
-  {TODO -oEduardo -cSegurança : não pode deletar contato de outro usuário, adicionar validação}
+  ValidarContatoUsuario(Usuario, UsuarioContato);
   Result := Delete('usuario_contato', UsuarioContato);
 end;
 
@@ -407,23 +412,38 @@ begin
 end;
 
 class function TConversa.ConversaIncluir(Usuario: Integer; oConversa: TJSONObject): TJSONObject;
+var
+  oMembroCriador: TJSONObject;
 begin
-  {TODO -oEduardo -cSegurança : não pode incluir conversa para outro usuário, adicionar validação}
-  {TODO -oDaniel -cSegurança : O usuário que está criando, será adicionado como proprietário do chat}
   {TODO -oDaniel -cSegurança : Se for chat comum, deve informar o destinatário}
+  // Defesa contra mass assignment: criado_por é preenchido pelo GUC app.usuario_id no Postgres
+  if Assigned(oConversa.FindValue('criado_por')) then
+    oConversa.RemovePair('criado_por').Free;
+
   Result := InsertJSON('conversa', oConversa);
+
+  // Auto-adiciona o criador como membro da conversa.
+  // Nota: sem transação (estilo do projeto); em falha pode ficar conversa órfã.
+  oMembroCriador := TJSONObject.Create;
+  try
+    oMembroCriador.AddPair('conversa_id', TJSONNumber.Create(Result.GetValue<Integer>('id')));
+    oMembroCriador.AddPair('usuario_id', TJSONNumber.Create(Usuario));
+    InsertJSON('conversa_usuario', oMembroCriador).Free;
+  finally
+    oMembroCriador.Free;
+  end;
 end;
 
 class function TConversa.ConversaAlterar(Usuario: Integer; oConversa: TJSONObject): TJSONObject;
 begin
-  {TODO -oEduardo -cSegurança : não pode alterar conversa de outro usuário, adicionar validação}
-  CamposObrigatorios(oConversa, ['descricao']);
+  CamposObrigatorios(oConversa, ['id', 'descricao']);
+  ValidarAcessoConversa(Usuario, oConversa.GetValue<Integer>('id'));
   Result := UpdateJSON('conversa', oConversa);
 end;
 
 class function TConversa.ConversaExcluir(Usuario: Integer; Conversa: Integer): TJSONObject;
 begin
-  {TODO -oEduardo -cSegurança : não pode excluir conversa de outro usuário, adicionar validação}
+  ValidarAcessoConversa(Usuario, Conversa);
   Result := Delete('conversa', Conversa);
 end;
 
@@ -610,17 +630,17 @@ end;
 
 class function TConversa.ConversaUsuarioIncluir(Usuario: Integer; oConversaUsuario: TJSONObject): TJSONObject;
 begin
-  {TODO -oEduardo -cSegurança : não pode incluir usuario em uma conversa de outro usuário, adicionar validação}
-  {TODO -oDaniel -cSegurança : Não pode incluir usuário se não tiver permissão}
   {TODO -oDaniel -cSegurança : Não pode incluir usuário em um chat comum (1:1)}
   CamposObrigatorios(oConversaUsuario, ['usuario_id', 'conversa_id']);
+  ValidarAcessoConversa(Usuario, oConversaUsuario.GetValue<Integer>('conversa_id'));
   Result := InsertJSON('conversa_usuario', oConversaUsuario);
   ConversaNotificar(oConversaUsuario.GetValue<Integer>('conversa_id', 0), Usuario, TSocketMessageType.ConversaNova);
 end;
 
 class function TConversa.ConversaUsuarioExcluir(Usuario, ConversaUsuario: Integer): TJSONObject;
 begin
-  {TODO -oEduardo -cSegurança : não pode excluir usuario de uma conversa de outro usuário, adicionar validação}
+  // Regra v1: apenas auto-remoção. Admin de grupo (via conversa.criado_por) fica como follow-up.
+  ValidarRemocaoConversaUsuario(Usuario, ConversaUsuario);
   Result := Delete('conversa_usuario', ConversaUsuario);
 end;
 
@@ -809,7 +829,7 @@ class function TConversa.MensagemExcluir(Usuario, Mensagem: Integer): TJSONObjec
 var
   oConteudo: TJSONObject;
 begin
-  {TODO -oEduardo -cSegurança : não pode excluir mensagem de outro usuário, adicionar validação}
+  ValidarAutoriaMensagem(Usuario, Mensagem);
   TPool.Instance.Connection.ExecSQL(
     sl +'delete '+
     sl +'  from mensagem_referencia '+
@@ -1023,7 +1043,7 @@ class function TConversa.Mensagens(Conversa, Usuario, MensagemReferencia, Mensag
 var
   Script: String;
 begin
-  {TODO -oEduardo -cSegurança : não pode retornar mensagem de conversa que o usuário não está, adicionar validação}
+  ValidarAcessoConversa(Usuario, Conversa);
 
   // Validação apenas para alertar de erro de chamada!
   Assert(MensagemReferencia >= 0, 'MensagemReferencia inválida!');
@@ -1490,7 +1510,8 @@ end;
 
 class function TConversa.MensagemVisualizada(Usuario: Integer; oConversaMensagem: TJSONObject): TJSONObject;
 begin
-  {TODO -oEduardo -cSegurança : não pode marcar como visualizada mensagem de outro o usuário, adicionar validação}
+  CamposObrigatorios(oConversaMensagem, ['conversa', 'mensagem']);
+  ValidarAcessoConversa(Usuario, oConversaMensagem.GetValue<Integer>('conversa'));
   TPool.Instance.Connection.ExecSQL(
     sl +' update mensagem_status '+
     sl +'    set visualizada = now() '+
@@ -1506,7 +1527,8 @@ end;
 
 class function TConversa.MensagemReproduzida(Usuario: Integer; oConversaMensagem: TJSONObject): TJSONObject;
 begin
-  {TODO -oEduardo -cSegurança : não pode marcar como visualizada mensagem de outro o usuário, adicionar validação}
+  CamposObrigatorios(oConversaMensagem, ['conversa', 'mensagem']);
+  ValidarAcessoConversa(Usuario, oConversaMensagem.GetValue<Integer>('conversa'));
   TPool.Instance.Connection.ExecSQL(
     sl +' update mensagem_status '+
     sl +'    set reproduzida = now() '+
@@ -1522,7 +1544,7 @@ end;
 
 class function TConversa.MensagemStatus(Conversa, Usuario: Integer; Mensagem: String): TJSONArray;
 begin
-  {TODO -oEduardo -cSegurança : não pode retornar status de mensagem de outro o usuário, adicionar validação}
+  ValidarAcessoConversa(Usuario, Conversa);
   Result := TJSONArray.Create;
   with TFDQuery.Create(nil) do
   try
@@ -2518,7 +2540,11 @@ end;
 
 class function TConversa.SIPAlterar(Usuario: Integer; oSIP: TJSONObject): TJSONObject;
 begin
-  {TODO: Só permitir alterar um SIP do usuário atual}
+  CamposObrigatorios(oSIP, ['id']);
+  ValidarSIPUsuario(Usuario, oSIP.GetValue<Integer>('id'));
+  // Bloqueia transferência de posse via payload
+  if Assigned(oSIP.FindValue('usuario_id')) then
+    oSIP.RemovePair('usuario_id').Free;
   Result := UpdateJSON('sip', oSIP);
 end;
 
