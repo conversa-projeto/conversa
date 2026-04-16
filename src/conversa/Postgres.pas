@@ -9,15 +9,12 @@ interface
 
 uses
   System.SysUtils,
-  System.Classes,
-  System.Threading,
-  System.DateUtils,
-  System.Generics.Collections,
   FireDAC.Phys.PG,
   FireDAC.Phys.PGDef,
   FireDAC.ConsoleUI.Wait,
   FireDAC.Comp.Client,
   FireDAC.Stan.Def,
+  FireDAC.Stan.Pool,
   FireDAC.DApt,
   FireDAC.Stan.Async;
 
@@ -27,49 +24,22 @@ type
     function Connection: TFDConnection;
   end;
 
-  TConnectionState = (Livre, Ocupada);
-
-  TConnection = class
-    FFDCon: TFDConnection;
-    FState: TConnectionState;
-    FUso: TDateTime;
-  public
-    constructor Create(Con: TFDConnection);
-    destructor Destroy; override;
-  end;
-
-  TIntfConnection = class(TInterfacedObject, IConnection)
-  private
-    FCon: TConnection;
-  public
-    function Connection: TFDConnection;
-    constructor Create(Con: TConnection);
-    destructor Destroy; override;
-  end;
-
   TPGParams = record
     DriverID: String;
     Server: String;
+    Port: Word;          // opcional; 0 = porta padrão do PostgreSQL (5432)
     Database: String;
     UserName: String;
     Password: String;
     MetaDefSchema: String;
   end;
 
-  TPoolStatus = (Iniciando, Iniciado, Parando, Parado);
-
   TPool = class
   private
-    FParams: TPGParams;
-    FMaxIdle: Integer;
-    FMaxConn: Integer;
-    FConnetions: TObjectList<TConnection>;
-    FThread: ITask;
-    FStatus: TPoolStatus;
-    function NewConnection: TFDConnection;
-    procedure CloseConnections;
+    class var FManager: TFDManager;
+    class var FDefName: String;
   public
-    class procedure Start(Params: TPGParams; iMaxConnections: Integer = 50; iMaxIdleTimeout: Integer = 30);
+    class procedure Start(APGParams: TPGParams; iMaxConnections: Integer = 50; iMaxIdleTimeout: Integer = 30);
     class procedure Stop;
     class function Instance: IConnection;
     class procedure SetUsuarioID(iID: Integer);
@@ -77,66 +47,24 @@ type
 
 implementation
 
-var
-  FPool: TPool;
-
 threadvar
   _PoolUsuarioID: Integer;
 
+type
+  TPooledConnection = class(TInterfacedObject, IConnection)
+  private
+    FFDCon: TFDConnection;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    function Connection: TFDConnection;
+  end;
+
 { TPool }
 
-function TPool.NewConnection: TFDConnection;
+class procedure TPool.Start(APGParams: TPGParams; iMaxConnections: Integer = 50; iMaxIdleTimeout: Integer = 30);
 begin
-  Result := TFDConnection.Create(nil);
-  TFDPhysPGConnectionDefParams(Result.Params).DriverID := FParams.DriverID;
-  TFDPhysPGConnectionDefParams(Result.Params).Server   := FParams.Server;
-  TFDPhysPGConnectionDefParams(Result.Params).Database := FParams.Database;
-  TFDPhysPGConnectionDefParams(Result.Params).UserName := FParams.UserName;
-  TFDPhysPGConnectionDefParams(Result.Params).Password := FParams.Password;
-  TFDPhysPGConnectionDefParams(Result.Params).MetaDefSchema := FParams.MetaDefSchema;
-  Result.ResourceOptions.MacroCreate := False;
-  Result.ResourceOptions.MacroExpand := False;
-
-  Result.Connected := True;
-  Result.LoginPrompt := False;
-  Result.Open;
-end;
-
-procedure TPool.CloseConnections;
-var
-  I: Integer;
-  Item: TConnection;
-  aItens: TArray<TConnection>;
-begin
-  FPool.FStatus := Iniciado;
-  try
-    while FPool.FStatus = Iniciado do
-    begin
-      TMonitor.Enter(FPool);
-      try
-        aItens := [];
-        for I := 0 to Pred(Length(FPool.FConnetions.ToArray)) do
-          if (FPool.FConnetions[I].FState = Livre) and (SecondsBetween(Now, FPool.FConnetions[I].FUso) > FPool.FMaxIdle) then
-            aItens := aItens + [FPool.FConnetions[I]];
-
-        for Item in aItens do
-          FPool.FConnetions.Remove(Item);
-      finally
-        TMonitor.Exit(FPool);
-      end;
-
-      for I := 1 to 5 do
-        if FPool.FStatus = Iniciado then
-          Sleep(1000);
-    end;
-  finally
-    FPool.FStatus := Parado;
-  end;
-end;
-
-class procedure TPool.Start(Params: TPGParams; iMaxConnections: Integer = 50; iMaxIdleTimeout: Integer = 30);
-begin
-  if Assigned(FPool) then
+  if Assigned(FManager) then
     raise Exception.Create('Pool já iniciado!');
 
   if iMaxIdleTimeout < 5 then
@@ -145,44 +73,51 @@ begin
   if iMaxConnections < 1 then
     raise Exception.Create('Quantidade mínima de conexões é 1!');
 
-  FPool := TPool.Create;
-  FPool.FConnetions := TObjectList<TConnection>.Create;
-  FPool.FMaxConn := iMaxConnections;
-  FPool.FMaxIdle := iMaxIdleTimeout;
-  FPool.FStatus := Iniciando;
-  FPool.FParams := Params;
+  FDefName := 'PGPool';
+  FManager := TFDManager.Create(nil);
+  FManager.Active := False;
 
-  FPool.FThread := TTask.Create(FPool.CloseConnections);
-  FPool.FThread.Start;
+  with FManager.ConnectionDefs.AddConnectionDef do
+  begin
+    Name := FDefName;
+    with TFDPhysPGConnectionDefParams(Params) do
+    begin
+      DriverID := APGParams.DriverID;
+      Server := APGParams.Server;
+      if APGParams.Port > 0 then
+        Port := APGParams.Port;
+      Database := APGParams.Database;
+      UserName := APGParams.UserName;
+      Password := APGParams.Password;
+      if not APGParams.MetaDefSchema.IsEmpty then
+        MetaDefSchema := APGParams.MetaDefSchema;
+      Pooled := True;
+      PoolMaximumItems   := iMaxConnections;
+      PoolCleanupTimeout := iMaxIdleTimeout * 1000;
+      PoolExpireTimeout  := iMaxIdleTimeout * 1000;
+    end;
+    Apply;
+  end;
+
+  FManager.Active := True;
+end;
+
+class procedure TPool.Stop;
+begin
+  if not Assigned(FManager) then
+    Exit;
+
+  FManager.Active := False;
+  FreeAndNil(FManager);
+  FDefName := '';
 end;
 
 class function TPool.Instance: IConnection;
-var
-  I: Integer;
-  Item: TConnection;
 begin
-  if not Assigned(FPool) then
+  if not Assigned(FManager) then
     raise Exception.Create('Pool não iniciado!');
 
-  TMonitor.Enter(FPool);
-  try
-    repeat
-      for I := 0 to Pred(Length(FPool.FConnetions.ToArray)) do
-        if FPool.FConnetions[I].FState = Livre then
-          Exit(TIntfConnection.Create(FPool.FConnetions[I]));
-
-      if FPool.FConnetions.Count = FPool.FMaxConn then
-        Sleep(100)
-      else
-        Break;
-    until False;
-
-    Item := TConnection.Create(FPool.NewConnection);
-    FPool.FConnetions.Add(Item);
-    Result := TIntfConnection.Create(Item);
-  finally
-    TMonitor.Exit(FPool);
-  end;
+  Result := TPooledConnection.Create;
 end;
 
 class procedure TPool.SetUsuarioID(iID: Integer);
@@ -190,58 +125,48 @@ begin
   _PoolUsuarioID := iID;
 end;
 
-class procedure TPool.Stop;
+{ TPooledConnection }
+
+constructor TPooledConnection.Create;
 begin
-  if not Assigned(FPool) then
-    Exit;
+  inherited Create;
+  FFDCon := TFDConnection.Create(nil);
+  try
+    FFDCon.ConnectionDefName := TPool.FDefName;
+    FFDCon.ResourceOptions.MacroCreate := False;
+    FFDCon.ResourceOptions.MacroExpand := False;
+    FFDCon.LoginPrompt := False;
+    FFDCon.Open;
 
-  FPool.FStatus := Parando;
-  TTask.WaitForAll(FPool.FThread, 5000);
-
-  FPool.FConnetions.Clear;
-  FreeAndNil(FPool.FConnetions);
-
-  FreeAndNil(FPool);
+    // Propaga o id do usuário autenticado para o GUC app.usuario_id do PG.
+    // Usado por:
+    //   - auditoria.fn_alteracao / fn_exclusao (triggers)
+    //   - defaults criado_por em várias tabelas (conversa, sip, usuario, ...)
+    // Resetamos para string vazia quando não há usuário, evitando vazamento
+    // entre requisições que reutilizam a mesma conexão física do pool.
+    if _PoolUsuarioID > 0 then
+      FFDCon.ExecSQLScalar('SELECT set_config(''app.usuario_id'', ''' + IntToStr(_PoolUsuarioID) + ''', false)')
+    else
+      FFDCon.ExecSQLScalar('SELECT set_config(''app.usuario_id'', '''', false)');
+  except
+    FreeAndNil(FFDCon);
+    raise;
+  end;
 end;
 
-{ TConnection }
-
-constructor TConnection.Create(Con: TFDConnection);
+destructor TPooledConnection.Destroy;
 begin
-  FState := Livre;
-  FFDCon := Con;
-  FUso := Now;
-end;
-
-destructor TConnection.Destroy;
-begin
-  FFDCon.Close;
-  FreeAndNil(FFDCon);
+  if Assigned(FFDCon) then
+  begin
+    FFDCon.Close; // Devolve a conexão física ao pool nativo do FireDAC.
+    FreeAndNil(FFDCon);
+  end;
   inherited;
 end;
 
-{ TIntfConnection }
-
-constructor TIntfConnection.Create(Con: TConnection);
+function TPooledConnection.Connection: TFDConnection;
 begin
-  FCon := Con;
-  FCon.FState := Ocupada;
-  if _PoolUsuarioID > 0 then
-    FCon.FFDCon.ExecSQLScalar('SELECT set_config(''app.usuario_id'', ''' + IntToStr(_PoolUsuarioID) + ''', false)')
-  else
-    FCon.FFDCon.ExecSQLScalar('SELECT set_config(''app.usuario_id'', '''', false)');
-end;
-
-destructor TIntfConnection.Destroy;
-begin
-  FCon.FUso := Now;
-  FCon.FState := Livre;
-  inherited;
-end;
-
-function TIntfConnection.Connection: TFDConnection;
-begin
-  Result := FCon.FFDCon;
+  Result := FFDCon;
 end;
 
 end.
