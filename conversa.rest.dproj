@@ -191,6 +191,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\conversa\Thread.Queue.pas"/>
         <DCCReference Include="src\conversa\WebSocket.pas"/>
         <DCCReference Include="src\conversa\Anexo.Verificacao.pas"/>
+        <DCCReference Include="src\conversa\conversa.agendador.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

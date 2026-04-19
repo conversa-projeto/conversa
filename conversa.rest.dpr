@@ -33,7 +33,8 @@ uses
   FCMNotification in 'src\conversa\FCMNotification.pas',
   Thread.Queue in 'src\conversa\Thread.Queue.pas',
   WebSocket in 'src\conversa\WebSocket.pas',
-  Anexo.Verificacao in 'src\conversa\Anexo.Verificacao.pas';
+  Anexo.Verificacao in 'src\conversa\Anexo.Verificacao.pas',
+  conversa.agendador in 'src\conversa\conversa.agendador.pas';
 
 function Conteudo(Req: THorseRequest): TJSONObject;
 begin
@@ -404,7 +405,25 @@ begin
         '/api/mensagens/novas',
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
-          Res.Send<TJSONArray>(TConversa.NovasMensagens(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('ultima').AsInteger));
+          Res.Send<TJSONArray>(TConversa.NovasMensagens(Req.Session<TJWTClaims>.Subject.ToInteger, Req.Query.Field('desde').AsString));
+        end
+      );
+
+      THorse.Get(
+        '/api/anexos',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONArray>(
+            TConversa.Anexos(
+              Req.Session<TJWTClaims>.Subject.ToInteger,
+              Req.Query.Field('conversa').AsInteger,
+              Req.Query.Field('autor').AsInteger,
+              Req.Query.Field('direcao').AsString,
+              Req.Query.Field('tipos').AsString,
+              Req.Query.Field('antes').AsInteger,
+              Req.Query.Field('limite').AsInteger
+            )
+          );
         end
       );
 
@@ -562,17 +581,22 @@ begin
 
           TAnexoVerificacao.Start(Configuracao.S3);
           try
-            FCM := TFCMNotification.Create(Configuracao.FCM);
+            TAgendadorMensagens.Iniciar;
             try
-              THorse.Listen(
-                8080,
-                procedure
-                begin
-                  Writeln('Servidor iniciado 🚀');
-                end
-              );
+              FCM := TFCMNotification.Create(Configuracao.FCM);
+              try
+                THorse.Listen(
+                  8080,
+                  procedure
+                  begin
+                    Writeln('Servidor iniciado 🚀');
+                  end
+                );
+              finally
+                FreeAndNil(FCM);
+              end;
             finally
-              FreeAndNil(FCM);
+              TAgendadorMensagens.Finalizar;
             end;
           finally
             TAnexoVerificacao.Stop;

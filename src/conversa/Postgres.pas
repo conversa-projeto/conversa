@@ -138,6 +138,13 @@ begin
     FFDCon.LoginPrompt := False;
     FFDCon.Open;
 
+    // Força TZ da sessão em UTC, independente da config do servidor Postgres.
+    // Assim, todas as conversões entre timestamp <-> timestamptz no WHERE e na escrita
+    // usam UTC de forma determinística — evita vazamento de agendadas quando Pascal e PG
+    // estavam em TZs diferentes (o caso anterior tinha Pascal BR + PG UTC, causando bug
+    // onde visivel_em de 15:04 local era interpretado como 15:04 UTC durante a comparação).
+    FFDCon.ExecSQL('SET TIME ZONE ''UTC''');
+
     // Propaga o id do usuário autenticado para o GUC app.usuario_id do PG.
     // Usado por:
     //   - auditoria.fn_alteracao / fn_exclusao (triggers)

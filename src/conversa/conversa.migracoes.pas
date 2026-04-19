@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..19] of String = (
+  Versoes: Array[0..22] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -386,6 +386,113 @@ const
    ,sl +'alter table anexo add column upload_status int4 default 0 not null; '+
     sl +'update anexo set upload_status = 1; '+
     sl +'create index ix_anexo_upload_status on anexo(upload_status) where upload_status = 0; '
+
+    // 20 - Índices de performance e integridade (cobertura de FKs e caminhos críticos)
+   ,sl +'-- mensagem_status: sem PK e sem índice; desduplica antes de criar a PK composta. '+
+    sl +'delete from mensagem_status a '+
+    sl +' using mensagem_status b '+
+    sl +' where a.ctid < b.ctid '+
+    sl +'   and a.conversa_id = b.conversa_id '+
+    sl +'   and a.usuario_id  = b.usuario_id '+
+    sl +'   and a.mensagem_id = b.mensagem_id; '+
+    sl +'alter table mensagem_status '+
+    sl +'  add constraint mensagem_status_pk primary key (conversa_id, usuario_id, mensagem_id); '+
+    sl +'create index if not exists ix_mensagem_status_mensagem '+
+    sl +'  on mensagem_status(mensagem_id); '+
+    sl +'create index if not exists ix_mensagem_status_pendente '+
+    sl +'  on mensagem_status(conversa_id, usuario_id) '+
+    sl +'  where recebida is null or visualizada is null; '+
+
+    sl +'-- conversa_usuario: único composto (cobre autorização) + índice por usuário para listas. '+
+    sl +'delete from conversa_usuario a '+
+    sl +' using conversa_usuario b '+
+    sl +' where a.id < b.id '+
+    sl +'   and a.conversa_id = b.conversa_id '+
+    sl +'   and a.usuario_id  = b.usuario_id; '+
+    sl +'create unique index if not exists ux_conversa_usuario_conv_user '+
+    sl +'  on conversa_usuario(conversa_id, usuario_id); '+
+    sl +'create index if not exists ix_conversa_usuario_usuario '+
+    sl +'  on conversa_usuario(usuario_id); '+
+
+    sl +'-- mensagem: filtro por conversa + paginação por id (DESC). '+
+    sl +'create index if not exists ix_mensagem_conversa_id_desc '+
+    sl +'  on mensagem(conversa_id, id desc); '+
+
+    sl +'-- mensagem_conteudo: carga por mensagem_id. '+
+    sl +'create index if not exists ix_mensagem_conteudo_mensagem '+
+    sl +'  on mensagem_conteudo(mensagem_id); '+
+
+    sl +'-- usuario: login case-insensitive (usado tanto no Login quanto no Cadastro). '+
+    sl +'create unique index if not exists ux_usuario_login_lower '+
+    sl +'  on usuario(lower(login)); '+
+
+    sl +'-- chamada_usuario: listagem por usuário + status. '+
+    sl +'create index if not exists ix_chamada_usuario_usuario_status '+
+    sl +'  on chamada_usuario(usuario_id, status); '+
+
+    sl +'-- mensagem_referencia: DELETE usa OR em destino — índice complementar ao composto existente. '+
+    sl +'create index if not exists ix_mensagem_referencia_destino '+
+    sl +'  on mensagem_referencia(destino_mensagem_id); '+
+
+    sl +'-- dispositivo: push FCM (parcial). '+
+    sl +'create index if not exists ix_dispositivo_usuario_ativo_fcm '+
+    sl +'  on dispositivo(usuario_id) '+
+    sl +'  where ativo = true and token_fcm is not null; '+
+
+    sl +'-- anexo: substitui o parcial existente por um que sirva ao ORDER BY criado_em. '+
+    sl +'drop index if exists ix_anexo_upload_status; '+
+    sl +'create index if not exists ix_anexo_upload_pendente '+
+    sl +'  on anexo(criado_em) where upload_status = 0; '+
+
+    sl +'-- sip: 1 linha por usuário. '+
+    sl +'create unique index if not exists ux_sip_usuario '+
+    sl +'  on sip(usuario_id); '+
+
+    sl +'-- usuario_contato: FK sem índice. '+
+    sl +'create index if not exists ix_usuario_contato_usuario '+
+    sl +'  on usuario_contato(usuario_id); '+
+
+    sl +'-- reacao: índice redundante com o UNIQUE (mensagem_id, usuario_id, emoji). '+
+    sl +'drop index if exists ix_reacao_mensagem; '
+
+    // 21 - Agendamento de mensagens (visivel_em) + índice de ordenação por data efetiva
+   ,sl +'-- Limpa possível estado parcial de tentativa anterior (idempotente): '+
+    sl +'-- se visivel_em tiver sido criado como timestamptz, dá conflito de tipo em coalesce() dentro de índice '+
+    sl +'-- (coalesce(timestamptz, timestamp) não é IMMUTABLE, e CREATE INDEX exige IMMUTABLE). '+
+    sl +'drop index if exists ix_mensagem_conversa_visivel_desc; '+
+    sl +'drop index if exists ix_mensagem_visivel_em_pendente; '+
+    sl +'alter table mensagem drop column if exists visivel_em cascade; '+
+
+    sl +'-- Coluna visivel_em como timestamp (SEM time zone) para combinar com inserida e permitir '+
+    sl +'-- coalesce(visivel_em, inserida) IMMUTABLE. Servidor converte ISO-8601 para hora local antes de persistir, '+
+    sl +'-- mesmo padrão de inserida (default current_timestamp). '+
+    sl +'alter table mensagem add column visivel_em timestamp null; '+
+
+    sl +'-- Parcial: só linhas agendadas entram; usado pelo TAgendadorMensagens. '+
+    sl +'create index ix_mensagem_visivel_em_pendente '+
+    sl +'  on mensagem(visivel_em) where visivel_em is not null; '+
+
+    sl +'-- Complementa (não substitui) o ix_mensagem_conversa_id_desc da migration 20: serve para queries '+
+    sl +'-- que ordenam por data efetiva (ex.: preview de Conversas). Paginação por id continua usando o outro. '+
+    sl +'create index ix_mensagem_conversa_visivel_desc '+
+    sl +'  on mensagem(conversa_id, coalesce(visivel_em, inserida) desc, id desc); '
+
+    // 22 - visivel_em volta para timestamptz; comparação segura entre TZs diferentes na sessão do Postgres.
+    // Ao manter `inserida` como timestamp (sem TZ), coalesce(timestamptz, timestamp) não é IMMUTABLE,
+    // então o índice composto ix_mensagem_conversa_visivel_desc é removido — ordem por coalesce faz sort em memória.
+   ,sl +'drop index if exists ix_mensagem_conversa_visivel_desc; '+
+    sl +'drop index if exists ix_mensagem_visivel_em_pendente; '+
+
+    sl +'-- Converte existentes tratando-os como "hora local da sessão atual" — que é onde Pascal os escreveu '+
+    sl +'-- na versão anterior da coluna (timestamp sem TZ). '+
+    sl +'alter table mensagem '+
+    sl +'  alter column visivel_em type timestamptz '+
+    sl +'  using case when visivel_em is null then null '+
+    sl +'             else visivel_em at time zone current_setting(''TimeZone'') '+
+    sl +'        end; '+
+
+    sl +'create index ix_mensagem_visivel_em_pendente '+
+    sl +'  on mensagem(visivel_em) where visivel_em is not null; '
   );
 
 procedure Migracoes;

@@ -6,6 +6,7 @@ interface
 procedure ValidarAcessoConversa(IDUsuario, IDConversa: Integer);
 procedure ValidarRemocaoConversaUsuario(IDUsuario, IDConversaUsuario: Integer);
 procedure ValidarAutoriaMensagem(IDUsuario, IDMensagem: Integer);
+procedure ValidarExclusaoMensagem(IDUsuario, IDMensagem: Integer);
 procedure ValidarContatoUsuario(IDUsuario, IDUsuarioContato: Integer);
 procedure ValidarSIPUsuario(IDUsuario, IDSIP: Integer);
 procedure ValidarSenhaAtual(IDUsuario: Integer; const SenhaAtual: String);
@@ -89,6 +90,26 @@ begin
     sl +'   and usuario_id  = '+ IDUsuario.ToString
   ) then
     RaiseForbidden;
+end;
+
+procedure ValidarExclusaoMensagem(IDUsuario, IDMensagem: Integer);
+begin
+  // Exige autoria primeiro (403 se não for o autor).
+  ValidarAutoriaMensagem(IDUsuario, IDMensagem);
+
+  // Bloqueia exclusão quando algum destinatário já recebeu a mensagem.
+  // Cobre tanto mensagens normais quanto agendadas: enquanto visivel_em não amadurece,
+  // nenhum mensagem_status recebe a hora de recebimento — o delete fica liberado.
+  // Depois que amadurece e o primeiro cliente sincroniza, recebida é setada e o delete trava.
+  if ExisteRegistro(
+    sl +'select 1 '+
+    sl +'  from mensagem_status '+
+    sl +' where mensagem_id = '+ IDMensagem.ToString +
+    sl +'   and recebida is not null '+
+    sl +' limit 1 '
+  ) then
+    raise EHorseException.New.Status(THTTPStatus.Conflict)
+      .Error('Mensagem não pode ser excluída: já foi recebida por algum destinatário.');
 end;
 
 procedure ValidarContatoUsuario(IDUsuario, IDUsuarioContato: Integer);

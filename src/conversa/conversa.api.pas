@@ -58,6 +58,7 @@ type
     class function ConversaUsuarioExcluir(Usuario: Integer; ConversaUsuario: Integer): TJSONObject; static;
     class function MensagemIncluir(Usuario: Integer; oMensagem: TJSONObject): TJSONObject; static;
     class function MensagemExcluir(Usuario, Mensagem: Integer): TJSONObject; static;
+    class procedure NotificarMensagemAgendada(MensagemID: Integer); static;
     class function Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray; static;
     class function Pesquisar(Conversa, Usuario: Integer; Texto: String): TJSONArray; static;
     class function GetMensagens(Conversa, Usuario: Integer; Script: String; MarcarComoRecebida: Boolean): TJSONArray; static;
@@ -69,7 +70,8 @@ type
     class function Chamadas(Usuario, Participante: Integer; DataDe, DataAte: String): TJSONArray; static;
     class function Anexo(Identificador: String): TJSONObject; static;
     class function AnexoConfirmarUpload(Identificador: String): TJSONObject; static;
-    class function NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray; static;
+    class function Anexos(Usuario: Integer; Conversa, Autor: Integer; Direcao, Tipos: String; Antes, Limite: Integer): TJSONArray; static;
+    class function NovasMensagens(Usuario: Integer; Desde: String): TJSONArray; static;
     class function ChamadaIniciar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaCancelar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
     class function ChamadaRecusar(Usuario: Integer; joParam: TJSONObject): TJSONObject; static;
@@ -111,7 +113,7 @@ begin
     sl +'  left '+
     sl +'  join anexo as a '+
     sl +'    on a.id = u.avatar_anexo_id '+
-    sl +' where u.login = '+ Qt(oAutenticacao.GetValue<String>('login'))
+    sl +' where lower(u.login) = lower('+ Qt(oAutenticacao.GetValue<String>('login')) +')'
   );
 
   if Result.Count = 0 then
@@ -527,12 +529,13 @@ begin
     sl +'                        from '+
     sl +'                           ( select tc.id as conversa_id '+
     sl +'                                  , m.id as mensagem_id '+
-    sl +'                                  , m.inserida '+
-    sl +'                                  , row_number() over(partition by tc.id order by m.inserida desc) as rid '+
+    sl +'                                  , coalesce(m.visivel_em, m.inserida) as inserida '+
+    sl +'                                  , row_number() over(partition by tc.id order by coalesce(m.visivel_em, m.inserida) desc) as rid '+
     sl +'                               from temp_conversa tc '+
     sl +'                              inner '+
     sl +'                               join mensagem m '+
     sl +'                                 on m.conversa_id = tc.id '+
+    sl +'                                and (m.usuario_id = '+ Usuario.ToString +' or m.visivel_em is null or m.visivel_em <= now()) '+
     sl +'                           ) as tcm '+
     sl +'                       where tcm.rid = 1 '+
     sl +'                    ) as tcm '+
@@ -553,6 +556,10 @@ begin
     sl +'            on ms.conversa_id = c.id '+
     sl +'           and (ms.recebida is null or ms.visualizada is null) '+
     sl +'           and ms.usuario_id = '+ Usuario.ToString +
+    sl +'         inner '+
+    sl +'          join mensagem m '+
+    sl +'            on m.id = ms.mensagem_id '+
+    sl +'           and (m.visivel_em is null or m.visivel_em <= now()) '+
     sl +'         group '+
     sl +'            by ms.conversa_id '+
     sl +'      ) as msg_count '+
@@ -736,14 +743,70 @@ var
   sNotificacao: String;
   iReferenciaTipo: Integer;
   iReferenciaMensagemID: Integer;
+  sVisivelEm: String;
+  dtVisivelEm: TDateTime;
+  bAgendada: Boolean;
+  iTipoConteudo: Integer;
 begin
-  {TODO -oDaniel -cSegurança : Validar usuário e conversa}
   CamposObrigatorios(oMensagem, ['conversa_id', 'conteudos']);
+  ValidarAcessoConversa(Usuario, oMensagem.GetValue<Integer>('conversa_id'));
+
+  // Mass-assignment: nunca aceita usuario_id/id/inserida do payload.
+  if Assigned(oMensagem.FindValue('id')) then
+    oMensagem.RemovePair('id').Free;
+  if Assigned(oMensagem.FindValue('inserida')) then
+    oMensagem.RemovePair('inserida').Free;
+  if Assigned(oMensagem.FindValue('usuario_id')) then
+    oMensagem.RemovePair('usuario_id').Free;
   oMensagem.AddPair('usuario_id', TJSONNumber.Create(Usuario));
+
+  // visivel_em: agendamento. Se informado, precisa estar entre [now+5min, now+1ano], com granularidade de minuto.
+  bAgendada := False;
+  var pVisivel := oMensagem.RemovePair('visivel_em');
+  try
+    if Assigned(pVisivel) and (pVisivel.JsonValue is TJSONString) then
+    begin
+      sVisivelEm := TJSONString(pVisivel.JsonValue).Value.Trim;
+      if not sVisivelEm.IsEmpty then
+      begin
+        // Parse em UTC (AReturnUTC=True): o offset do ISO-8601 é respeitado,
+        // dtVisivelEm fica sendo o instante em UTC. Comparações com IncMinute(Now, 5)
+        // e IncYear(Now, 1) também precisam estar em UTC para serem coerentes.
+        if not TryISO8601ToDate(sVisivelEm, dtVisivelEm, True) then
+          raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('visivel_em inválido (use ISO-8601 com offset).');
+
+        // Trunca para o minuto (remove segundos/milissegundos) — granularidade imposta pelo servidor.
+        dtVisivelEm := RecodeMilliSecond(RecodeSecond(dtVisivelEm, 0), 0);
+
+        // TUtcAgora compara apples-to-apples: instante UTC do servidor.
+        if dtVisivelEm < IncMinute(TTimeZone.Local.ToUniversalTime(Now), 5) then
+          raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('visivel_em deve estar a pelo menos 5 minutos no futuro.');
+        if dtVisivelEm > IncYear(TTimeZone.Local.ToUniversalTime(Now), 1) then
+          raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('visivel_em não pode estar mais de 1 ano no futuro.');
+
+        bAgendada := True;
+        // Grava com sufixo Z: Postgres parseia como UTC e armazena como timestamptz inequívoco.
+        oMensagem.AddPair('visivel_em', DateToISO8601(dtVisivelEm, True));
+      end;
+    end;
+  finally
+    FreeAndNil(pVisivel);
+  end;
 
   pJSON := oMensagem.RemovePair('conteudos');
   pMensagemReferencia := oMensagem.RemovePair('mensagem_referencia');
   try
+    // Valida tipos dos conteúdos antes de inserir a mensagem.
+    if Assigned(pJSON) and (pJSON.JsonValue is TJSONArray) then
+    begin
+      for Item in pJSON.JsonValue as TJSONArray do
+      begin
+        iTipoConteudo := Item.GetValue<Integer>('tipo', 0);
+        if bAgendada and (iTipoConteudo = 6) then
+          raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Mensagens agendadas não podem ser de chamada (tipo 6).');
+      end;
+    end;
+
     Result := InsertJSON('mensagem', oMensagem);
 
     iReferenciaTipo := 0;
@@ -822,20 +885,84 @@ begin
     FreeAndNil(pMensagemReferencia);
   end;
 
-  EnviarNotificacao(Usuario, oMensagem.GetValue<Integer>('conversa_id'), sNotificacao);
+  // Mensagens agendadas não notificam imediatamente — TAgendadorMensagens dispara ao amadurecer.
+  if not bAgendada then
+    EnviarNotificacao(Usuario, oMensagem.GetValue<Integer>('conversa_id'), sNotificacao);
+end;
+
+class procedure TConversa.NotificarMensagemAgendada(MensagemID: Integer);
+var
+  Pool: IConnection;
+  Qry: TFDQuery;
+  iUsuario: Integer;
+  iConversa: Integer;
+  sNotificacao: String;
+begin
+  Pool := TPool.Instance;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Pool.Connection;
+
+    // Mensagem + primeiro conteúdo para montar texto da notificação.
+    Qry.Open(
+      sl +'select m.id '+
+      sl +'     , m.usuario_id '+
+      sl +'     , m.conversa_id '+
+      sl +'     , mc.tipo '+
+      sl +'     , convert_from(mc.conteudo, ''utf-8'') as conteudo '+
+      sl +'  from mensagem m '+
+      sl +'  left '+
+      sl +'  join mensagem_conteudo mc '+
+      sl +'    on mc.mensagem_id = m.id '+
+      sl +'   and mc.ordem = 1 '+
+      sl +' where m.id = '+ MensagemID.ToString
+    );
+    if Qry.IsEmpty then
+      Exit;
+
+    iUsuario := Qry.FieldByName('usuario_id').AsInteger;
+    iConversa := Qry.FieldByName('conversa_id').AsInteger;
+    case Qry.FieldByName('tipo').AsInteger of
+      1: sNotificacao := Qry.FieldByName('conteudo').AsString;
+      2: sNotificacao := 'imagem';
+      3: sNotificacao := 'arquivo';
+      4, 5: sNotificacao := 'áudio';
+    else
+      sNotificacao := EmptyStr;
+    end;
+  finally
+    FreeAndNil(Qry);
+  end;
+
+  EnviarNotificacao(iUsuario, iConversa, sNotificacao);
+  AtualizaMensagemSocket(iUsuario, iConversa, MensagemID.ToString);
 end;
 
 class function TConversa.MensagemExcluir(Usuario, Mensagem: Integer): TJSONObject;
 var
   oConteudo: TJSONObject;
 begin
-  ValidarAutoriaMensagem(Usuario, Mensagem);
+  // Valida autoria + garante que nenhum destinatário recebeu ainda (retorna 409 Conflict caso contrário).
+  ValidarExclusaoMensagem(Usuario, Mensagem);
+
+  // Limpa dependentes na ordem correta (todos apontam para mensagem.id via FK sem cascade).
   TPool.Instance.Connection.ExecSQL(
     sl +'delete '+
     sl +'  from mensagem_referencia '+
     sl +' where origem_mensagem_id = '+ Mensagem.ToString +
     sl +'    or destino_mensagem_id = '+ Mensagem.ToString
   );
+  TPool.Instance.Connection.ExecSQL(
+    sl +'delete '+
+    sl +'  from mensagem_status '+
+    sl +' where mensagem_id = '+ Mensagem.ToString
+  );
+  TPool.Instance.Connection.ExecSQL(
+    sl +'delete '+
+    sl +'  from reacao '+
+    sl +' where mensagem_id = '+ Mensagem.ToString
+  );
+
   oConteudo := Delete('mensagem_conteudo', Mensagem, 'mensagem_id');
   Result := Delete('mensagem', Mensagem);
   Result.AddPair('conteudo', oConteudo);
@@ -1039,6 +1166,167 @@ begin
     raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Arquivo não encontrado no armazenamento');
 end;
 
+class function TConversa.Anexos(Usuario: Integer; Conversa, Autor: Integer; Direcao, Tipos: String; Antes, Limite: Integer): TJSONArray;
+const
+  TiposValidos: array[0..3] of Integer = (2, 3, 4, 5); // 2-Imagem; 3-Arquivo; 4-Audio; 5-Gravacao de Audio
+var
+  aTipos: TArray<String>;
+  sTipo: String;
+  iTipo: Integer;
+  iValido: Integer;
+  bTipoOk: Boolean;
+  sTiposFiltro: String;
+  sFiltroDirecao: String;
+  sFiltroAutor: String;
+  sFiltroConversa: String;
+  sFiltroAntes: String;
+  sDirecao: String;
+  Item: TJSONValue;
+  Objeto: TJSONPair;
+  URL: String;
+begin
+  Assert(Usuario > 0, 'Usuário inválido!');
+
+  // Limite: default 50, clamp [1, 200]
+  if Limite <= 0 then
+    Limite := 50
+  else if Limite > 200 then
+    Limite := 200;
+
+  // Direção: whitelist
+  sDirecao := LowerCase(Trim(Direcao));
+  if (sDirecao <> '') and (sDirecao <> 'enviados') and (sDirecao <> 'recebidos') then
+    raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Direção inválida (use enviados, recebidos ou vazio).');
+
+  // Tipos: parse CSV → inteiros em whitelist; default = todos os 4
+  sTiposFiltro := EmptyStr;
+  if Trim(Tipos) = '' then
+  begin
+    for iTipo in TiposValidos do
+      sTiposFiltro := sTiposFiltro + IfThen(sTiposFiltro.IsEmpty, '', ', ') + iTipo.ToString;
+  end
+  else
+  begin
+    aTipos := Tipos.Split([',']);
+    for sTipo in aTipos do
+    begin
+      if not TryStrToInt(Trim(sTipo), iTipo) then
+        raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Tipo inválido: '+ sTipo);
+      bTipoOk := False;
+      for iValido in TiposValidos do
+        if iValido = iTipo then
+        begin
+          bTipoOk := True;
+          Break;
+        end;
+      if not bTipoOk then
+        raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Tipo não permitido: '+ iTipo.ToString);
+      sTiposFiltro := sTiposFiltro + IfThen(sTiposFiltro.IsEmpty, '', ', ') + iTipo.ToString;
+    end;
+  end;
+
+  // Se Conversa informada, valida acesso (aproveita helper já existente).
+  if Conversa > 0 then
+    ValidarAcessoConversa(Usuario, Conversa);
+
+  // Filtro de conversa: quando 0, limita a conversas das quais o usuário participa (EXISTS no conversa_usuario).
+  if Conversa > 0 then
+    sFiltroConversa := sl +'   and m.conversa_id = '+ Conversa.ToString
+  else
+    sFiltroConversa := EmptyStr;
+
+  // Resolução Direcao × Autor:
+  //  - 'enviados'  → força autor = Usuario logado
+  //  - 'recebidos' → força autor <> Usuario logado; se Autor>0, exige bater
+  //  - ''          → usa Autor quando > 0
+  sFiltroDirecao := EmptyStr;
+  sFiltroAutor   := EmptyStr;
+
+  if sDirecao = 'enviados' then
+    sFiltroAutor := sl +'   and m.usuario_id = '+ Usuario.ToString
+  else if sDirecao = 'recebidos' then
+  begin
+    sFiltroDirecao := sl +'   and m.usuario_id <> '+ Usuario.ToString;
+    if Autor > 0 then
+    begin
+      if Autor = Usuario then
+        raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Filtro de autor incompatível com direção "recebidos".');
+      sFiltroAutor := sl +'   and m.usuario_id = '+ Autor.ToString;
+    end;
+  end
+  else if Autor > 0 then
+    sFiltroAutor := sl +'   and m.usuario_id = '+ Autor.ToString;
+
+  // Cursor por anexo.id (paginação cronológica decrescente).
+  if Antes > 0 then
+    sFiltroAntes := sl +'   and a.id < '+ Antes.ToString
+  else
+    sFiltroAntes := EmptyStr;
+
+  Result := Open(
+    sl +'select a.id              as anexo_id '+
+    sl +'     , a.identificador '+
+    sl +'     , a.nome '+
+    sl +'     , a.extensao '+
+    sl +'     , a.tamanho '+
+    sl +'     , a.objeto          as anexo_objeto '+
+    sl +'     , a.criado_em '+
+    sl +'     , mc.tipo '+
+    sl +'     , mc.mensagem_id '+
+    sl +'     , m.conversa_id '+
+    sl +'     , c.descricao       as conversa_descricao '+
+    sl +'     , m.usuario_id      as autor_id '+
+    sl +'     , u.nome            as autor_nome '+
+    sl +'  from mensagem_conteudo mc '+
+    sl +' inner '+
+    sl +'  join anexo a '+
+    sl +'    on a.identificador  = convert_from(mc.conteudo, ''utf-8'') '+
+    sl +' inner '+
+    sl +'  join mensagem m '+
+    sl +'    on m.id             = mc.mensagem_id '+
+    sl +' inner '+
+    sl +'  join conversa c '+
+    sl +'    on c.id             = m.conversa_id '+
+    sl +' inner '+
+    sl +'  join usuario u '+
+    sl +'    on u.id             = m.usuario_id '+
+    sl +' inner '+
+    sl +'  join conversa_usuario cu '+
+    sl +'    on cu.conversa_id   = m.conversa_id '+
+    sl +'   and cu.usuario_id    = '+ Usuario.ToString +' '+
+    sl +' where mc.tipo in ('+ sTiposFiltro +') '+
+    sl +'   and a.upload_status  = 1 '+
+    sl +'   and (m.usuario_id = '+ Usuario.ToString +' or m.visivel_em is null or m.visivel_em <= now()) '+
+    sFiltroConversa +
+    sFiltroDirecao +
+    sFiltroAutor +
+    sFiltroAntes +
+    sl +' order '+
+    sl +'    by a.id desc '+
+    sl +' limit '+ Limite.ToString
+  );
+
+  // Presigned URL do objeto S3 (mesmo padrão de ConversaUsuarios).
+  for Item in Result do
+  begin
+    Objeto := TJSONObject(Item).RemovePair('anexo_objeto');
+    try
+      if not Assigned(Objeto) then
+        Continue;
+
+      if Objeto.JsonValue is TJSONNull then
+        TJSONObject(Item).AddPair('url', TJSONNull.Create)
+      else
+      begin
+        URL := TMinioPresign.PresignedURL('GET', Configuracao.S3, TJSONString(Objeto.JsonValue).Value, 'us-east-1', 600);
+        TJSONObject(Item).AddPair('url', URL);
+      end;
+    finally
+      Objeto.Free;
+    end;
+  end;
+end;
+
 class function TConversa.Mensagens(Conversa, Usuario, MensagemReferencia, MensagensPrevias, MensagensSeguintes: Integer): TJSONArray;
 var
   Script: String;
@@ -1054,12 +1342,14 @@ begin
 
   Script := EmptyStr;
 
+  // Paginação por timestamp efetivo (coalesce(visivel_em, inserida)) com id como desempate.
+  // O cliente continua enviando "mensagem_referencia" como id; o servidor resolve o par
+  // (timestamp, id) dessa referência via subquery e aplica row-comparison no WHERE.
+  // Isso garante coerência visual quando há mensagens agendadas no timeline.
+
   // Se vai obter apenas 1 Mensagem
   if (MensagensPrevias = 0) and (MensagensSeguintes = 0) then
   begin
-    if MensagemReferencia > 0 then
-      Script := sl +'                        and m.id = '+ MensagemReferencia.ToString;
-
     Script :=
     sl +'              /* Apenas a mensagem solicitada */ '+
     sl +'              select id '+
@@ -1067,10 +1357,12 @@ begin
     sl +'                   ( select id '+
     sl +'                       from mensagem m '+
     sl +'                      where m.conversa_id = '+ Conversa.ToString +
-    Script +
+    sl +'                        and (m.usuario_id = '+ Usuario.ToString +' or m.visivel_em is null or m.visivel_em <= now()) '+
+    IfThen(MensagemReferencia > 0,
+    sl +'                        and m.id = '+ MensagemReferencia.ToString)+
     sl +'                      order '+
-    sl +'                         by id desc '+
-    sl +'                      limit 1'+
+    sl +'                         by coalesce(m.visivel_em, m.inserida) desc, m.id desc '+
+    sl +'                      limit 1 '+
     sl +'                   ) as tbl '
   end
   else
@@ -1079,16 +1371,18 @@ begin
     if MensagensPrevias > 0 then
     begin
       Script := Script +
-      sl +'              /* Retorna mensagens anterioes */ '+
+      sl +'              /* Retorna mensagens anteriores */ '+
       sl +'              select id '+
       sl +'                from '+
       sl +'                   ( select id '+
       sl +'                       from mensagem m '+
       sl +'                      where m.conversa_id = '+ Conversa.ToString +
+      sl +'                        and (m.usuario_id = '+ Usuario.ToString +' or m.visivel_em is null or m.visivel_em <= now()) '+
       IfThen(MensagemReferencia > 0,
-      sl +'                        and m.id <= '+ MensagemReferencia.ToString)+
+      sl +'                        and (coalesce(m.visivel_em, m.inserida), m.id) <= '+
+      sl +'                            ((select coalesce(visivel_em, inserida) from mensagem where id = '+ MensagemReferencia.ToString +'), '+ MensagemReferencia.ToString +') ')+
       sl +'                      order '+
-      sl +'                         by id desc '+
+      sl +'                         by coalesce(m.visivel_em, m.inserida) desc, m.id desc '+
       sl +'                      limit '+ MensagensPrevias.ToString +
       sl +'                   ) as tbl ';
     end;
@@ -1106,10 +1400,12 @@ begin
       sl +'                   ( select id '+
       sl +'                       from mensagem m '+
       sl +'                      where m.conversa_id = '+ Conversa.ToString +
+      sl +'                        and (m.usuario_id = '+ Usuario.ToString +' or m.visivel_em is null or m.visivel_em <= now()) '+
       IfThen(MensagemReferencia > 0,
-      sl +'                        and m.id >= '+ MensagemReferencia.ToString)+
+      sl +'                        and (coalesce(m.visivel_em, m.inserida), m.id) >= '+
+      sl +'                            ((select coalesce(visivel_em, inserida) from mensagem where id = '+ MensagemReferencia.ToString +'), '+ MensagemReferencia.ToString +') ')+
       sl +'                      order '+
-      sl +'                         by id '+
+      sl +'                         by coalesce(m.visivel_em, m.inserida), m.id '+
       sl +'                      limit '+ MensagensSeguintes.ToString +
       sl +'                   ) as tbl '
     end;
@@ -1149,6 +1445,7 @@ begin
     sl +'                         on mc.mensagem_id = m.id '+
     sl +'                        and mc.tipo = 1 /* 1-Texto */ '+
     sl +'                        and mc.conteudo like '+ Texto.QuotedString +
+    sl +'                      where (m.usuario_id = '+ Usuario.ToString +' or m.visivel_em is null or m.visivel_em <= now()) '+
     sl +'                      order '+
     sl +'                         by m.id '+
     sl +'                   ) as tbl ';
@@ -1318,6 +1615,7 @@ begin
       sl +'     , m.conversa_id '+
       sl +'     , m.inserida '+
       sl +'     , m.alterada '+
+      sl +'     , m.visivel_em '+
       sl +'     , mr.tipo as referencia_tipo '+
       sl +'     , mr.destino_mensagem_id as referencia_origem_mensagem_id '+
       sl +'  from '+
@@ -1344,11 +1642,11 @@ begin
       sl +'  join usuario as u  '+
       sl +'    on u.id = m.usuario_id  '+
       sl +' order '+
-      sl +'    by m.id desc '+
+      sl +'    by coalesce(m.visivel_em, m.inserida) desc, m.id desc '+
       sl +' limit 100 '+
       sl +'     ) as tbl '+
       sl +' order '+
-      sl +'    by id '
+      sl +'    by coalesce(visivel_em, inserida), id '
     );
     Mensagem.FetchAll;
 
@@ -1390,6 +1688,11 @@ begin
       oMensagem.AddPair('conversa_id', Mensagem.FieldByName('conversa_id').AsInteger);
       oMensagem.AddPair('inserida', DateToISO8601(Mensagem.FieldByName('inserida').AsDateTime));
       oMensagem.AddPair('alterada', DateToISO8601(Mensagem.FieldByName('alterada').AsDateTime));
+      if Mensagem.FieldByName('visivel_em').IsNull then
+        oMensagem.AddPair('visivel_em', TJSONNull.Create)
+      else
+        // PG session TZ forçada para UTC em Postgres.pas → FireDAC entrega TDateTime em UTC. Serializamos com Z.
+        oMensagem.AddPair('visivel_em', DateToISO8601(Mensagem.FieldByName('visivel_em').AsDateTime, True));
 
       if not Mensagem.FieldByName('referencia_tipo').IsNull then
       begin
@@ -1585,18 +1888,34 @@ begin
   end;
 end;
 
-class function TConversa.NovasMensagens(Usuario, UltimaMensagem: Integer): TJSONArray;
+class function TConversa.NovasMensagens(Usuario: Integer; Desde: String): TJSONArray;
+var
+  dtDesde: TDateTime;
+  sDesde: String;
 begin
+  // Cursor por timestamp (coalesce(visivel_em, inserida)). Se não informado, trata como "desde sempre".
+  // Parse em UTC + serializa com Z: Postgres interpreta inequívoco.
+  if Desde.Trim.IsEmpty then
+    sDesde := '''epoch''::timestamptz'
+  else
+  begin
+    if not TryISO8601ToDate(Desde, dtDesde, True) then
+      raise EHorseException.New.Status(THTTPStatus.BadRequest).Error('Parâmetro "desde" inválido (use ISO-8601 com offset).');
+    sDesde := Qt(DateToISO8601(dtDesde, True)) +'::timestamptz';
+  end;
+
   Result := Open(
     sl +'select m.conversa_id '+
     sl +'     , max(m.id) as mensagem_id '+
+    sl +'     , max(coalesce(m.visivel_em, m.inserida)) as ate '+
     sl +'  from mensagem as m '+
     sl +' inner '+
     sl +'  join conversa_usuario as cu '+
     sl +'    on cu.conversa_id = m.conversa_id '+
     sl +'   and cu.usuario_id <> m.usuario_id '+
     sl +' where cu.usuario_id = '+ Usuario.ToString +
-    sl +'   and m.id> '+ UltimaMensagem.ToString +
+    sl +'   and coalesce(m.visivel_em, m.inserida) > '+ sDesde +
+    sl +'   and (m.visivel_em is null or m.visivel_em <= now()) '+
     sl +' group '+
     sl +'    by m.conversa_id '
   );
