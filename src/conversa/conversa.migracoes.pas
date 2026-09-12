@@ -17,7 +17,7 @@ uses
   Data.DB;
 
 const
-  Versoes: Array[0..22] of String = (
+  Versoes: Array[0..23] of String = (
     sl +'create '+
     sl +' table usuario  '+
     sl +'     ( id serial4 not null '+
@@ -493,6 +493,27 @@ const
 
     sl +'create index ix_mensagem_visivel_em_pendente '+
     sl +'  on mensagem(visivel_em) where visivel_em is not null; '
+
+    // 23 - Parametros do servidor TURN (coturn). Usados por GET /api/ice para
+    // emitir credenciais temporarias de relay WebRTC.
+    // turn_url vazio desliga o TURN: o cliente recebe lista vazia e usa o
+    // caminho direto, exatamente como antes desta migration.
+   ,sl +'insert '+
+    sl +'  into parametros '+
+    sl +'     ( nome '+
+    sl +'     , valor '+
+    sl +'     ) '+
+    sl +'values '+
+    sl +'     ( ''turn_url'' '+
+    sl +'     , '''' '+
+    sl +'     ), '+
+    sl +'     ( ''turn_secret'' '+
+    sl +'     , '''' '+
+    sl +'     ), '+
+    sl +'     ( ''turn_forcar_relay'' '+
+    sl +'     , ''1'' '+
+    sl +'     ) '+
+    sl +'    on conflict (nome) do nothing; '
   );
 
 procedure Migracoes;

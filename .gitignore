@@ -10,5 +10,3 @@ __recovery/
 *.rsm
 bin/cert/
 bin/nginx/**
-!bin/nginx/conf/
-!bin/nginx/conf/nginx.conf

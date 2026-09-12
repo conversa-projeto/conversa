@@ -18,8 +18,12 @@ type
     FCM: TFCMConfig;
     BcryptPepper: String;
     S3: TMinioConfig;
+    TurnURL: String;
+    TurnSecret: String;
+    TurnForcarRelay: Boolean;
     class procedure LoadFromEnvironment; static;
     class procedure LoadFromDataBase; static;
+    class procedure VerificarBucketS3; static;
   end;
 
 var
@@ -48,6 +52,34 @@ begin
       E.Message := 'Erro ao carregar as configurações das variáveis de ambiente! ☠️ - '+ E.Message;
       raise;
     end;
+  end;
+end;
+
+class procedure TConfiguracao.VerificarBucketS3;
+var
+  iStatus: Integer;
+  sErro: String;
+begin
+  // Numa instalação nova o bucket não existe e os anexos falhariam sem aviso.
+  // Nunca interrompe a inicialização: cria o bucket ou avisa no console.
+  if Configuracao.S3.Endpoint.Trim.IsEmpty or Configuracao.S3.Bucket.Trim.IsEmpty then
+    Exit;
+
+  iStatus := TMinioBucket.HeadStatus(Configuracao.S3, 'us-east-1', sErro);
+  case iStatus of
+    200:
+      Exit;
+    404:
+      if TMinioBucket.MakeBucket(Configuracao.S3, 'us-east-1', sErro) then
+        Writeln('ℹ  Bucket "'+ Configuracao.S3.Bucket +'" não existia no MinIO e foi criado.')
+      else
+        Writeln('⚠  Bucket "'+ Configuracao.S3.Bucket +'" não existe e não pôde ser criado ('+ sErro +')! Anexos não vão funcionar!');
+    403:
+      Writeln('⚠  MinIO recusou "s3_accesskey" e "s3_secretkey"! Anexos não vão funcionar!');
+    0:
+      Writeln('⚠  MinIO inacessível em "'+ Configuracao.S3.Endpoint +'" ('+ sErro +')! Confira "s3_endpoint". Anexos não vão funcionar!');
+  else
+    Writeln('⚠  MinIO respondeu HTTP '+ iStatus.ToString +' ao verificar o bucket "'+ Configuracao.S3.Bucket +'"! Anexos podem não funcionar!');
   end;
 end;
 
@@ -109,7 +141,10 @@ begin
           's3_endpoint',
           's3_accesskey',
           's3_secretkey',
-          's3_bucket'
+          's3_bucket',
+          'turn_url',
+          'turn_secret',
+          'turn_forcar_relay'
         ])
       );
 
@@ -129,6 +164,10 @@ begin
       Configuracao.S3.SecretKey := Qry.FieldByName('s3_secretkey').AsString;
       Configuracao.S3.Bucket    := Qry.FieldByName('s3_bucket').AsString;
 
+      Configuracao.TurnURL         := Qry.FieldByName('turn_url').AsString;
+      Configuracao.TurnSecret      := Qry.FieldByName('turn_secret').AsString;
+      Configuracao.TurnForcarRelay := Qry.FieldByName('turn_forcar_relay').AsString.Trim = '1';
+
       if Configuracao.JWTKEY.Equals('S3RV1D0R_4P1_C0NV3R54') then
         Writeln('⚠  Parâmetro "jwt_token" inseguro! Corrija antes de colocar em produção!');
 
@@ -144,6 +183,12 @@ begin
 
       if Configuracao.S3.Bucket.Trim.IsEmpty then
         Writeln('⚠  Parâmetro "s3_bucket" vazio! Anexos não vão funcionar!');
+
+      if Configuracao.TurnURL.Trim.IsEmpty or Configuracao.TurnSecret.Trim.IsEmpty then
+        Writeln('⚠  Parâmetros "turn_url" e "turn_secret" vazios! Chamadas só vão funcionar em rede que permita UDP direto!')
+      else
+      if Configuracao.TurnForcarRelay then
+        Writeln('ℹ  TURN ativo em modo relay-only. Toda mídia passa pelo coturn.');
 
       Writeln;
     finally

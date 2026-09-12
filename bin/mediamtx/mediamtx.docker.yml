@@ -1,0 +1,29 @@
+# mediamtx.docker.yml - MediaMTX em container (TLS termina no Nginx)
+#
+# Roda na rede Docker conversa-rtc com IP fixo 172.30.0.20, ao lado do coturn.
+# O nginx continua usando 127.0.0.1:8889, publicado pelo docker-compose.yml.
+# O mediamtx.yml ao lado e a versao antiga, para rodar o .exe fora do Docker.
+
+# API de controle (opcional)
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Protocolos que voce usa
+rtspAddress: 127.0.0.1:18554
+rtmpAddress: 127.0.0.1:11935
+hlsAddress: 127.0.0.1:18888
+
+# WebRTC interno (SEM HTTPS aqui)
+webrtc: yes
+webrtcAddress: :8889
+webrtcEncryption: false
+
+# Midia. O candidato anunciado e o IP do container, 172.30.0.20, que so o
+# coturn alcanca. Por isso o cliente usa relay-only.
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: yes
+webrtcAdditionalHosts: []
+
+# Permite qualquer stream sem autenticacao (rede local)
+paths:
+  all_others:

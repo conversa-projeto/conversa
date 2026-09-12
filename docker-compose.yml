@@ -1,0 +1,128 @@
+# Conversa - servicos em Docker
+#
+# O backend (conversa.rest.exe) roda direto no Windows e nao esta aqui.
+#
+#   docker compose up -d                        desenvolvimento
+#   docker compose --profile producao up -d     producao, inclui o nginx
+#   docker compose ps                           estado dos servicos
+#   docker compose logs -f coturn               logs de um servico
+#   docker compose --profile producao down      para tudo, mantendo os dados
+#
+# Em desenvolvimento quem entrega a pagina e repassa /api, /ws, /storage e
+# /webrtc e o Vite, no repositorio conversa-web. Em producao e o nginx abaixo.
+#
+# Portas publicadas so em 127.0.0.1, exceto o TURN na 3478, que precisa ser
+# alcancado por navegadores de fora, e a 80 do nginx, que recebe a borda.
+#
+# Senhas podem ser trocadas num arquivo .env ao lado deste. Sem ele, valem os
+# padroes abaixo, que sao os mesmos dos antigos scripts setup-*.bat.
+# Se trocar as do MinIO, atualize s3_accesskey e s3_secretkey no banco.
+
+name: conversa
+
+services:
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-root}
+      TZ: UTC
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: quay.io/minio/minio
+    container_name: minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Retransmissor TURN. Configuracao em bin/coturn/turnserver.conf.
+  # O IP fixo importa: o turnserver.conf so permite relay ate o MediaMTX.
+  coturn:
+    image: coturn/coturn
+    container_name: coturn
+    restart: always
+    command: -c /etc/coturn/turnserver.conf
+    ports:
+      - "3478:3478/tcp"
+    volumes:
+      - ./bin/coturn:/etc/coturn:ro
+    networks:
+      rtc:
+        ipv4_address: 172.30.0.10
+
+  # Servidor WebRTC. Precisa estar na mesma rede do coturn, com este IP fixo.
+  # Em producao o nginx chega nele pelo nome. Em desenvolvimento o Vite usa a
+  # porta 8889 publicada em 127.0.0.1.
+  mediamtx:
+    image: bluenviron/mediamtx:1.16.2
+    container_name: mediamtx
+    restart: always
+    command: /config/mediamtx.docker.yml
+    ports:
+      - "127.0.0.1:8889:8889/tcp"
+    volumes:
+      - ./bin/mediamtx:/config:ro
+    networks:
+      rtc:
+        ipv4_address: 172.30.0.20
+
+  # nginx de producao. Configuracao em bin/nginx-docker/nginx.conf.
+  # Entrega bin/web e repassa para o backend no Windows e para os servicos
+  # acima. So sobe com --profile producao.
+  nginx:
+    image: nginx:1.28-alpine
+    container_name: nginx
+    restart: always
+    profiles: ["producao"]
+    command: ["nginx", "-c", "/etc/nginx/conversa/nginx.conf", "-g", "daemon off;"]
+    ports:
+      - "80:80"
+    volumes:
+      - ./bin/nginx-docker:/etc/nginx/conversa:ro
+      - ./bin/web:/usr/share/nginx/html:ro
+    extra_hosts:
+      # Ja existe no Docker Desktop. Necessario no Docker do Linux.
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - minio
+      - mediamtx
+    networks:
+      - default
+      - rtc
+
+networks:
+  rtc:
+    name: conversa-rtc
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+# Nomes fixos para reaproveitar os volumes criados pelos antigos setup-*.bat.
+volumes:
+  pgdata:
+    name: pgdata
+  minio:
+    name: minio

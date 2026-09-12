@@ -67,6 +67,7 @@ begin
       end;
 
       TConfiguracao.LoadFromDataBase;
+      TConfiguracao.VerificarBucketS3;
 
       THorse
         .Use(Jhonson)
@@ -565,6 +566,14 @@ begin
         procedure(Req: THorseRequest; Res: THorseResponse)
         begin
           Res.Send<TJSONObject>(TConversa.ReacaoAlternar(Req.Session<TJWTClaims>.Subject.ToInteger, Conteudo(Req)));
+        end
+      );
+
+      THorse.Get(
+        '/api/ice',
+        procedure(Req: THorseRequest; Res: THorseResponse)
+        begin
+          Res.Send<TJSONObject>(TConversa.IceServers(Req.Session<TJWTClaims>.Subject.ToInteger));
         end
       );
 

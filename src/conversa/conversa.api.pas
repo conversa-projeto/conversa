@@ -89,6 +89,7 @@ type
     class function SIPIncluir(Usuario: Integer; oSIP: TJSONObject): TJSONObject; static;
     class function SIPAlterar(Usuario: Integer; oSIP: TJSONObject): TJSONObject; static;
     class function ReacaoAlternar(Usuario: Integer; oReacao: TJSONObject): TJSONObject; static;
+    class function IceServers(Usuario: Integer): TJSONObject; static;
   end;
 
 implementation
@@ -2961,6 +2962,50 @@ begin
   finally
     FreeAndNil(Qry);
   end;
+end;
+
+class function TConversa.IceServers(Usuario: Integer): TJSONObject;
+const
+  // Curto de proposito: a credencial só precisa sobreviver ao início da chamada.
+  // O coturn mantém a alocação viva depois disso, mesmo após o vencimento.
+  VALIDADE_SEGUNDOS = 3600;
+var
+  aServidores: TJSONArray;
+  oServidor: TJSONObject;
+  iExpira: Int64;
+  sUsuario: String;
+  sCredencial: String;
+begin
+  Result := TJSONObject.Create;
+  aServidores := TJSONArray.Create;
+  Result.AddPair('iceServers', aServidores);
+
+  // Sem TURN configurado o cliente usa o caminho direto, como antes.
+  if Configuracao.TurnURL.Trim.IsEmpty or Configuracao.TurnSecret.Trim.IsEmpty then
+  begin
+    Result.AddPair('iceTransportPolicy', 'all');
+    Exit;
+  end;
+
+  // Formato que a opção use-auth-secret do coturn espera:
+  // usuario = "<unix timestamp de expiração>:<identificador>"
+  // senha   = base64(HMAC-SHA1(segredo, usuario))
+  iExpira := DateTimeToUnix(Now, False) + VALIDADE_SEGUNDOS;
+  sUsuario := iExpira.ToString +':'+ Usuario.ToString;
+  sCredencial :=
+    TNetEncoding.Base64.EncodeBytesToString(
+      THashSHA1.GetHMACAsBytes(sUsuario, TEncoding.UTF8.GetBytes(Configuracao.TurnSecret))
+    );
+
+  oServidor := TJSONObject.Create;
+  oServidor.AddPair('urls', Configuracao.TurnURL);
+  oServidor.AddPair('username', sUsuario);
+  oServidor.AddPair('credential', sCredencial);
+  aServidores.Add(oServidor);
+
+  // relay-only força toda a mídia pelo coturn: previsível em qualquer rede,
+  // ao custo de TCP. Controlado pelo parâmetro turn_forcar_relay.
+  Result.AddPair('iceTransportPolicy', IfThen(Configuracao.TurnForcarRelay, 'relay', 'all'));
 end;
 
 end.

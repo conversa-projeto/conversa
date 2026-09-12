@@ -33,6 +33,15 @@ type
     class function Exists(Config: TMinioConfig; ObjectKey, Region: String): Boolean;
   end;
 
+  TMinioBucket = class
+  public
+    // Status HTTP do HEAD no bucket: 200 existe, 404 nao existe, 403 credencial
+    // recusada. 0 quando nao houve resposta, com o motivo em Error.
+    class function HeadStatus(Config: TMinioConfig; Region: String; out Error: String): Integer;
+    // Cria o bucket. True se criou ou se ele ja existia.
+    class function MakeBucket(Config: TMinioConfig; Region: String; out Error: String): Boolean;
+  end;
+
 implementation
 
 class function TMinioPresign.HexEncode(Bytes: TBytes): String;
@@ -168,6 +177,61 @@ begin
       Result := False;
     end;
   finally
+    HTTP.Free;
+  end;
+end;
+
+{ TMinioBucket }
+
+class function TMinioBucket.HeadStatus(Config: TMinioConfig; Region: String; out Error: String): Integer;
+var
+  HTTP: THTTPClient;
+begin
+  Error := '';
+  HTTP := THTTPClient.Create;
+  try
+    HTTP.ConnectionTimeout := 5000;
+    HTTP.ResponseTimeout := 10000;
+    try
+      // ObjectKey vazio gera /<bucket>/, que o MinIO trata como o proprio bucket
+      Result := HTTP.Head(TMinioPresign.PresignedURL('HEAD', Config, '', Region, 60)).StatusCode;
+    except on E: Exception do
+      begin
+        Result := 0;
+        Error := E.Message;
+      end;
+    end;
+  finally
+    HTTP.Free;
+  end;
+end;
+
+class function TMinioBucket.MakeBucket(Config: TMinioConfig; Region: String; out Error: String): Boolean;
+var
+  HTTP: THTTPClient;
+  Body: TMemoryStream;
+  StatusCode: Integer;
+begin
+  Error := '';
+  HTTP := THTTPClient.Create;
+  Body := TMemoryStream.Create;
+  try
+    HTTP.ConnectionTimeout := 5000;
+    HTTP.ResponseTimeout := 10000;
+    try
+      StatusCode := HTTP.Put(TMinioPresign.PresignedURL('PUT', Config, '', Region, 60), Body).StatusCode;
+      // 409: o bucket passou a existir entre a verificacao e a criacao
+      Result := (StatusCode = 200) or (StatusCode = 409);
+      if not Result then
+        Error := 'HTTP ' + StatusCode.ToString;
+    except on E: Exception do
+      begin
+        Result := False;
+        Error := E.Message;
+      end;
+    end;
+  finally
+    Body.Free;
     HTTP.Free;
   end;
 end;
