@@ -1,0 +1,8 @@
+node_modules
+bin
+Win64
+__history
+__recovery
+.git
+.claude
+*.md

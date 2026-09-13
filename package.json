@@ -1,0 +1,35 @@
+{
+  "name": "conversa-api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/servidor.ts",
+    "dev": "node --env-file-if-exists=.env --watch src/servidor.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/env": "^7.0.0",
+    "@fastify/jwt": "^10.2.2",
+    "@fastify/request-context": "^7.0.0",
+    "@fastify/schedule": "^7.0.0",
+    "@fastify/sensible": "^6.0.5",
+    "@fastify/websocket": "^11.3.0",
+    "bcrypt": "^6.0.0",
+    "close-with-grace": "^2.5.0",
+    "fastify": "^5.12.4",
+    "firebase-admin": "^14.4.0",
+    "minio": "^8.0.7",
+    "postgres": "^3.4.9",
+    "toad-scheduler": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/node": "^24.13.4",
+    "@types/ws": "^8.18.1",
+    "typescript": "^7.0.2"
+  }
+}

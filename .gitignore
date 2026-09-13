@@ -1,12 +1,5 @@
+node_modules/
+.env
 *.exe
-*.local
-*.identcache
-*.res
-*.dcu
 anexos/
-__history/
-__recovery/
-*.json
-*.rsm
 bin/cert/
-bin/nginx/**

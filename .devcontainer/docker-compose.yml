@@ -1,0 +1,40 @@
+# Container de desenvolvimento, usado pelo .devcontainer/devcontainer.json.
+# Projeto separado do compose principal, mas nas mesmas redes, para o Vite
+# alcancar api, minio e mediamtx pelo nome.
+
+name: conversa-dev
+
+services:
+
+  dev:
+    image: mcr.microsoft.com/devcontainers/javascript-node:24
+    container_name: dev
+    command: sleep infinity
+    environment:
+      # O vite.config.ts usa para ligar o polling: a pasta vem do Windows e nao
+      # avisa quando um arquivo muda.
+      CONVERSA_DEV_CONTAINER: "1"
+    # Sem porta publicada: o nginx chega no Vite pelo nome "dev", na porta 5173.
+    volumes:
+      # Os dois repositorios, lado a lado como no Windows.
+      - ../../conversa:/git/conversa
+      - ../../conversa-web:/git/conversa-web
+      - node-modules-api:/git/conversa/node_modules
+      - node-modules-web:/git/conversa-web/node_modules
+    networks:
+      - conversa
+      - rtc
+
+networks:
+  conversa:
+    name: conversa_default
+    external: true
+  rtc:
+    name: conversa-rtc
+    external: true
+
+volumes:
+  node-modules-api:
+    name: conversa-dev-node-modules-api
+  node-modules-web:
+    name: conversa-dev-node-modules-web

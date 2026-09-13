@@ -1,0 +1,14 @@
+# Desenvolvimento. O "docker compose up" carrega este arquivo sozinho, junto
+# com o docker-compose.yml; o bin\producao.bat usa so o docker-compose.yml.
+#
+# A API le src e migracoes direto da pasta do Windows e reinicia sozinha
+# quando algum arquivo muda, sem nenhum console aberto. Depois de mudar o
+# package.json, rode o bin\desenvolvimento.bat de novo para reconstruir.
+
+services:
+  api:
+    command: ["node", "bin/recarregar-api.mjs"]
+    volumes:
+      - ./src:/app/src:ro
+      - ./migracoes:/app/migracoes:ro
+      - ./bin/recarregar-api.mjs:/app/bin/recarregar-api.mjs:ro

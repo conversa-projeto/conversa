@@ -1,22 +1,26 @@
 # Conversa - servicos em Docker
 #
-# O backend (conversa.rest.exe) roda direto no Windows e nao esta aqui.
+#   bin\desenvolvimento.bat     desenvolvimento (com o docker-compose.override.yml,
+#                               a API reinicia sozinha ao salvar)
+#   bin\producao.bat            producao (so este arquivo)
+#   docker compose ps           estado dos servicos
+#   docker compose logs -f api  logs de um servico
+#   docker compose down         para tudo, mantendo os dados
 #
-#   docker compose up -d                        desenvolvimento
-#   docker compose --profile producao up -d     producao, inclui o nginx
-#   docker compose ps                           estado dos servicos
-#   docker compose logs -f coturn               logs de um servico
-#   docker compose --profile producao down      para tudo, mantendo os dados
+# O modo vem de CONVERSA_MODO (desenvolvimento, o padrao, ou producao), que o
+# producao.bat define. O nginx e o mesmo nos dois: em desenvolvimento termina o
+# HTTPS na 443 e pega a pagina do Vite; em producao escuta na 80, atras da
+# borda, e entrega bin/web.
 #
-# Em desenvolvimento quem entrega a pagina e repassa /api, /ws, /storage e
-# /webrtc e o Vite, no repositorio conversa-web. Em producao e o nginx abaixo.
+# Segredos gerados na primeira execucao, no volume conversa-dados: pepper das
+# senhas, credenciais do MinIO e segredo do TURN. Esse volume precisa entrar
+# no backup junto com o banco: sem o pepper nenhum login confere.
 #
-# Portas publicadas so em 127.0.0.1, exceto o TURN na 3478, que precisa ser
-# alcancado por navegadores de fora, e a 80 do nginx, que recebe a borda.
+# Portas publicadas so em 127.0.0.1, exceto o nginx e o TURN na 3478, que
+# precisam ser alcancados por navegadores de fora.
 #
-# Senhas podem ser trocadas num arquivo .env ao lado deste. Sem ele, valem os
-# padroes abaixo, que sao os mesmos dos antigos scripts setup-*.bat.
-# Se trocar as do MinIO, atualize s3_accesskey e s3_secretkey no banco.
+# A senha do PostgreSQL pode ser trocada num arquivo .env ao lado deste
+# (POSTGRES_PASSWORD). As credenciais do MinIO sao geradas, veja o servico.
 
 name: conversa
 
@@ -39,19 +43,32 @@ services:
       timeout: 3s
       retries: 20
 
+  # Usuario e senha do MinIO sao gerados aleatorios na primeira vez e ficam em
+  # /dados, no volume conversa-dados, que a API tambem le. Depois so sao lidos.
+  # O dono uid 1000 e o usuario node da API, que tambem grava o pepper ali.
   minio:
     image: quay.io/minio/minio
     container_name: minio
     restart: always
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mkdir -p /dados
+        [ -s /dados/minio-usuario ] || head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n' > /dados/minio-usuario
+        [ -s /dados/minio-senha ] || head -c 32 /dev/urandom | base64 | tr -d '+/=\n' > /dados/minio-senha
+        chown 1000:1000 /dados /dados/minio-usuario /dados/minio-senha
+        chmod 600 /dados/minio-usuario /dados/minio-senha
+        export MINIO_ROOT_USER="$$(cat /dados/minio-usuario)"
+        export MINIO_ROOT_PASSWORD="$$(cat /dados/minio-senha)"
+        exec /usr/bin/docker-entrypoint.sh minio server /data --console-address ":9001"
     ports:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     volumes:
       - minio:/data
+      - dados:/dados
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -60,22 +77,37 @@ services:
 
   # Retransmissor TURN. Configuracao em bin/coturn/turnserver.conf.
   # O IP fixo importa: o turnserver.conf so permite relay ate o MediaMTX.
+  # O segredo e gerado na primeira vez em /dados/turn-segredo, que a API tambem
+  # le, e entra numa copia da configuracao. Inicia como root so para isso: o
+  # turnserver troca para nobody logo em seguida.
   coturn:
     image: coturn/coturn
     container_name: coturn
     restart: always
-    command: -c /etc/coturn/turnserver.conf
+    user: root
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mkdir -p /dados
+        [ -s /dados/turn-segredo ] || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > /dados/turn-segredo
+        chown 1000:1000 /dados /dados/turn-segredo
+        chmod 600 /dados/turn-segredo
+        cp /etc/coturn/turnserver.conf /tmp/turnserver.conf
+        printf '\nstatic-auth-secret=%s\n' "$$(cat /dados/turn-segredo)" >> /tmp/turnserver.conf
+        exec turnserver -c /tmp/turnserver.conf --proc-user=nobody --proc-group=nogroup
     ports:
       - "3478:3478/tcp"
     volumes:
       - ./bin/coturn:/etc/coturn:ro
+      - dados:/dados
     networks:
       rtc:
         ipv4_address: 172.30.0.10
 
   # Servidor WebRTC. Precisa estar na mesma rede do coturn, com este IP fixo.
-  # Em producao o nginx chega nele pelo nome. Em desenvolvimento o Vite usa a
-  # porta 8889 publicada em 127.0.0.1.
+  # O nginx chega nele pelo nome.
   mediamtx:
     image: bluenviron/mediamtx:1.16.2
     container_name: mediamtx
@@ -89,24 +121,50 @@ services:
       rtc:
         ipv4_address: 172.30.0.20
 
-  # nginx de producao. Configuracao em bin/nginx-docker/nginx.conf.
-  # Entrega bin/web e repassa para o backend no Windows e para os servicos
-  # acima. So sobe com --profile producao.
+  # API em Node. HTTP e WebSocket, em /ws/, na porta 8080. O nginx chega nela
+  # pelo nome; a porta em 127.0.0.1 serve para testes locais.
+  api:
+    build: .
+    image: conversa-api
+    container_name: api
+    restart: always
+    environment:
+      CONVERSA_SERVER: postgres
+      CONVERSA_DATABASE: ${CONVERSA_DATABASE:-conversa}
+      CONVERSA_USERNAME: postgres
+      CONVERSA_PASSWORD: ${POSTGRES_PASSWORD:-root}
+      # Chamadas do servidor ao MinIO vao direto pela rede do Docker.
+      CONVERSA_S3_INTERNO: http://minio:9000
+      # Producao: porta publica da borda para o TURN, com TLS terminado la.
+      # Vazio (desenvolvimento) usa o coturn direto na 3478.
+      CONVERSA_TURN_PORTA: ${CONVERSA_TURN_PORTA:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - dados:/dados
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # nginx, ponto de entrada nos dois modos. Configuracao em bin/nginx/nginx.conf,
+  # com a parte que muda em bin/nginx/desenvolvimento ou bin/nginx/producao.
+  # Porta: 443 com HTTPS em desenvolvimento, 80 em producao (CONVERSA_PORTA).
   nginx:
     image: nginx:1.28-alpine
     container_name: nginx
     restart: always
-    profiles: ["producao"]
     command: ["nginx", "-c", "/etc/nginx/conversa/nginx.conf", "-g", "daemon off;"]
     ports:
-      - "80:80"
+      - "${CONVERSA_PORTA:-443}:${CONVERSA_PORTA:-443}"
     volumes:
-      - ./bin/nginx-docker:/etc/nginx/conversa:ro
+      - ./bin/nginx:/etc/nginx/conversa:ro
+      - ./bin/nginx/${CONVERSA_MODO:-desenvolvimento}:/etc/nginx/modo:ro
+      - ./bin/cert:/etc/nginx/cert:ro
       - ./bin/web:/usr/share/nginx/html:ro
-    extra_hosts:
-      # Ja existe no Docker Desktop. Necessario no Docker do Linux.
-      - "host.docker.internal:host-gateway"
     depends_on:
+      - api
       - minio
       - mediamtx
     networks:
@@ -126,3 +184,5 @@ volumes:
     name: pgdata
   minio:
     name: minio
+  dados:
+    name: conversa-dados

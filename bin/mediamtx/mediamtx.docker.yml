@@ -2,7 +2,6 @@
 #
 # Roda na rede Docker conversa-rtc com IP fixo 172.30.0.20, ao lado do coturn.
 # O nginx continua usando 127.0.0.1:8889, publicado pelo docker-compose.yml.
-# O mediamtx.yml ao lado e a versao antiga, para rodar o .exe fora do Docker.
 
 # API de controle (opcional)
 api: yes

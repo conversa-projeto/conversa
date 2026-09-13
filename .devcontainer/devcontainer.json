@@ -1,0 +1,27 @@
+// Ambiente de desenvolvimento dentro do Docker: Node 24, os dois repositorios
+// (conversa e conversa-web) e o Vite. Na maquina so precisa de Docker e VS Code.
+//
+// A API continua no container "api", que reinicia sozinho quando um arquivo
+// muda (docker-compose.override.yml). Este container so edita os arquivos e
+// roda o Vite.
+{
+  "name": "Conversa",
+  "dockerComposeFile": ["docker-compose.yml"],
+  "service": "dev",
+  "workspaceFolder": "/git",
+  "shutdownAction": "none",
+  "remoteUser": "node",
+
+  // Sobe os servicos do compose principal antes, para as redes existirem.
+  "initializeCommand": "docker compose up -d",
+
+  // node_modules fica em volume do Docker: os pacotes nativos (esbuild, rollup,
+  // bcrypt) sao de Linux e nao podem se misturar com os do Windows.
+  "postCreateCommand": "sudo chown node:node /git/conversa/node_modules /git/conversa-web/node_modules && git config --global --add safe.directory '*' && git config --global core.autocrlf true && cd /git/conversa && npm ci && cd /git/conversa-web && npm ci",
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["Vue.volar"]
+    }
+  }
+}
