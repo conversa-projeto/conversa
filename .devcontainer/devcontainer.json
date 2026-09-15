@@ -19,6 +19,12 @@
   // bcrypt) sao de Linux e nao podem se misturar com os do Windows.
   "postCreateCommand": "sudo chown node:node /git/conversa/node_modules /git/conversa-web/node_modules && git config --global --add safe.directory '*' && git config --global core.autocrlf true && cd /git/conversa && npm ci && cd /git/conversa-web && npm ci",
 
+  // Sobe o Vite sozinho toda vez que o VS Code conecta no container. O log
+  // aparece numa aba de terminal propria. Fechar o VS Code nao para o
+  // container, entao antes encerra o Vite que ficou da sessao anterior.
+  // O [n] no padrao evita que o pkill encontre este proprio comando.
+  "postAttachCommand": "pkill -f '[n]ode_modules/.bin/vite' && sleep 1; cd /git/conversa-web && npm run dev",
+
   "customizations": {
     "vscode": {
       "extensions": ["Vue.volar"]

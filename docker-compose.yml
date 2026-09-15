@@ -26,6 +26,8 @@ name: conversa
 
 services:
 
+  # Publicado na 5433: a 5432 costuma estar ocupada por um PostgreSQL ja
+  # instalado na maquina. Dentro do Docker a API usa postgres:5432.
   postgres:
     image: postgres:15-alpine
     container_name: postgres
@@ -34,7 +36,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-root}
       TZ: UTC
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

@@ -23,21 +23,14 @@ Desenvolvimento e producao usam o mesmo nginx, com as mesmas rotas. A diferenca:
 
 1. **Certificado HTTPS:** duplo-clique em `bin\setup-cert.bat` e digite o IP da sua maquina.
 2. **Backend:** duplo-clique em `bin\desenvolvimento.bat`. Ele sobe tudo em segundo plano; quando aparecer "Ambiente de desenvolvimento no ar", pode fechar a janela.
-3. **VS Code:** abra a pasta `conversa`, aperte `F1` e escolha **Dev Containers: Reopen in Container**. Na primeira vez demora alguns minutos.
-4. **Pagina:** no terminal do VS Code, rode:
-
-   ```bash
-   cd /git/conversa-web && npm run dev
-   ```
-
-5. **Acesse:** `https://SEU_IP`. Na propria maquina, `https://localhost` tambem funciona.
+3. **VS Code:** abra a pasta `conversa`, aperte `F1` e escolha **Dev Containers: Reopen in Container**. Na primeira vez demora alguns minutos. Quando ele conecta, o Vite sobe sozinho numa aba de terminal.
+4. **Acesse:** `https://SEU_IP`. Na propria maquina, `https://localhost` tambem funciona.
 
 Nao ha nada para configurar: banco, pepper das senhas, chave dos logins, credenciais do MinIO e segredo do TURN sao criados sozinhos na primeira subida. Anexos e chamadas usam o mesmo endereco que voce abriu no navegador.
 
 ### Dia a dia
 
-1. Abrir a pasta `conversa` no VS Code (ja abre no container)
-2. `cd /git/conversa-web && npm run dev`
+Abrir a pasta `conversa` no VS Code. Ele ja abre no container e sobe o Vite sozinho.
 
 Os containers voltam sozinhos quando o Docker Desktop abre, e a API reinicia sozinha a cada arquivo salvo em `src` ou `migracoes`. Rode o `bin\desenvolvimento.bat` de novo so depois de mudar o `package.json` da API ou se tiver parado tudo.
 
@@ -45,7 +38,7 @@ Se o IP da maquina mudar, rode de novo o `setup-cert.bat` e depois `docker resta
 
 ### Parar
 
-`Ctrl+C` no terminal do Vite. Para parar os containers, `docker compose down` na pasta `conversa`. Os dados continuam salvos.
+Fechar o VS Code para o Vite. Para parar os containers, `docker compose down` na pasta `conversa`. Os dados continuam salvos.
 
 ---
 
@@ -115,5 +108,6 @@ Rode num terminal na pasta `conversa`.
 | Para | Comando |
 |------|---------|
 | Ver o log da API | `docker compose logs -f api` |
+| Conectar um cliente ao banco | `127.0.0.1:5433`, usuario `postgres`, banco `conversa` (a 5432 fica livre para um PostgreSQL da maquina) |
 | Usuario e senha do console do MinIO (`http://localhost:9001`) | `docker exec minio cat /dados/minio-usuario /dados/minio-senha` |
 | Parar tudo sem apagar dados | `docker compose down` |
