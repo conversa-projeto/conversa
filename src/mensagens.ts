@@ -204,7 +204,7 @@ export async function pesquisar(sql: Sql, conversa: number, usuario: number, tex
 
 async function carregarConteudos(sql: Sql, mensagemId: number) {
   const linhas = await sql`
-    select id, ordem, tipo, conteudo, nome, extensao
+    select id, ordem, tipo, conteudo, nome, extensao, transcricao_status, transcricao
       from ( /* Texto e chamada */
              select id
                   , ordem
@@ -212,6 +212,8 @@ async function carregarConteudos(sql: Sql, mensagemId: number) {
                   , convert_from(conteudo, 'utf-8') as conteudo
                   , null as nome
                   , null as extensao
+                  , null::int4 as transcricao_status
+                  , null::text as transcricao
                from mensagem_conteudo
               where mensagem_id = ${mensagemId}
                 and tipo in (1, 6)
@@ -225,6 +227,8 @@ async function carregarConteudos(sql: Sql, mensagemId: number) {
                   , tbl.conteudo
                   , a.nome
                   , a.extensao
+                  , t.status as transcricao_status
+                  , t.texto as transcricao
                from ( select id
                            , ordem
                            , tipo
@@ -235,6 +239,8 @@ async function carregarConteudos(sql: Sql, mensagemId: number) {
                     ) as tbl
               inner join anexo a
                  on a.identificador = tbl.conteudo
+               left join anexo_transcricao t
+                 on t.identificador = tbl.conteudo
            ) as tbl
      order by ordem`
   return linhas.map((linha) => ({
@@ -244,6 +250,8 @@ async function carregarConteudos(sql: Sql, mensagemId: number) {
     conteudo: linha.conteudo ?? '',
     nome: linha.nome ?? '',
     extensao: linha.extensao ?? '',
+    transcricao_status: linha.transcricao_status ?? 0,
+    transcricao: linha.transcricao ?? '',
   }))
 }
 
@@ -460,17 +468,27 @@ export async function novasMensagens(sql: Sql, usuario: number, desde: string) {
     }
     inicio = data
   }
+  // O cursor vem do navegador, onde o JavaScript so tem milissegundos, mas o
+  // PostgreSQL grava microssegundos. Sem truncar os dois lados, a ultima
+  // mensagem de cada conversa volta em toda consulta e vira notificacao
+  // repetida. A comparacao direta na coluna fica junto so para o indice valer.
   return sql`
     select m.conversa_id
          , max(m.id) as mensagem_id
-         , max(coalesce(m.visivel_em, m.inserida)) as ate
+         , date_trunc('milliseconds', max(coalesce(m.visivel_em, m.inserida))) as ate
       from mensagem as m
      inner join conversa_usuario as cu
         on cu.conversa_id = m.conversa_id
        and cu.usuario_id <> m.usuario_id
      where cu.usuario_id = ${usuario}
-       and coalesce(m.visivel_em, m.inserida) > ${inicio.toISOString()}::timestamptz
+       and coalesce(m.visivel_em, m.inserida) >= ${inicio.toISOString()}::timestamptz
+       and date_trunc('milliseconds', coalesce(m.visivel_em, m.inserida)) > ${inicio.toISOString()}::timestamptz
        and (m.visivel_em is null or m.visivel_em <= now())
+       and not exists ( select 1
+                          from mensagem_status ms
+                         where ms.mensagem_id = m.id
+                           and ms.usuario_id = cu.usuario_id
+                           and ms.visualizada is not null )
      group by m.conversa_id`
 }
 

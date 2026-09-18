@@ -66,6 +66,7 @@ export const esquemas = {
   reacao: { body: objeto(['mensagem_id', 'emoji'], { mensagem_id: inteiro, emoji: texto }) },
 
   identificador: { querystring: objeto(['identificador'], { identificador: texto }) },
+  transcricao: { body: objeto(['identificador'], { identificador: texto }) },
   incluirAnexo: { body: objeto(['identificador', 'tipo', 'tamanho'], { identificador: texto, tipo: inteiro, nome: textoOuNulo, extensao: textoOuNulo, tamanho: inteiro }) },
   anexos: {
     querystring: objeto([], {

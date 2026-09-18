@@ -356,13 +356,27 @@ async function inserirMensagemChamada(sql: Sql, chamada: number) {
 
   const [mensagem] = await sql`insert into mensagem (conversa_id, usuario_id) values (${dados.conversa_id}, ${dados.criado_por}) returning id`
   await sql`insert into mensagem_conteudo (mensagem_id, ordem, tipo, conteudo) values (${mensagem.id}, 1, 6, convert_to(${conteudo}, 'UTF8'))`
+  // Quem participou da chamada ja recebe o resumo como lido: nao faz sentido
+  // aparecer como nao lida uma chamada da qual a pessoa estava. Quem nao
+  // entrou (chamada perdida) continua com ela nao lida, como aviso.
   await sql`
-    insert into mensagem_status (conversa_id, usuario_id, mensagem_id)
-    select cu.conversa_id, cu.usuario_id, ${mensagem.id}
+    insert into mensagem_status (conversa_id, usuario_id, mensagem_id, recebida, visualizada)
+    select cu.conversa_id, cu.usuario_id, ${mensagem.id}, participou.quando, participou.quando
       from conversa_usuario cu
+      left join lateral
+           ( select current_timestamp as quando
+               from chamada_usuario chu
+              where chu.chamada_id = ${chamada}
+                and chu.usuario_id = cu.usuario_id
+                and chu.entrou_em is not null
+              limit 1
+           ) as participou
+        on true
      where cu.conversa_id = ${dados.conversa_id}
        and cu.usuario_id <> ${dados.criado_por}`
-  await notificarStatusMensagens(sql, dados.criado_por, dados.conversa_id, String(mensagem.id))
+  // Avisa todos, inclusive quem ligou (autor do resumo), para a conversa aberta
+  // carregar a mensagem.
+  await notificarStatusMensagens(sql, 0, dados.conversa_id, String(mensagem.id))
 }
 
 // Gerado pelo container coturn na primeira vez. Lido a cada pedido, porque a

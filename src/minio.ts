@@ -61,6 +61,17 @@ export async function objetoExiste(chave: string) {
   }
 }
 
+// Conteudo de um objeto, lido pelo endereco interno. Usado para enviar o audio
+// ao transcritor.
+export async function lerObjeto(chave: string): Promise<Buffer> {
+  const fluxo = await interno!.getObject(configuracao.s3.bucket, chave)
+  const partes: Buffer[] = []
+  for await (const parte of fluxo) {
+    partes.push(Buffer.from(parte))
+  }
+  return Buffer.concat(partes)
+}
+
 const ERROS_CREDENCIAL = ['AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch']
 
 // Numa instalacao nova o bucket nao existe e os anexos falhariam sem aviso.

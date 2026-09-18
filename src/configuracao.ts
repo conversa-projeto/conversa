@@ -60,6 +60,8 @@ export const configuracao = {
   s3: { accessKey: '', secretKey: '', bucket: '' } as ConfigS3,
   turnPorta: '',
   turnForcarRelay: false,
+  transcritorUrl: '',
+  transcritorIdioma: 'pt',
 }
 
 export function definirAmbiente(ambiente: Ambiente) {
@@ -126,6 +128,8 @@ const PARAMETROS = [
   'fcm_private_key',
   's3_bucket',
   'turn_forcar_relay',
+  'transcritor_url',
+  'transcritor_idioma',
 ]
 
 export async function carregarParametros(sql: Sql) {
@@ -157,6 +161,8 @@ export async function carregarParametros(sql: Sql) {
     bucket: valor('s3_bucket'),
   }
   configuracao.turnForcarRelay = valor('turn_forcar_relay').trim() === '1'
+  configuracao.transcritorUrl = valor('transcritor_url')
+  configuracao.transcritorIdioma = valor('transcritor_idioma')
 
   exibirAvisos()
 }
@@ -169,6 +175,9 @@ function exibirAvisos() {
   }
   if (!c.s3.bucket.trim()) {
     console.log('⚠  Parâmetro "s3_bucket" vazio! Anexos não vão funcionar!')
+  }
+  if (!c.transcritorUrl.trim()) {
+    console.log('ℹ  Parâmetro "transcritor_url" vazio: transcrição de áudio desligada.')
   }
   if (c.turnForcarRelay) {
     console.log('ℹ  TURN ativo em modo relay-only. Toda mídia passa pelo coturn.')

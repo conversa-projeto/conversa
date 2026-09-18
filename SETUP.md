@@ -111,3 +111,16 @@ Rode num terminal na pasta `conversa`.
 | Conectar um cliente ao banco | `127.0.0.1:5433`, usuario `postgres`, banco `conversa` (a 5432 fica livre para um PostgreSQL da maquina) |
 | Usuario e senha do console do MinIO (`http://localhost:9001`) | `docker exec minio cat /dados/minio-usuario /dados/minio-senha` |
 | Parar tudo sem apagar dados | `docker compose down` |
+
+## Transcricao de audio
+
+As mensagens de audio ganham um botao **Transcrever**. O texto fica salvo na tabela `anexo_transcricao` e aparece abaixo do player para todos da conversa. Quem faz a transcricao e o [transcritor-api](../transcritor-api), sempre com um unico falante.
+
+Fica desligada ate informar o endereco do transcritor. Com ele rodando na mesma maquina (porta 8000), entre no banco (`docker exec -it postgres psql -U postgres -d conversa`) e rode:
+
+```sql
+update parametros set valor = 'http://host.docker.internal:8000' where nome = 'transcritor_url';
+update parametros set valor = 'pt' where nome = 'transcritor_idioma';  -- idioma padrao
+```
+
+Depois reinicie a API: `docker restart api`.

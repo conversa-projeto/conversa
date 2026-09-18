@@ -8,6 +8,7 @@ import * as chamadas from './chamadas.ts'
 import * as conversas from './conversas.ts'
 import * as mensagens from './mensagens.ts'
 import * as sip from './sip.ts'
+import * as transcricoes from './transcricoes.ts'
 import * as usuarios from './usuarios.ts'
 
 const usuarioDe = (req: FastifyRequest) => Number((req.user as { sub: string }).sub)
@@ -137,6 +138,14 @@ export async function registrarRotas(app: FastifyInstance) {
 
   app.get('/api/anexos', { schema: esquemas.anexos }, (req) =>
     comoUsuario(req, (sql, usuario, _, consulta) => anexos.anexos(sql, usuario, consulta)))
+
+  // --- Transcricao de audio ---
+
+  app.get('/api/anexo/transcricao', { schema: esquemas.identificador }, (req) =>
+    comoUsuario(req, (sql, usuario, _, consulta) => transcricoes.obterTranscricao(sql, usuario, consulta.identificador)))
+
+  app.put('/api/anexo/transcricao', { schema: esquemas.transcricao }, (req) =>
+    comoUsuario(req, (sql, usuario, corpo) => transcricoes.transcrever(sql, usuario, corpo.identificador)))
 
   // --- Chamadas ---
 
