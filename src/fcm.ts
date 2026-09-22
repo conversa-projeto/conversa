@@ -16,9 +16,12 @@ function obterAplicativo() {
   return aplicativo
 }
 
-export async function enviarPush(tokenDispositivo: string, titulo: string, mensagem: string) {
+// So dados, sem o bloco notification: quem mostra a notificacao e o service
+// worker da pagina, que no clique foca a aba ja aberta e abre a conversa.
+export async function enviarPush(tokenDispositivo: string, titulo: string, mensagem: string, conversa: number) {
   await getMessaging(obterAplicativo()).send({
     token: tokenDispositivo,
-    notification: { title: titulo, body: mensagem },
+    data: { titulo, mensagem, conversa: String(conversa) },
+    webpush: { headers: { Urgency: 'high' } },
   })
 }

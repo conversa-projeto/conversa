@@ -9,9 +9,19 @@ import { notificarReacao } from './websocket.ts'
 const { httpErrors } = sensible
 
 // Texto da notificacao: conteudos separados por " | ".
+// Texto de uma linha para a notificacao, como nas previas do app: mencao
+// vira @Nome e cada bloco de codigo vira "Código (linguagem)".
+function resumirTexto(texto: string) {
+  return texto
+    .replace(/@\[([^\]]+)\]\(\d+\)/g, '@$1')
+    .replace(/(`{3,})(\w*)\n([\s\S]*?)(?:\n\1`*|\1`*(?=\s*$))/g, (_, _cerca: string, linguagem: string) => ` Código${linguagem ? ` (${linguagem})` : ''} `)
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function textoConteudo(tipo: number, conteudo: string) {
   switch (tipo) {
-    case 1: return conteudo
+    case 1: return resumirTexto(conteudo)
     case 2: return 'imagem'
     case 3: return 'arquivo'
     default: return ''
@@ -82,7 +92,7 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Linha) {
     await sql`
       insert into mensagem_conteudo (mensagem_id, ordem, tipo, conteudo)
       values (${mensagem.id}, ${item.ordem}, ${item.tipo}, convert_to(${item.conteudo ?? null}, 'UTF8'))`
-    partes.push(...textoConteudo(item.tipo, item.conteudo ?? '').split(' '))
+    partes.push(textoConteudo(item.tipo, item.conteudo ?? ''))
   }
 
   // Agendadas so notificam quando amadurecem, pelo agendador.

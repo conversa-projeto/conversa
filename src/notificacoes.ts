@@ -68,7 +68,7 @@ export async function notificarNovaMensagemConversa(sql: Sql, usuario: number, c
     notificarNovaMensagem(usuario_id, titulo, texto)
     if (token_fcm && !usuarioConectado(usuario_id)) {
       // Falha de push nao pode derrubar o envio da mensagem.
-      enviarPush(token_fcm, titulo, texto).catch(() => {})
+      enviarPush(token_fcm, titulo, texto, conversa).catch(() => {})
     }
   }
 }
