@@ -32,6 +32,8 @@ Nao ha nada para configurar: banco, pepper das senhas, chave dos logins, credenc
 
 Abrir a pasta `conversa` no VS Code. Ele ja abre no container e sobe o Vite sozinho.
 
+Sem o VS Code: duplo-clique em `bin\iniciar-desenvolvimento.bat`. Ele sobe o backend, o container de desenvolvimento e o Vite, instala as dependencias se for a primeira vez e abre `https://localhost` quando estiver pronto.
+
 Os containers voltam sozinhos quando o Docker Desktop abre, e a API reinicia sozinha a cada arquivo salvo em `src` ou `migracoes`. Rode o `bin\desenvolvimento.bat` de novo so depois de mudar o `package.json` da API ou se tiver parado tudo.
 
 Se o IP da maquina mudar, rode de novo o `setup-cert.bat` e depois `docker restart nginx`.
