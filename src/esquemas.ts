@@ -54,7 +54,7 @@ export const esquemas = {
   mensagens: {
     querystring: objeto(['conversa'], {
       conversa: inteiro,
-      mensagemreferencia: paginacao,
+      mensagemreferencia: { ...inteiroPadraoZero, minimum: 0 },
       mensagensprevias: paginacao,
       mensagensseguintes: paginacao,
     }),

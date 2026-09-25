@@ -204,7 +204,7 @@ export async function pesquisar(sql: Sql, conversa: number, usuario: number, tex
               inner join mensagem_conteudo mc
                  on mc.mensagem_id = m.id
                 and mc.tipo = 1 /* 1-Texto */
-                and mc.conteudo like convert_to(${padrao}, 'UTF8')
+                and unaccent(convert_from(mc.conteudo, 'UTF8')) ilike unaccent(${padrao})
               where (m.usuario_id = ${usuario} or m.visivel_em is null or m.visivel_em <= now())
               order by m.id
            ) as tbl`
@@ -466,6 +466,29 @@ export async function statusMensagens(sql: Sql, conversa: number, usuario: numbe
     visualizada: linha.visualizada === linha.total,
     reproduzida: linha.reproduzida === linha.total,
   }))
+}
+
+// Quem recebeu, viu e ouviu uma mensagem, com o horário de cada um. Só quem
+// enviou a mensagem pode ver.
+export async function detalheStatusMensagem(sql: Sql, usuario: number, mensagem: number) {
+  const [dados] = await sql`select conversa_id, usuario_id from mensagem where id = ${mensagem}`
+  if (!dados) {
+    throw httpErrors.notFound('Mensagem não encontrada!')
+  }
+  if (dados.usuario_id !== usuario) {
+    throw httpErrors.forbidden('Só quem enviou a mensagem vê quem recebeu e visualizou.')
+  }
+  return sql`
+    select ms.usuario_id
+         , u.nome
+         , ms.recebida
+         , ms.visualizada
+         , ms.reproduzida
+      from mensagem_status ms
+     inner join usuario u
+        on u.id = ms.usuario_id
+     where ms.mensagem_id = ${mensagem}
+     order by ms.visualizada nulls last, ms.recebida nulls last, u.nome`
 }
 
 // Cursor pelo timestamp efetivo. Sem "desde", considera desde sempre.

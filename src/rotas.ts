@@ -112,6 +112,9 @@ export async function registrarRotas(app: FastifyInstance) {
   app.get('/api/mensagem/status', { schema: esquemas.statusMensagens }, (req) =>
     comoUsuario(req, (sql, usuario, _, consulta) => mensagens.statusMensagens(sql, consulta.conversa, usuario, consulta.mensagem)))
 
+  app.get('/api/mensagem/status/detalhe', { schema: esquemas.idNaConsulta }, (req) =>
+    comoUsuario(req, (sql, usuario, _, consulta) => mensagens.detalheStatusMensagem(sql, usuario, consulta.id)))
+
   app.get('/api/mensagens/novas', { schema: esquemas.novasMensagens }, (req) =>
     comoUsuario(req, (sql, usuario, _, consulta) => mensagens.novasMensagens(sql, usuario, consulta.desde)))
 
