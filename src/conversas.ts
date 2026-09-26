@@ -1,23 +1,49 @@
-import type { Linha, Sql } from './banco.ts'
+import type { Sql } from './banco.ts'
 import { validarAcessoConversa, validarRemocaoConversaUsuario } from './autorizacao.ts'
 import { alterar, excluir, inserir } from './comum.ts'
+import type { Corpo } from './esquemas.ts'
 import { urlPublica } from './minio.ts'
+import type { ConversaUsuario, TipoConversa } from './tabelas.ts'
 import { notificarMembrosConversa } from './notificacoes.ts'
 import { TipoMensagemSocket } from './websocket.ts'
 
 // Troca avatar_objeto por avatar_url assinada, no fim do objeto.
-export async function comAvatarUrl({ avatar_objeto, ...linha }: Linha): Promise<Linha> {
+export async function comAvatarUrl<T extends { avatar_objeto: string | null }>({ avatar_objeto, ...linha }: T): Promise<Omit<T, 'avatar_objeto'> & { avatar_url: string | null }> {
   return { ...linha, avatar_url: avatar_objeto ? await urlPublica('GET', avatar_objeto, 600) : null }
 }
 
-export async function incluirConversa(sql: Sql, usuario: number, corpo: Linha) {
+// Conversa na lista do usuario, com a ultima mensagem e o que falta ler
+export interface ConversaLista {
+  id: number
+  descricao: string | null
+  tipo: TipoConversa
+  inserida: Date
+  nome: string | null
+  destinatario_id: number | null
+  mensagem_id: number
+  ultima_mensagem: Date | null
+  ultima_mensagem_texto: string | null
+  mensagens_sem_visualizar: number
+  avatar_objeto: string | null
+  fixada_ordem: number | null
+  arquivada_em: Date | null
+}
+
+export interface MembroConversa {
+  id: number
+  usuario_id: number
+  nome: string
+  avatar_objeto: string | null
+}
+
+export async function incluirConversa(sql: Sql, usuario: number, corpo: Corpo<'incluirConversa'>) {
   const conversa = await inserir(sql, 'conversa', corpo, ['descricao', 'tipo'])
   // O criador entra como membro. criado_por vem do app.usuario_id no Postgres.
   await inserir(sql, 'conversa_usuario', { conversa_id: conversa.id, usuario_id: usuario }, ['conversa_id', 'usuario_id'])
   return conversa
 }
 
-export async function alterarConversa(sql: Sql, usuario: number, corpo: Linha) {
+export async function alterarConversa(sql: Sql, usuario: number, corpo: Corpo<'alterarConversa'>) {
   await validarAcessoConversa(sql, usuario, corpo.id)
   return alterar(sql, 'conversa', corpo.id, corpo, ['descricao'])
 }
@@ -28,16 +54,21 @@ export async function excluirConversa(sql: Sql, usuario: number, conversa: numbe
 }
 
 export async function conversas(sql: Sql, usuario: number) {
-  const linhas = await sql`
+  const linhas = await sql<ConversaLista[]>`
     with temp_conversa as
-         ( select distinct c.id
+         ( select c.id
                 , c.descricao
                 , c.tipo
                 , c.inserida
+                , cu.fixada_ordem
+                , cu.arquivada_em
              from
                 ( select conversa_id
+                       , min(fixada_ordem) as fixada_ordem
+                       , max(arquivada_em) as arquivada_em
                     from conversa_usuario
                    where usuario_id = ${usuario}
+                   group by conversa_id
                 ) as cu
             inner
              join conversa c
@@ -54,6 +85,8 @@ export async function conversas(sql: Sql, usuario: number) {
        , convert_from(tcm.ultima_mensagem_texto, 'utf-8') as ultima_mensagem_texto
        , cast(coalesce(mensagens_sem_visualizar, 0) as int) as mensagens_sem_visualizar
        , d.avatar_objeto
+       , tc.fixada_ordem
+       , tc.arquivada_em
     from temp_conversa tc
     left
     join
@@ -141,8 +174,31 @@ export async function conversas(sql: Sql, usuario: number) {
   return Promise.all(linhas.map(comAvatarUrl))
 }
 
+// Fixadas do usuário, na ordem em que devem aparecer. As que não estão na
+// lista deixam de ser fixadas.
+export async function ordenarFixadas(sql: Sql, usuario: number, conversas: number[]) {
+  await sql`
+    update conversa_usuario
+       set fixada_ordem = array_position(${conversas}::int4[], conversa_id)
+     where usuario_id = ${usuario}
+       and (fixada_ordem is not null or conversa_id = any(${conversas}::int4[]))`
+  return { conversas }
+}
+
+// Arquivada some da lista e não notifica; também deixa de ser fixada
+export async function arquivarConversa(sql: Sql, usuario: number, conversa: number, arquivada: boolean) {
+  await validarAcessoConversa(sql, usuario, conversa)
+  await sql`
+    update conversa_usuario
+       set arquivada_em = ${arquivada ? sql`current_timestamp` : null}
+         , fixada_ordem = case when ${arquivada} then null else fixada_ordem end
+     where usuario_id = ${usuario}
+       and conversa_id = ${conversa}`
+  return { id: conversa, arquivada }
+}
+
 export async function membrosConversa(sql: Sql, usuario: number, conversa: number) {
-  const linhas = await sql`
+  const linhas = await sql<MembroConversa[]>`
     select cu.id
          , cu.usuario_id
          , u.nome
@@ -160,11 +216,11 @@ export async function membrosConversa(sql: Sql, usuario: number, conversa: numbe
   return Promise.all(linhas.map(comAvatarUrl))
 }
 
-export async function incluirMembro(sql: Sql, usuario: number, corpo: Linha) {
+export async function incluirMembro(sql: Sql, usuario: number, corpo: Corpo<'incluirMembro'>) {
   await validarAcessoConversa(sql, usuario, corpo.conversa_id)
   // O criador ja entra ao criar a conversa, e o cliente tambem o inclui:
   // quem ja e membro volta como esta, sem erro de chave duplicada.
-  const [existente] = await sql`
+  const [existente] = await sql<ConversaUsuario[]>`
     select * from conversa_usuario where conversa_id = ${corpo.conversa_id} and usuario_id = ${corpo.usuario_id}`
   if (existente) {
     return existente

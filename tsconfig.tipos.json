@@ -1,0 +1,15 @@
+{
+  // So as declaracoes (.d.ts) da API, para a pagina usar o tipo App no cliente
+  // Eden. O conversa-web referencia este projeto e o TypeScript gera as
+  // declaracoes sozinho quando a API muda.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "rootDir": "src",
+    "outDir": ".tipos"
+  },
+  "include": ["src/**/*.ts"]
+}

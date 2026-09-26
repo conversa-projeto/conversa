@@ -1,14 +1,11 @@
 import postgres from 'postgres'
 import type { ConfigBanco } from './configuracao.ts'
 
-export type Sql = postgres.Sql<any>
-export type Linha = Record<string, any>
-export type Fragmento = postgres.PendingQuery<any>
-
-let sql: Sql
-
-export function iniciarBanco(config: ConfigBanco) {
-  sql = postgres({
+// Conexao com as conversoes de tipo abaixo. O tipo Sql sai dela, entao as
+// consultas conhecem as conversoes (int8 e numeric viram number, timestamp
+// vira Date e bytea vira texto).
+function conectar(config: ConfigBanco) {
+  return postgres({
     host: config.host,
     port: config.port,
     database: config.database,
@@ -31,6 +28,15 @@ export function iniciarBanco(config: ConfigBanco) {
       byteaTexto: { to: 17, from: [17], serialize: (v: string) => v, parse: (v: string) => Buffer.from(v.slice(2), 'hex').toString('utf8') },
     },
   })
+}
+
+export type Sql = ReturnType<typeof conectar>
+export type Fragmento = postgres.PendingQuery<postgres.Row[]>
+
+let sql: Sql
+
+export function iniciarBanco(config: ConfigBanco) {
+  sql = conectar(config)
 }
 
 // Cria o banco da aplicacao se ele ainda nao existir, conectando no banco

@@ -1,7 +1,10 @@
 import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { comUsuario, executarScript } from './banco.ts'
 
-const PASTA = new URL('../migracoes/', import.meta.url)
+// Pasta migracoes ao lado de onde a API roda (/app no Docker). Nao sai do
+// import.meta.url porque no binario compilado ele aponta para dentro do executavel.
+const PASTA = join(process.cwd(), 'migracoes')
 
 // Cada arquivo NNN.sql e uma versao. A versao aplicada fica em parametros.versao.
 // As pendentes rodam juntas num unico script.
@@ -15,9 +18,9 @@ export async function executarMigracoes() {
   )
 
   const versaoAtual = await comUsuario(0, async (sql) => {
-    const [registro] = await sql`select cast(valor as int) as versao from parametros where nome = 'versao'`
+    const [registro] = await sql<{ versao: number }[]>`select cast(valor as int) as versao from parametros where nome = 'versao'`
     if (registro) {
-      return registro.versao as number
+      return registro.versao
     }
     await sql`insert into parametros (nome, valor) values ('versao', '-1')`
     return -1
@@ -30,7 +33,7 @@ export async function executarMigracoes() {
     return
   }
 
-  const script = pendentes.map((nome) => readFileSync(new URL(nome, PASTA), 'utf8')).join('\n')
+  const script = pendentes.map((nome) => readFileSync(join(PASTA, nome), 'utf8')).join('\n')
   await executarScript(`${script}\nupdate parametros set valor = '${ultimaVersao}' where nome = 'versao';`)
   console.log(`Migrações aplicadas até a versão ${ultimaVersao}`)
 }

@@ -1,8 +1,7 @@
-import sensible from '@fastify/sensible'
 import type { Sql } from './banco.ts'
 import { conferirSenha } from './senha.ts'
+import { httpErrors } from './erros.ts'
 
-const { httpErrors } = sensible
 const acessoNegado = () => httpErrors.forbidden('Acesso negado!')
 
 export async function validarAcessoConversa(sql: Sql, usuario: number, conversa: number) {
@@ -63,10 +62,11 @@ export async function validarSipUsuario(sql: Sql, usuario: number, sip: number) 
 }
 
 export async function validarSenhaAtual(sql: Sql, usuario: number, senhaAtual: string) {
-  const [linha] = usuario > 0 ? await sql`select senha from usuario where id = ${usuario}` : []
+  const [linha] = usuario > 0 ? await sql<{ senha: string }[]>`select senha from usuario where id = ${usuario}` : []
   // Hash bcrypt tem 60 caracteres. Fora disso e senha legada em texto puro.
   const valida = linha && (linha.senha.length === 60 ? await conferirSenha(senhaAtual, linha.senha) : senhaAtual === linha.senha)
   if (!valida) {
-    throw httpErrors.unauthorized('Senha atual incorreta!')
+    // 400, nao 401: a pagina trata 401 como sessao expirada e deslogaria
+    throw httpErrors.badRequest('Senha atual incorreta!')
   }
 }

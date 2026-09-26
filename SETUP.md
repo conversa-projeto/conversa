@@ -57,7 +57,7 @@ Fechar o VS Code para o Vite. Para parar os containers, `docker compose down` na
 1. **Pagina compilada:** no terminal do Dev Container, gere o build e copie para `bin/web`:
 
    ```bash
-   cd /git/conversa-web && npm run build && rm -rf /git/conversa/bin/web/* && cp -r dist/* /git/conversa/bin/web/
+   cd /git/conversa-web && bun run build && rm -rf /git/conversa/bin/web/* && cp -r dist/* /git/conversa/bin/web/
    ```
 
 2. **Porta das chamadas:** crie um arquivo `.env` na pasta `conversa` com a porta TCP publica da borda:

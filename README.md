@@ -2,7 +2,7 @@
 
 O Conversa é um serviço de mensagens instantâneas aberto. Os usuários podem enviar mensagens e trocar fotos, vídeos, áudios e arquivos de qualquer tipo, além de fazer chamadas de voz e vídeo. Também permite uso empresarial com gerenciamento de acessos de usuários.
 
-Este repositório contém a API em Node com Fastify e PostgreSQL, e toda a infraestrutura em Docker Compose: banco, armazenamento de arquivos, servidor WebRTC, retransmissor TURN e o nginx de produção. O guia completo de instalação está em [SETUP.md](./SETUP.md).
+Este repositório contém a API em Bun com Elysia e PostgreSQL (documentação das rotas em `/api/docs`), e toda a infraestrutura em Docker Compose: banco, armazenamento de arquivos, servidor WebRTC, retransmissor TURN e o nginx de produção. O guia completo de instalação está em [SETUP.md](./SETUP.md).
 
 ## Início rápido
 

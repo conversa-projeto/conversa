@@ -1,15 +1,37 @@
-import sensible from '@fastify/sensible'
-import type { Linha, Sql } from './banco.ts'
+import type { Sql } from './banco.ts'
 import { validarAcessoConversa } from './autorizacao.ts'
+import type { Consulta, Corpo } from './esquemas.ts'
+import { httpErrors } from './erros.ts'
 import { objetoExiste, urlPublica } from './minio.ts'
 
-const { httpErrors } = sensible
+// Status do upload: 0-Pendente, 1-Concluido, 2-Falhou
+interface AnexoObjeto {
+  objeto: string
+  upload_status: number
+}
+
+interface AnexoLista {
+  anexo_id: number
+  identificador: string
+  nome: string | null
+  extensao: string | null
+  tamanho: number
+  anexo_objeto: string | null
+  criado_em: Date | null
+  tipo: number
+  mensagem_id: number
+  conversa_id: number
+  conversa_descricao: string | null
+  autor_id: number
+  autor_nome: string
+}
+
 
 const TAMANHO_MAXIMO = 1024 * 1024 * 1024 // 1 GiB
 const TIPOS_ANEXO = [2, 3, 4, 5] // 2-Imagem; 3-Arquivo; 4-Audio; 5-Gravacao de audio
 
 export async function anexoExiste(sql: Sql, identificador: string) {
-  const [anexo] = await sql`
+  const [anexo] = await sql<{ id: number; identificador: string; tipo: number; tamanho: number; upload_status: number }[]>`
     select a.id, a.identificador, a.tipo, a.tamanho, a.upload_status
       from anexo as a
      where a.identificador = ${identificador}`
@@ -17,7 +39,7 @@ export async function anexoExiste(sql: Sql, identificador: string) {
 }
 
 export async function urlAnexo(sql: Sql, identificador: string) {
-  const [anexo] = await sql`select objeto, upload_status from anexo where identificador = ${identificador}`
+  const [anexo] = await sql<AnexoObjeto[]>`select objeto, upload_status from anexo where identificador = ${identificador}`
   if (!anexo) {
     throw new Error('Anexo não encontrado')
   }
@@ -33,12 +55,12 @@ export async function urlAnexo(sql: Sql, identificador: string) {
   return { url: await urlPublica('GET', anexo.objeto, 600) }
 }
 
-export async function incluirAnexo(sql: Sql, corpo: Linha) {
+export async function incluirAnexo(sql: Sql, corpo: Corpo<'incluirAnexo'>) {
   if (corpo.tamanho > TAMANHO_MAXIMO) {
     throw new Error('Arquivo muito grande!')
   }
 
-  const [existente] = await sql`select id, objeto from anexo where identificador = ${corpo.identificador}`
+  const [existente] = await sql<{ id: number; objeto: string }[]>`select id, objeto from anexo where identificador = ${corpo.identificador}`
   if (existente) {
     return { existe: true, id: String(existente.id), upload_url: await urlPublica('GET', existente.objeto, 600) }
   }
@@ -47,16 +69,19 @@ export async function incluirAnexo(sql: Sql, corpo: Linha) {
   const data = `${agora.getFullYear()}/${String(agora.getMonth() + 1).padStart(2, '0')}/${String(agora.getDate()).padStart(2, '0')}`
   const objeto = `conversa/${data}/${corpo.identificador}`
 
-  const [inserido] = await sql`
+  const [inserido] = await sql<{ id: number }[]>`
     insert into anexo (identificador, tipo, tamanho, nome, extensao, objeto)
     values (${corpo.identificador}, ${corpo.tipo}, ${corpo.tamanho}, ${corpo.nome?.trim() ? corpo.nome : null}, ${corpo.extensao?.trim() ? corpo.extensao : null}, ${objeto})
     returning id`
 
+  if (!inserido) {
+    throw new Error('Falha ao incluir o anexo')
+  }
   return { existe: false, id: inserido.id, upload_url: await urlPublica('PUT', objeto, 300), upload_status: 0 }
 }
 
 export async function confirmarUpload(sql: Sql, identificador: string) {
-  const [anexo] = await sql`select objeto, upload_status from anexo where identificador = ${identificador}`
+  const [anexo] = await sql<AnexoObjeto[]>`select objeto, upload_status from anexo where identificador = ${identificador}`
   if (!anexo) {
     throw new Error('Anexo não encontrado')
   }
@@ -69,7 +94,7 @@ export async function confirmarUpload(sql: Sql, identificador: string) {
   return { confirmado: true, upload_status: 1 }
 }
 
-export async function anexos(sql: Sql, usuario: number, filtro: Linha) {
+export async function anexos(sql: Sql, usuario: number, filtro: Consulta<'anexos'>) {
   const limite = filtro.limite <= 0 ? 50 : Math.min(filtro.limite, 200)
 
   const direcao = String(filtro.direcao).trim().toLowerCase()
@@ -102,7 +127,7 @@ export async function anexos(sql: Sql, usuario: number, filtro: Linha) {
       ? sql`and m.usuario_id <> ${usuario} ${filtro.autor > 0 ? sql`and m.usuario_id = ${filtro.autor}` : nenhum}`
       : filtro.autor > 0 ? sql`and m.usuario_id = ${filtro.autor}` : nenhum
 
-  const linhas = await sql`
+  const linhas = await sql<AnexoLista[]>`
     select a.id              as anexo_id
          , a.identificador
          , a.nome

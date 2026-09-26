@@ -1,13 +1,6 @@
-import { requestContext } from '@fastify/request-context'
 import { Client } from 'minio'
 import { configuracao } from './configuracao.ts'
-
-declare module '@fastify/request-context' {
-  interface RequestContextData {
-    // Endereco que o navegador usou para chamar a API, como https://192.168.0.10.
-    origemPublica: string
-  }
-}
+import { origemPublica } from './contexto.ts'
 
 const REGIAO = 'us-east-1'
 // Caminho em que o Vite e o nginx repassam para o MinIO.
@@ -38,7 +31,7 @@ export function iniciarMinio() {
 // entra na URL mas fica fora da assinatura, porque o proxy o remove antes de
 // repassar ao MinIO.
 export async function urlPublica(metodo: 'GET' | 'PUT', chave: string, expiraSegundos: number) {
-  const origem = requestContext.get('origemPublica')
+  const origem = origemPublica()
   if (!origem) {
     throw new Error('Endereço público indisponível fora de uma requisição.')
   }

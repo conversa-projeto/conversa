@@ -53,9 +53,10 @@ export async function notificarNovaMensagemConversa(sql: Sql, usuario: number, c
   const [remetente] = await sql<{ nome: string }[]>`select nome from usuario where id = ${usuario}`
   const titulo = remetente?.nome ?? ''
 
-  const destinatarios = await sql<{ usuario_id: number; token_fcm: string | null }[]>`
+  const destinatarios = await sql<{ usuario_id: number; token_fcm: string | null; arquivada: boolean }[]>`
     select distinct cu.usuario_id
          , d.token_fcm
+         , cu.arquivada_em is not null as arquivada
       from conversa_usuario as cu
       left join dispositivo as d
         on d.usuario_id = cu.usuario_id
@@ -64,9 +65,10 @@ export async function notificarNovaMensagemConversa(sql: Sql, usuario: number, c
      where cu.conversa_id = ${conversa}
        and cu.usuario_id <> ${usuario}`
 
-  for (const { usuario_id, token_fcm } of destinatarios) {
+  for (const { usuario_id, token_fcm, arquivada } of destinatarios) {
     notificarNovaMensagem(usuario_id, titulo, texto)
-    if (token_fcm && !usuarioConectado(usuario_id)) {
+    // Quem arquivou a conversa não recebe push
+    if (token_fcm && !arquivada && !usuarioConectado(usuario_id)) {
       // Falha de push nao pode derrubar o envio da mensagem.
       enviarPush(token_fcm, titulo, texto, conversa).catch(() => {})
     }

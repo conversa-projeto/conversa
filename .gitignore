@@ -3,3 +3,7 @@ node_modules/
 *.exe
 anexos/
 bin/cert/
+
+# Declaracoes geradas para o cliente Eden da pagina (tsconfig.tipos.json)
+.tipos/
+*.tsbuildinfo

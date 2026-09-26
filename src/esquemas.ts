@@ -1,75 +1,79 @@
-// Schemas de validacao das rotas. O Fastify rejeita a requisicao com 400 antes
-// do handler e ja converte os tipos da query string, como ?conversa=5.
+// Schemas de validacao das rotas (TypeBox, o validador do Elysia). A requisicao
+// fora deles e rejeitada com 400 antes do handler, e a consulta ja chega
+// convertida, como ?conversa=5 virando numero. Os mesmos schemas dao o tipo do
+// corpo e da consulta de cada rota, a documentacao OpenAPI e os tipos do
+// cliente (Eden) na pagina.
+import { t, type Static, type TSchema } from 'elysia'
 
-const inteiro = { type: 'integer' }
-const texto = { type: 'string' }
-const inteiroOuNulo = { type: ['integer', 'null'] }
-const textoOuNulo = { type: ['string', 'null'] }
-const booleano = { type: 'boolean' }
-const inteiroPadraoZero = { type: 'integer', default: 0 }
-const textoPadraoVazio = { type: 'string', default: '' }
+const inteiro = t.Integer()
+const texto = t.String()
+const opcional = <T extends TSchema>(esquema: T) => t.Optional(esquema)
+const ouNulo = <T extends TSchema>(esquema: T) => t.Optional(t.Nullable(esquema))
+const inteiroPadraoZero = t.Integer({ default: 0 })
+const textoPadraoVazio = t.String({ default: '' })
+const paginacao = t.Integer({ default: 0, minimum: 0, maximum: 1000 })
 
-const objeto = (obrigatorios: string[], propriedades: Record<string, object> = {}) =>
-  ({ type: 'object', required: obrigatorios, properties: propriedades })
-
-const soId = objeto(['id'], { id: inteiro })
-const paginacao = { type: 'integer', default: 0, minimum: 0, maximum: 1000 }
+const soId = t.Object({ id: inteiro })
 
 const camposSip = {
   sip_user: texto,
-  auth_user: textoOuNulo,
+  auth_user: ouNulo(texto),
   sip_password: texto,
-  display_name: textoOuNulo,
+  display_name: ouNulo(texto),
   domain: texto,
   ws_server: texto,
-  ativo: booleano,
+  ativo: opcional(t.Boolean()),
 }
 
 export const esquemas = {
-  login: { body: objeto(['login', 'senha'], { login: texto, senha: texto, dispositivo_id: inteiroOuNulo }) },
-  alterarSenha: { body: objeto(['senha_atual', 'senha'], { senha_atual: texto, senha: texto }) },
-  alterarDispositivo: { body: objeto(['id'], { id: inteiro, nome: texto, modelo: texto, versao_so: texto, plataforma: texto, token_fcm: textoOuNulo }) },
-  incluirDispositivoUsuario: { querystring: objeto(['dispositivo_id'], { dispositivo_id: inteiro }) },
+  login: { body: t.Object({ login: texto, senha: texto, dispositivo_id: ouNulo(inteiro) }) },
+  alterarSenha: { body: t.Object({ senha_atual: texto, senha: texto }) },
+  alterarDispositivo: {
+    body: t.Object({ id: inteiro, nome: opcional(texto), modelo: opcional(texto), versao_so: opcional(texto), plataforma: opcional(texto), token_fcm: ouNulo(texto) }),
+  },
+  incluirDispositivoUsuario: { query: t.Object({ dispositivo_id: inteiro }) },
 
-  incluirUsuario: { body: objeto(['nome', 'login', 'email', 'senha'], { nome: texto, login: texto, email: texto, telefone: textoOuNulo, senha: texto }) },
-  alterarUsuario: { body: objeto(['id'], { id: inteiro, nome: texto, email: texto, telefone: textoOuNulo, avatar_anexo_id: inteiroOuNulo }) },
-  incluirContato: { querystring: objeto(['relacionamento_id'], { relacionamento_id: inteiro }) },
+  incluirUsuario: { body: t.Object({ nome: texto, login: texto, email: texto, telefone: ouNulo(texto), senha: texto }) },
+  alterarUsuario: { body: t.Object({ id: inteiro, nome: opcional(texto), email: opcional(texto), telefone: ouNulo(texto), avatar_anexo_id: ouNulo(inteiro) }) },
+  incluirContato: { query: t.Object({ relacionamento_id: inteiro }) },
 
-  idNaConsulta: { querystring: soId },
+  idNaConsulta: { query: soId },
   idNoCorpo: { body: soId },
 
-  incluirConversa: { body: objeto([], { descricao: textoOuNulo, tipo: inteiro }) },
-  alterarConversa: { body: objeto(['id', 'descricao'], { id: inteiro, descricao: texto }) },
-  membrosConversa: { querystring: objeto(['conversa'], { conversa: inteiro }) },
-  incluirMembro: { body: objeto(['usuario_id', 'conversa_id'], { usuario_id: inteiro, conversa_id: inteiro }) },
+  incluirConversa: { body: t.Object({ descricao: ouNulo(texto), tipo: opcional(inteiro) }) },
+  alterarConversa: { body: t.Object({ id: inteiro, descricao: texto }) },
+  membrosConversa: { query: t.Object({ conversa: inteiro }) },
+  ordenarFixadas: { body: t.Object({ conversas: t.Array(inteiro) }) },
+  arquivarConversa: { body: t.Object({ conversa: inteiro, arquivada: t.Boolean() }) },
+  incluirMembro: { body: t.Object({ usuario_id: inteiro, conversa_id: inteiro }) },
 
   incluirMensagem: {
-    body: objeto(['conversa_id', 'conteudos'], {
+    body: t.Object({
       conversa_id: inteiro,
-      visivel_em: textoOuNulo,
-      conteudos: { type: 'array', items: objeto(['ordem', 'tipo', 'conteudo'], { ordem: inteiro, tipo: inteiro, conteudo: textoOuNulo }) },
-      mensagem_referencia: { ...objeto(['tipo', 'origem_mensagem_id'], { tipo: inteiro, origem_mensagem_id: inteiro }), type: ['object', 'null'] },
+      visivel_em: ouNulo(texto),
+      conteudos: t.Array(t.Object({ ordem: inteiro, tipo: inteiro, conteudo: t.Nullable(texto) })),
+      mensagem_referencia: ouNulo(t.Object({ tipo: inteiro, origem_mensagem_id: inteiro })),
     }),
   },
   mensagens: {
-    querystring: objeto(['conversa'], {
+    query: t.Object({
       conversa: inteiro,
-      mensagemreferencia: { ...inteiroPadraoZero, minimum: 0 },
+      mensagemreferencia: t.Integer({ default: 0, minimum: 0 }),
       mensagensprevias: paginacao,
       mensagensseguintes: paginacao,
     }),
   },
-  marcarStatus: { body: objeto(['conversa', 'mensagem'], { conversa: inteiro, mensagem: inteiro }) },
-  statusMensagens: { querystring: objeto(['conversa', 'mensagem'], { conversa: inteiro, mensagem: texto }) },
-  novasMensagens: { querystring: objeto([], { desde: textoPadraoVazio }) },
-  pesquisar: { querystring: objeto([], { conversa: inteiroPadraoZero, texto: textoPadraoVazio }) },
-  reacao: { body: objeto(['mensagem_id', 'emoji'], { mensagem_id: inteiro, emoji: texto }) },
+  marcarStatus: { body: t.Object({ conversa: inteiro, mensagem: inteiro }) },
+  statusMensagens: { query: t.Object({ conversa: inteiro, mensagem: texto }) },
+  novasMensagens: { query: t.Object({ desde: textoPadraoVazio }) },
+  pesquisar: { query: t.Object({ conversa: inteiroPadraoZero, texto: textoPadraoVazio }) },
+  reacao: { body: t.Object({ mensagem_id: inteiro, emoji: texto }) },
 
-  identificador: { querystring: objeto(['identificador'], { identificador: texto }) },
-  transcricao: { body: objeto(['identificador'], { identificador: texto }) },
-  incluirAnexo: { body: objeto(['identificador', 'tipo', 'tamanho'], { identificador: texto, tipo: inteiro, nome: textoOuNulo, extensao: textoOuNulo, tamanho: inteiro }) },
+  identificador: { query: t.Object({ identificador: texto }) },
+  transcricao: { body: t.Object({ identificador: texto }) },
+  incluirAnexo: { body: t.Object({ identificador: texto, tipo: inteiro, nome: ouNulo(texto), extensao: ouNulo(texto), tamanho: inteiro }) },
   anexos: {
-    querystring: objeto([], {
+    query: t.Object({
       conversa: inteiroPadraoZero,
       autor: inteiroPadraoZero,
       direcao: textoPadraoVazio,
@@ -79,10 +83,27 @@ export const esquemas = {
     }),
   },
 
-  iniciarChamada: { body: objeto(['usuarios'], { tipo: inteiro, conversa_id: inteiroOuNulo, usuarios: { type: 'array', items: objeto(['id'], { id: inteiro }) } }) },
-  adicionarUsuarioChamada: { body: objeto(['chamada_id', 'usuario_id'], { chamada_id: inteiro, usuario_id: inteiro }) },
-  historicoChamadas: { querystring: objeto([], { participante: inteiroPadraoZero, de: textoPadraoVazio, ate: textoPadraoVazio }) },
+  iniciarChamada: { body: t.Object({ tipo: opcional(inteiro), conversa_id: ouNulo(inteiro), usuarios: t.Array(t.Object({ id: inteiro })) }) },
+  adicionarUsuarioChamada: { body: t.Object({ chamada_id: inteiro, usuario_id: inteiro }) },
+  historicoChamadas: { query: t.Object({ participante: inteiroPadraoZero, de: textoPadraoVazio, ate: textoPadraoVazio }) },
 
-  incluirSip: { body: objeto(['sip_user', 'sip_password', 'domain', 'ws_server'], camposSip) },
-  alterarSip: { body: objeto(['id'], { id: inteiro, ...camposSip }) },
+  incluirSip: { body: t.Object(camposSip) },
+  alterarSip: {
+    body: t.Object({
+      id: inteiro,
+      sip_user: opcional(texto),
+      auth_user: ouNulo(texto),
+      sip_password: opcional(texto),
+      display_name: ouNulo(texto),
+      domain: opcional(texto),
+      ws_server: opcional(texto),
+      ativo: opcional(t.Boolean()),
+    }),
+  },
 }
+
+type Esquemas = typeof esquemas
+
+// Corpo e consulta ja validados de cada rota, por nome do schema
+export type Corpo<N extends keyof Esquemas> = Esquemas[N] extends { body: infer B extends TSchema } ? Static<B> : never
+export type Consulta<N extends keyof Esquemas> = Esquemas[N] extends { query: infer Q extends TSchema } ? Static<Q> : never

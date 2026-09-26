@@ -17,36 +17,22 @@ export interface ConfigBanco {
   password: string
 }
 
-// Variaveis de ambiente, validadas pelo @fastify/env na inicializacao.
-// Um arquivo .env na pasta atual tambem e lido.
-export const esquemaAmbiente = {
-  type: 'object',
-  properties: {
-    CONVERSA_SERVER: { type: 'string', default: 'localhost' },
-    CONVERSA_PORT: { type: 'integer', default: 5432 },
-    // Criado na inicializacao se nao existir.
-    CONVERSA_DATABASE: { type: 'string', default: 'conversa' },
-    CONVERSA_USERNAME: { type: 'string', default: 'postgres' },
-    CONVERSA_PASSWORD: { type: 'string', default: '' },
-    // Endereco do MinIO para chamadas do proprio servidor. O endereco que vai
-    // para o navegador vem de cada requisicao.
-    CONVERSA_S3_INTERNO: { type: 'string', default: 'http://127.0.0.1:9000' },
-    CONVERSA_PORTA_HTTP: { type: 'integer', default: 8080 },
-    // Producao: porta publica da borda para o TURN, com TLS terminado la.
-    // Vazio usa o coturn direto na 3478, como em desenvolvimento.
-    CONVERSA_TURN_PORTA: { type: 'string', default: '' },
-  },
+// Variaveis de ambiente, conferidas na inicializacao. O Bun tambem le um
+// arquivo .env na pasta atual.
+function textoAmbiente(nome: string, padrao: string): string {
+  return process.env[nome] ?? padrao
 }
 
-export interface Ambiente {
-  CONVERSA_SERVER: string
-  CONVERSA_PORT: number
-  CONVERSA_DATABASE: string
-  CONVERSA_USERNAME: string
-  CONVERSA_PASSWORD: string
-  CONVERSA_S3_INTERNO: string
-  CONVERSA_PORTA_HTTP: number
-  CONVERSA_TURN_PORTA: string
+function inteiroAmbiente(nome: string, padrao: number): number {
+  const valor = process.env[nome]?.trim()
+  if (!valor) {
+    return padrao
+  }
+  const numero = Number(valor)
+  if (!Number.isInteger(numero)) {
+    throw new Error(`Variável de ambiente ${nome} deve ser um número inteiro (recebido "${valor}").`)
+  }
+  return numero
 }
 
 export const configuracao = {
@@ -64,17 +50,22 @@ export const configuracao = {
   transcritorIdioma: 'pt',
 }
 
-export function definirAmbiente(ambiente: Ambiente) {
+export function definirAmbiente() {
   configuracao.banco = {
-    host: ambiente.CONVERSA_SERVER,
-    port: ambiente.CONVERSA_PORT,
-    database: ambiente.CONVERSA_DATABASE,
-    user: ambiente.CONVERSA_USERNAME,
-    password: ambiente.CONVERSA_PASSWORD,
+    host: textoAmbiente('CONVERSA_SERVER', 'localhost'),
+    port: inteiroAmbiente('CONVERSA_PORT', 5432),
+    // Criado na inicializacao se nao existir.
+    database: textoAmbiente('CONVERSA_DATABASE', 'conversa'),
+    user: textoAmbiente('CONVERSA_USERNAME', 'postgres'),
+    password: textoAmbiente('CONVERSA_PASSWORD', ''),
   }
-  configuracao.portaHttp = ambiente.CONVERSA_PORTA_HTTP
-  configuracao.s3Interno = ambiente.CONVERSA_S3_INTERNO
-  configuracao.turnPorta = ambiente.CONVERSA_TURN_PORTA.trim()
+  configuracao.portaHttp = inteiroAmbiente('CONVERSA_PORTA_HTTP', 8080)
+  // Endereco do MinIO para chamadas do proprio servidor. O endereco que vai
+  // para o navegador vem de cada requisicao.
+  configuracao.s3Interno = textoAmbiente('CONVERSA_S3_INTERNO', 'http://127.0.0.1:9000')
+  // Producao: porta publica da borda para o TURN, com TLS terminado la.
+  // Vazio usa o coturn direto na 3478, como em desenvolvimento.
+  configuracao.turnPorta = textoAmbiente('CONVERSA_TURN_PORTA', '').trim()
 }
 
 // Pepper das senhas, sempre neste arquivo. No Docker e o volume conversa-dados.
@@ -95,8 +86,8 @@ export async function resolverPepper(sql: Sql) {
 
   // Um pepper novo invalidaria as senhas bcrypt que ja existem. Senhas legadas
   // em texto puro nao dependem dele e sao convertidas no proximo login.
-  const [{ existe }] = await sql`select exists (select 1 from usuario where length(senha) = 60) as existe`
-  if (existe) {
+  const [linha] = await sql<{ existe: boolean }[]>`select exists (select 1 from usuario where length(senha) = 60) as existe`
+  if (linha?.existe) {
     throw new Error(
       `Pepper não encontrado! O banco já tem senhas criadas com um pepper. Grave o pepper original em ${arquivo}.`,
     )

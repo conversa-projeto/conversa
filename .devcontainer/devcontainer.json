@@ -1,4 +1,4 @@
-// Ambiente de desenvolvimento dentro do Docker: Node 24, os dois repositorios
+// Ambiente de desenvolvimento dentro do Docker: Bun, os dois repositorios
 // (conversa e conversa-web) e o Vite. Na maquina so precisa de Docker e VS Code.
 //
 // A API continua no container "api", que reinicia sozinho quando um arquivo
@@ -10,20 +10,20 @@
   "service": "dev",
   "workspaceFolder": "/git",
   "shutdownAction": "none",
-  "remoteUser": "node",
+  "remoteUser": "bun",
 
   // Sobe os servicos do compose principal antes, para as redes existirem.
   "initializeCommand": "docker compose up -d",
 
-  // node_modules fica em volume do Docker: os pacotes nativos (esbuild, rollup,
-  // bcrypt) sao de Linux e nao podem se misturar com os do Windows.
-  "postCreateCommand": "sudo chown node:node /git/conversa/node_modules /git/conversa-web/node_modules && git config --global --add safe.directory '*' && git config --global core.autocrlf true && cd /git/conversa && npm ci && cd /git/conversa-web && npm ci",
+  // node_modules fica em volume do Docker: os pacotes nativos (esbuild, rollup)
+  // sao de Linux e nao podem se misturar com os do Windows.
+  "postCreateCommand": "sudo chown -R bun:bun /git/conversa/node_modules /git/conversa-web/node_modules && git config --global --add safe.directory '*' && git config --global core.autocrlf true && cd /git/conversa && bun install --frozen-lockfile && cd /git/conversa-web && bun install --frozen-lockfile",
 
   // Sobe o Vite sozinho toda vez que o VS Code conecta no container. O log
   // aparece numa aba de terminal propria. Fechar o VS Code nao para o
   // container, entao antes encerra o Vite que ficou da sessao anterior.
   // O [n] no padrao evita que o pkill encontre este proprio comando.
-  "postAttachCommand": "pkill -f '[n]ode_modules/.bin/vite' && sleep 1; cd /git/conversa-web && npm run dev",
+  "postAttachCommand": "pkill -f '[n]ode_modules/.bin/vite' && sleep 1; cd /git/conversa-web && bun run dev",
 
   "customizations": {
     "vscode": {

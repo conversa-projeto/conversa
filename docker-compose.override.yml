@@ -7,8 +7,13 @@
 
 services:
   api:
-    command: ["node", "bin/recarregar-api.mjs"]
+    # Imagem com Bun e o codigo-fonte; producao usa so o executavel compilado.
+    build:
+      context: .
+      target: desenvolvimento
+    image: conversa-api-dev
+    command: ["bun", "bin/recarregar-api.ts"]
     volumes:
       - ./src:/app/src:ro
       - ./migracoes:/app/migracoes:ro
-      - ./bin/recarregar-api.mjs:/app/bin/recarregar-api.mjs:ro
+      - ./bin/recarregar-api.ts:/app/bin/recarregar-api.ts:ro

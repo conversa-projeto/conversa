@@ -1,15 +1,68 @@
-import { requestContext } from '@fastify/request-context'
 import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { transacao, type Linha, type Sql } from './banco.ts'
+import { transacao, type Sql } from './banco.ts'
 import { configuracao } from './configuracao.ts'
+import { origemPublica } from './contexto.ts'
+import type { Corpo, Consulta } from './esquemas.ts'
+import { httpErrors } from './erros.ts'
+import type { StatusChamada, StatusUsuarioChamada, TipoChamada } from './tabelas.ts'
 import { urlPublica } from './minio.ts'
 import { notificarMembrosChamada, notificarStatusMensagens } from './notificacoes.ts'
-import { TipoMensagemSocket } from './websocket.ts'
+import { notificarChamada, TipoMensagemSocket } from './websocket.ts'
 
 // Status da chamada: 1-Pendente, 2-Recusada, 3-Em andamento, 4-Encerrada, 5-Desconectada, 6-Cancelada
 // Status do usuario: 1-Pendente, 2-Recusou, 3-Entrou, 4-Saiu, 5-Desconectou
 // Eventos: 1-Iniciada, 2-Cancelada, 3-Convidado, 4-Recusou, 5-Entrou, 6-Saiu, 7-Finalizada
+
+interface DadosChamada {
+  id: number
+  iniciada: Date | null
+  finalizada: Date | null
+  tipo: TipoChamada
+  status: StatusChamada
+  criado_em: Date
+  criado_por: number
+}
+
+export interface UsuarioChamada {
+  usuario_id: number
+  usuario_nome: string
+  status: StatusUsuarioChamada
+  adicionado_por: number
+  adicionado_por_nome: string
+  adicionado_em: Date | null
+  entrou_em: Date | null
+  saiu_em: Date | null
+  recusou_em: Date | null
+}
+
+interface ParticipanteLinha {
+  usuario_id: number
+  nome: string
+  status: StatusUsuarioChamada
+  duracao: number | null
+  avatar_objeto: string | null
+}
+
+export interface ChamadaHistorico {
+  id: number
+  tipo: number
+  status: number
+  criado_em: Date
+  criado_por: number
+  conversa_id: number | null
+  iniciada: Date | null
+  finalizada: Date | null
+  duracao: number | null
+}
+
+// Resumo gravado no conteudo da mensagem de chamada: datas em texto sem fuso,
+// o formato das mensagens ja gravadas.
+type ResumoChamada = Omit<ChamadaHistorico, 'criado_em' | 'iniciada' | 'finalizada'> & {
+  criado_em: string
+  iniciada: string | null
+  finalizada: string | null
+}
 
 async function validarChamada(sql: Sql, usuario: number, chamada: number) {
   const [participa] = chamada === 0 ? [] : await sql`
@@ -28,20 +81,23 @@ function registrarEvento(sql: Sql, chamada: number, usuarioAlvo: number, tipo: n
   return sql`insert into chamada_evento (chamada_id, usuario_id, tipo, criado_por) values (${chamada}, ${usuarioAlvo}, ${tipo}, ${usuario})`
 }
 
-export async function iniciarChamada(sql: Sql, usuario: number, corpo: Linha) {
-  const convidados: Linha[] = corpo.usuarios
+export async function iniciarChamada(sql: Sql, usuario: number, corpo: Corpo<'iniciarChamada'>) {
+  const convidados = corpo.usuarios
   const tipo = corpo.tipo ?? (convidados.length === 2 ? 1 : 2)
-  const conversa = corpo.conversa_id > 0 ? corpo.conversa_id : null
+  const conversa = corpo.conversa_id && corpo.conversa_id > 0 ? corpo.conversa_id : null
 
   const id = await transacao(sql, async () => {
-    const [chamada] = await sql`insert into chamada (tipo, criado_por, conversa_id) values (${tipo}, ${usuario}, ${conversa}) returning id`
+    const [chamada] = await sql<{ id: number }[]>`insert into chamada (tipo, criado_por, conversa_id) values (${tipo}, ${usuario}, ${conversa}) returning id`
+    if (!chamada) {
+      throw new Error('Falha ao iniciar a chamada')
+    }
     await registrarEvento(sql, chamada.id, usuario, 1, usuario)
     for (const convidado of convidados) {
       const ehOutro = convidado.id !== usuario
       await sql`insert into chamada_usuario (chamada_id, usuario_id, adicionado_por, status) values (${chamada.id}, ${convidado.id}, ${usuario}, ${ehOutro ? 1 : 3})`
       await registrarEvento(sql, chamada.id, convidado.id, ehOutro ? 3 : 5, usuario)
     }
-    return chamada.id as number
+    return chamada.id
   })
 
   const dados = await dadosChamada(sql, id)
@@ -90,6 +146,8 @@ export async function recusarChamada(sql: Sql, usuario: number, chamada: number)
   await atualizarStatusChamada(sql, chamada)
   await tentarInserirMensagem(sql, chamada)
   await notificarMembrosChamada(sql, chamada, usuario, TipoMensagemSocket.UsuarioRecusou)
+  // As outras abas e aparelhos do usuário param de tocar
+  notificarChamada(chamada, usuario, usuario, TipoMensagemSocket.UsuarioRecusou)
   return { id: chamada }
 }
 
@@ -101,6 +159,8 @@ export async function entrarChamada(sql: Sql, usuario: number, chamada: number) 
   })
   await atualizarStatusChamada(sql, chamada)
   await notificarMembrosChamada(sql, chamada, usuario, TipoMensagemSocket.UsuarioEntrou)
+  // As outras abas e aparelhos do usuário param de tocar
+  notificarChamada(chamada, usuario, usuario, TipoMensagemSocket.UsuarioEntrou)
   return { id: chamada }
 }
 
@@ -116,7 +176,7 @@ export async function sairChamada(sql: Sql, usuario: number, chamada: number) {
   return { id: chamada }
 }
 
-export async function adicionarUsuarioChamada(sql: Sql, usuario: number, corpo: Linha) {
+export async function adicionarUsuarioChamada(sql: Sql, usuario: number, corpo: Corpo<'adicionarUsuarioChamada'>) {
   await validarChamada(sql, usuario, corpo.chamada_id)
   await transacao(sql, async () => {
     await sql`insert into chamada_usuario (chamada_id, usuario_id, adicionado_por, status) values (${corpo.chamada_id}, ${corpo.usuario_id}, ${usuario}, 1)`
@@ -145,7 +205,7 @@ export async function dadosChamadaUsuario(sql: Sql, usuario: number, chamada: nu
 }
 
 export async function chamadasPendentes(sql: Sql, usuario: number) {
-  const linhas = await sql`
+  const linhas = await sql<(DadosChamada & { conversa_id: number | null })[]>`
     select c.id
          , c.tipo
          , c.status
@@ -165,9 +225,13 @@ export async function chamadasPendentes(sql: Sql, usuario: number) {
 }
 
 async function dadosChamada(sql: Sql, chamada: number) {
-  const [dados = {}] = await sql`select id, iniciada, finalizada, tipo, status, criado_em, criado_por from chamada where id = ${chamada}`
+  const [dados] = await sql<DadosChamada[]>`select id, iniciada, finalizada, tipo, status, criado_em, criado_por from chamada where id = ${chamada}`
+  // So e chamada depois de conferir (ou criar) a chamada
+  if (!dados) {
+    throw httpErrors.notFound('Chamada não encontrada!')
+  }
 
-  dados.usuarios = await sql`
+  const usuarios = await sql<UsuarioChamada[]>`
     select cu.usuario_id
          , u.nome as usuario_nome
          , cu.status
@@ -216,11 +280,16 @@ async function dadosChamada(sql: Sql, chamada: number) {
         on u.id = cu.usuario_id
      inner join usuario u_add
         on u_add.id = cu.adicionado_por`
-  return dados
+  return { ...dados, usuarios }
 }
 
-async function participantes(sql: Sql, chamada: number, comAvatar: boolean) {
-  const linhas = await sql`
+type Participante = Omit<ParticipanteLinha, 'avatar_objeto'>
+
+// Com avatar para o historico; sem, para o resumo gravado na mensagem.
+async function participantes(sql: Sql, chamada: number, comAvatar: true): Promise<(Participante & { avatar_url: string | null })[]>
+async function participantes(sql: Sql, chamada: number, comAvatar: false): Promise<Participante[]>
+async function participantes(sql: Sql, chamada: number, comAvatar: boolean): Promise<Participante[]> {
+  const linhas = await sql<ParticipanteLinha[]>`
     select cu.usuario_id
          , u.nome
          , cu.status
@@ -238,24 +307,25 @@ async function participantes(sql: Sql, chamada: number, comAvatar: boolean) {
     : linha))
 }
 
-const camposHistorico = (sql: Sql) => sql`
+// O historico devolve as datas como data; o resumo da mensagem, em texto.
+const camposHistorico = (sql: Sql, datasEmTexto = false) => sql`
     c.id
   , c.tipo
   , c.status
-  , to_char(c.criado_em, 'YYYY-MM-DD"T"HH24:MI:SS') as criado_em
+  , ${datasEmTexto ? sql`to_char(c.criado_em, 'YYYY-MM-DD"T"HH24:MI:SS')` : sql`c.criado_em`} as criado_em
   , c.criado_por
   , c.conversa_id
-  , to_char(c.iniciada, 'YYYY-MM-DD"T"HH24:MI:SS') as iniciada
-  , to_char(c.finalizada, 'YYYY-MM-DD"T"HH24:MI:SS') as finalizada
+  , ${datasEmTexto ? sql`to_char(c.iniciada, 'YYYY-MM-DD"T"HH24:MI:SS')` : sql`c.iniciada`} as iniciada
+  , ${datasEmTexto ? sql`to_char(c.finalizada, 'YYYY-MM-DD"T"HH24:MI:SS')` : sql`c.finalizada`} as finalizada
   , case when c.iniciada is not null and c.finalizada is not null
          then extract(epoch from c.finalizada - c.iniciada)::int
          else null end as duracao`
 
-export async function historicoChamadas(sql: Sql, usuario: number, filtro: Linha) {
+export async function historicoChamadas(sql: Sql, usuario: number, filtro: Consulta<'historicoChamadas'>) {
   const nenhum = sql``
   const temFiltro = filtro.participante > 0 || filtro.de.trim() || filtro.ate.trim()
 
-  const chamadas = await sql`
+  const chamadas = await sql<ChamadaHistorico[]>`
     select ${camposHistorico(sql)}
       from chamada c
      inner join chamada_usuario cu on cu.chamada_id = c.id
@@ -267,10 +337,11 @@ export async function historicoChamadas(sql: Sql, usuario: number, filtro: Linha
      order by c.criado_em desc
      limit ${temFiltro ? 250 : 25}`
 
+  const resultado = []
   for (const chamada of chamadas) {
-    chamada.participantes = await participantes(sql, chamada.id, true)
+    resultado.push({ ...chamada, participantes: await participantes(sql, chamada.id, true) })
   }
-  return chamadas
+  return resultado
 }
 
 export async function atualizarStatusChamada(sql: Sql, chamada: number, status = 0) {
@@ -330,17 +401,18 @@ export async function atualizarStatusChamada(sql: Sql, chamada: number, status =
 
 // Mensagem de resumo na conversa quando a chamada chega a um status final.
 async function inserirMensagemChamada(sql: Sql, chamada: number) {
-  const [dados] = await sql`select ${camposHistorico(sql)} from chamada c where c.id = ${chamada}`
+  const [dados] = await sql<ResumoChamada[]>`select ${camposHistorico(sql, true)} from chamada c where c.id = ${chamada}`
   if (!dados || dados.conversa_id === null || ![2, 4, 5, 6].includes(dados.status)) {
     return
   }
+  const conversa = dados.conversa_id
 
-  const [existente] = await sql`
+  const [existente] = await sql<{ total: number }[]>`
     select count(1) as total
       from mensagem_conteudo mc
      where mc.tipo = 6
        and convert_from(mc.conteudo, 'utf-8')::jsonb ->> 'chamada_id' = ${String(chamada)}`
-  if (existente.total > 0) {
+  if (existente && existente.total > 0) {
     return
   }
 
@@ -354,7 +426,10 @@ async function inserirMensagemChamada(sql: Sql, chamada: number) {
     participantes: await participantes(sql, chamada, false),
   })
 
-  const [mensagem] = await sql`insert into mensagem (conversa_id, usuario_id) values (${dados.conversa_id}, ${dados.criado_por}) returning id`
+  const [mensagem] = await sql<{ id: number }[]>`insert into mensagem (conversa_id, usuario_id) values (${conversa}, ${dados.criado_por}) returning id`
+  if (!mensagem) {
+    return
+  }
   await sql`insert into mensagem_conteudo (mensagem_id, ordem, tipo, conteudo) values (${mensagem.id}, 1, 6, convert_to(${conteudo}, 'UTF8'))`
   // Quem participou da chamada ja recebe o resumo como lido: nao faz sentido
   // aparecer como nao lida uma chamada da qual a pessoa estava. Quem nao
@@ -372,11 +447,11 @@ async function inserirMensagemChamada(sql: Sql, chamada: number) {
               limit 1
            ) as participou
         on true
-     where cu.conversa_id = ${dados.conversa_id}
+     where cu.conversa_id = ${conversa}
        and cu.usuario_id <> ${dados.criado_por}`
   // Avisa todos, inclusive quem ligou (autor do resumo), para a conversa aberta
   // carregar a mensagem.
-  await notificarStatusMensagens(sql, 0, dados.conversa_id, String(mensagem.id))
+  await notificarStatusMensagens(sql, 0, conversa, String(mensagem.id))
 }
 
 // Gerado pelo container coturn na primeira vez. Lido a cada pedido, porque a
@@ -395,8 +470,11 @@ function segredoTurn() {
 // usuario "<expiracao unix>:<id>", senha base64(HMAC-SHA1(segredo, usuario)).
 // O endereco e o mesmo que o navegador usou para chamar a API. Em producao a
 // borda recebe o TURN com TLS na porta CONVERSA_TURN_PORTA.
-export function servidoresIce(usuario: number) {
-  const origem = requestContext.get('origemPublica')
+export function servidoresIce(usuario: number): {
+  iceServers: { urls: string; username: string; credential: string }[]
+  iceTransportPolicy: 'relay' | 'all'
+} {
+  const origem = origemPublica()
   const segredo = segredoTurn()
   if (!origem || !segredo) {
     return { iceServers: [], iceTransportPolicy: 'all' }

@@ -24,7 +24,7 @@ docker compose up -d --build
 if errorlevel 1 goto erro
 
 echo  Subindo o container de desenvolvimento...
-docker compose -f .devcontainer\docker-compose.yml up -d
+docker compose -f .devcontainer\docker-compose.yml up -d --build
 if errorlevel 1 goto erro
 
 rem Maquina nova: node_modules do container vazio. Na primeira vez instala tudo.
@@ -32,21 +32,24 @@ docker exec dev test -x /git/conversa-web/node_modules/.bin/vite
 if not errorlevel 1 goto atualizar
 
 echo  Primeira vez neste computador: instalando dependencias, leva alguns minutos...
-docker exec -u root dev sh -c "chown node:node /git/conversa/node_modules /git/conversa-web/node_modules"
+docker exec -u root dev sh -c "chown -R bun:bun /git/conversa/node_modules /git/conversa-web/node_modules"
 if errorlevel 1 goto erro
-docker exec -u node dev sh -c "git config --global --add safe.directory '*' && git config --global core.autocrlf true && cd /git/conversa && npm ci && cd /git/conversa-web && npm ci"
+docker exec -u bun dev sh -c "git config --global --add safe.directory '*' && git config --global core.autocrlf true && cd /git/conversa && bun install --frozen-lockfile && cd /git/conversa-web && bun install --frozen-lockfile"
 if errorlevel 1 goto erro
 goto vite
 
 :atualizar
 rem Pega bibliotecas novas da pagina, se o package.json mudou.
 echo  Conferindo dependencias da pagina...
-docker exec -u node dev sh -c "cd /git/conversa-web && npm install --no-audit --no-fund --loglevel=error"
+rem node_modules antigo, do npm, pode ter pastas de outro dono.
+docker exec -u root dev sh -c "chown -R bun:bun /git/conversa-web/node_modules"
+if errorlevel 1 goto erro
+docker exec -u bun dev sh -c "cd /git/conversa-web && bun install --frozen-lockfile"
 if errorlevel 1 goto erro
 
 :vite
 echo  Iniciando o Vite...
-docker exec -d -u node dev sh -c "pkill -f '[n]ode_modules/.bin/vite'; sleep 1; cd /git/conversa-web && npm run dev > /tmp/vite.log 2>&1"
+docker exec -d -u bun dev sh -c "pkill -f '[n]ode_modules/.bin/vite'; sleep 1; cd /git/conversa-web && bun run dev > /tmp/vite.log 2>&1"
 if errorlevel 1 goto erro
 
 echo  Aguardando https://localhost responder...

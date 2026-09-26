@@ -1,12 +1,112 @@
-import sensible from '@fastify/sensible'
-import type { Fragmento, Linha, Sql } from './banco.ts'
+import type { Fragmento, Sql } from './banco.ts'
 import { validarAcessoConversa, validarExclusaoMensagem } from './autorizacao.ts'
 import { dataIso, excluir, inserir } from './comum.ts'
+import type { Corpo } from './esquemas.ts'
+import type { StatusTranscricao, TipoConteudo } from './tabelas.ts'
 import { urlPublica } from './minio.ts'
 import { notificarNovaMensagemConversa, notificarStatusMensagens } from './notificacoes.ts'
+import { httpErrors } from './erros.ts'
 import { notificarReacao } from './websocket.ts'
 
-const { httpErrors } = sensible
+
+// --- Formato das mensagens devolvidas ao cliente ---
+
+interface ConteudoResposta {
+  id: number
+  ordem: number
+  tipo: TipoConteudo
+  conteudo: string
+  nome: string
+  extensao: string
+  transcricao_status: StatusTranscricao
+  transcricao: string
+}
+
+// Mensagem respondida ou encaminhada, com a propria referencia (ate 5 niveis)
+interface MensagemResumida {
+  id: number
+  conversa_id: number
+  remetente: string
+  inserida: Date
+  conteudos: ConteudoResposta[]
+  mensagem_referencia?: ReferenciaResposta
+}
+
+interface ReferenciaResposta {
+  tipo: number
+  mensagem?: MensagemResumida
+}
+
+interface ReacaoUsuarioResposta {
+  usuario_id: number
+  nome: string
+  reagido_em: Date
+  avatar_url: string | null
+}
+
+interface ReacaoResposta {
+  emoji: string
+  quantidade: number
+  reagiu: boolean
+  usuarios: ReacaoUsuarioResposta[]
+}
+
+export interface MensagemResposta {
+  id: number
+  remetente_id: number
+  remetente: string
+  conversa_id: number
+  inserida: Date
+  alterada: Date | null
+  visivel_em: Date | null
+  mensagem_referencia?: ReferenciaResposta
+  recebida: boolean
+  visualizada: boolean
+  reproduzida: boolean
+  conteudos: ConteudoResposta[]
+  reacoes?: ReacaoResposta[]
+}
+
+// --- Linhas das consultas ---
+
+interface ConteudoLinha {
+  id: number
+  ordem: number
+  tipo: TipoConteudo
+  conteudo: string | null
+  nome: string | null
+  extensao: string | null
+  transcricao_status: StatusTranscricao | null
+  transcricao: string | null
+}
+
+interface MensagemLinha {
+  id: number
+  remetente_id: number
+  remetente: string | null
+  conversa_id: number
+  inserida: Date
+  alterada: Date | null
+  visivel_em: Date | null
+  referencia_tipo: number | null
+  referencia_origem_mensagem_id: number | null
+}
+
+// Somas por mensagem: quantos destinatarios receberam, viram e ouviram
+interface StatusLinha {
+  recebida: number
+  visualizada: number
+  reproduzida: number
+  total: number
+}
+
+interface ReacaoLinha {
+  emoji: string
+  quantidade: number
+  reagiu: boolean
+  // json_agg: datas chegam como texto (com fuso), convertidas na resposta
+  usuarios: { usuario_id: number; nome: string; avatar_objeto: string | null; reagido_em: string }[]
+}
 
 // Texto da notificacao: conteudos separados por " | ".
 // Texto de uma linha para a notificacao, como nas previas do app: mencao
@@ -28,7 +128,7 @@ function textoConteudo(tipo: number, conteudo: string) {
   }
 }
 
-export async function incluirMensagem(sql: Sql, usuario: number, corpo: Linha) {
+export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'incluirMensagem'>) {
   await validarAcessoConversa(sql, usuario, corpo.conversa_id)
 
   // visivel_em: agendamento entre agora + 5 min e agora + 1 ano, cortado no minuto.
@@ -51,12 +151,12 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Linha) {
   }
   const agendada = visivelEm !== undefined
 
-  const conteudos: Linha[] = corpo.conteudos
+  const conteudos = corpo.conteudos
   if (agendada && conteudos.some((item) => item.tipo === 6)) {
     throw httpErrors.badRequest('Mensagens agendadas não podem ser de chamada (tipo 6).')
   }
 
-  const referencia: Linha | null | undefined = corpo.mensagem_referencia
+  const referencia = corpo.mensagem_referencia
   if (referencia && referencia.tipo !== 1 && referencia.tipo !== 2) {
     throw httpErrors.badRequest('Tipo de referência inválido!')
   }
@@ -68,6 +168,7 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Linha) {
     ['conversa_id', 'usuario_id', 'visivel_em'],
   )
 
+  let referenciaGravada: { tipo: number; origem_mensagem_id: number } | undefined
   if (referencia && referencia.origem_mensagem_id > 0) {
     await inserir(
       sql,
@@ -75,7 +176,7 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Linha) {
       { tipo: referencia.tipo, origem_mensagem_id: mensagem.id, destino_mensagem_id: referencia.origem_mensagem_id },
       ['tipo', 'origem_mensagem_id', 'destino_mensagem_id'],
     )
-    mensagem.mensagem_referencia = { tipo: referencia.tipo, origem_mensagem_id: referencia.origem_mensagem_id }
+    referenciaGravada = { tipo: referencia.tipo, origem_mensagem_id: referencia.origem_mensagem_id }
   }
 
   await sql`
@@ -99,11 +200,11 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Linha) {
   if (!agendada) {
     await notificarNovaMensagemConversa(sql, usuario, corpo.conversa_id, partes.filter(Boolean).join(' | '))
   }
-  return mensagem
+  return referenciaGravada ? { ...mensagem, mensagem_referencia: referenciaGravada } : mensagem
 }
 
 export async function notificarMensagemAgendada(sql: Sql, mensagemId: number) {
-  const [mensagem] = await sql`
+  const [mensagem] = await sql<{ id: number; usuario_id: number; conversa_id: number; tipo: number | null; conteudo: string | null }[]>`
     select m.id
          , m.usuario_id
          , m.conversa_id
@@ -117,7 +218,7 @@ export async function notificarMensagemAgendada(sql: Sql, mensagemId: number) {
   if (!mensagem) {
     return
   }
-  const texto = mensagem.tipo === 4 || mensagem.tipo === 5 ? 'áudio' : textoConteudo(mensagem.tipo, mensagem.conteudo ?? '')
+  const texto = mensagem.tipo === 4 || mensagem.tipo === 5 ? 'áudio' : textoConteudo(mensagem.tipo ?? 0, mensagem.conteudo ?? '')
   await notificarNovaMensagemConversa(sql, mensagem.usuario_id, mensagem.conversa_id, texto)
   await notificarStatusMensagens(sql, mensagem.usuario_id, mensagem.conversa_id, String(mensagemId))
 }
@@ -132,8 +233,7 @@ export async function excluirMensagem(sql: Sql, usuario: number, mensagem: numbe
 
   const conteudo = await excluir(sql, 'mensagem_conteudo', mensagem, 'mensagem_id')
   const excluida = await excluir(sql, 'mensagem', mensagem)
-  excluida.conteudo = conteudo
-  return excluida
+  return { ...excluida, conteudo }
 }
 
 export async function mensagens(sql: Sql, conversa: number, usuario: number, referencia: number, previas: number, seguintes: number) {
@@ -145,7 +245,7 @@ export async function mensagens(sql: Sql, conversa: number, usuario: number, ref
   const posicao = () => sql`((select coalesce(visivel_em, inserida) from mensagem where id = ${referencia}), ${referencia})`
   const nenhum = sql``
 
-  let script
+  let script: Fragmento
   if (previas === 0 && seguintes === 0) {
     script = sql`
       select id
@@ -212,8 +312,8 @@ export async function pesquisar(sql: Sql, conversa: number, usuario: number, tex
   return carregarMensagens(sql, 0, usuario, script, false)
 }
 
-async function carregarConteudos(sql: Sql, mensagemId: number) {
-  const linhas = await sql`
+async function carregarConteudos(sql: Sql, mensagemId: number): Promise<ConteudoResposta[]> {
+  const linhas = await sql<ConteudoLinha[]>`
     select id, ordem, tipo, conteudo, nome, extensao, transcricao_status, transcricao
       from ( /* Texto e chamada */
              select id
@@ -265,8 +365,8 @@ async function carregarConteudos(sql: Sql, mensagemId: number) {
   }))
 }
 
-async function mensagemResumida(sql: Sql, id: number): Promise<Linha | undefined> {
-  const [linha] = await sql`
+async function mensagemResumida(sql: Sql, id: number): Promise<MensagemResumida | undefined> {
+  const [linha] = await sql<{ id: number; conversa_id: number; inserida: Date; remetente: string | null }[]>`
     select m.id
          , m.conversa_id
          , m.inserida
@@ -288,11 +388,11 @@ async function mensagemResumida(sql: Sql, id: number): Promise<Linha | undefined
 }
 
 // Cadeia de respostas e encaminhamentos, ate 5 niveis.
-async function carregarReferencia(sql: Sql, mensagemId: number, destino: Linha, profundidade: number) {
+async function carregarReferencia(sql: Sql, mensagemId: number, destino: MensagemResumida, profundidade: number) {
   if (profundidade >= 5) {
     return
   }
-  const [referencia] = await sql`
+  const [referencia] = await sql<{ tipo: number; destino_mensagem_id: number }[]>`
     select mr.tipo, mr.destino_mensagem_id
       from mensagem_referencia mr
      where mr.origem_mensagem_id = ${mensagemId}
@@ -301,7 +401,7 @@ async function carregarReferencia(sql: Sql, mensagemId: number, destino: Linha, 
   if (!referencia) {
     return
   }
-  const objeto: Linha = { tipo: referencia.tipo }
+  const objeto: ReferenciaResposta = { tipo: referencia.tipo }
   destino.mensagem_referencia = objeto
   const alvo = await mensagemResumida(sql, referencia.destino_mensagem_id)
   if (alvo) {
@@ -310,8 +410,8 @@ async function carregarReferencia(sql: Sql, mensagemId: number, destino: Linha, 
   }
 }
 
-async function carregarMensagens(sql: Sql, conversa: number, usuario: number, script: Fragmento, marcarComoRecebida: boolean) {
-  const linhas = await sql`
+async function carregarMensagens(sql: Sql, conversa: number, usuario: number, script: Fragmento, marcarComoRecebida: boolean): Promise<MensagemResposta[]> {
+  const linhas = await sql<MensagemLinha[]>`
     select *
       from ( select m.id
                   , m.usuario_id as remetente_id
@@ -356,30 +456,20 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
     }
   }
 
-  const resultado: Linha[] = []
+  const resultado: MensagemResposta[] = []
   for (const linha of linhas) {
-    const mensagem: Linha = {
-      id: linha.id,
-      remetente_id: linha.remetente_id,
-      remetente: linha.remetente ?? '',
-      conversa_id: linha.conversa_id,
-      inserida: linha.inserida,
-      alterada: linha.alterada,
-      visivel_em: linha.visivel_em,
-    }
-
-    if (linha.referencia_tipo !== null) {
-      const referencia: Linha = { tipo: linha.referencia_tipo }
-      mensagem.mensagem_referencia = referencia
+    let mensagemReferencia: ReferenciaResposta | undefined
+    if (linha.referencia_tipo !== null && linha.referencia_origem_mensagem_id !== null) {
+      mensagemReferencia = { tipo: linha.referencia_tipo }
       const alvo = await mensagemResumida(sql, linha.referencia_origem_mensagem_id)
       if (alvo) {
         await carregarReferencia(sql, alvo.id, alvo, 1)
-        referencia.mensagem = alvo
+        mensagemReferencia.mensagem = alvo
       }
     }
 
     // O remetente ve o status somado de todos. Os demais veem so o proprio.
-    const [status] = await sql`
+    const [status] = await sql<StatusLinha[]>`
       select sum(case when recebida is null then 0 else 1 end) as recebida
            , sum(case when visualizada is null then 0 else 1 end) as visualizada
            , sum(case when reproduzida is null then 0 else 1 end) as reproduzida
@@ -389,17 +479,13 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
          ${linha.remetente_id !== usuario ? sql`and ms.usuario_id = ${usuario}` : sql``}
        group by mensagem_id`
     const total = status?.total ?? 0
-    mensagem.recebida = (status?.recebida ?? 0) === total
-    mensagem.visualizada = (status?.visualizada ?? 0) === total
-    mensagem.reproduzida = (status?.reproduzida ?? 0) === total
+    const conteudos = await carregarConteudos(sql, linha.id)
 
-    mensagem.conteudos = await carregarConteudos(sql, linha.id)
-
-    const reacoes = await sql`
+    const reacoes = await sql<ReacaoLinha[]>`
       select r.emoji
            , count(1) as quantidade
            , bool_or(r.usuario_id = ${usuario}) as reagiu
-           , json_agg(json_build_object('usuario_id', r.usuario_id, 'nome', u.nome, 'avatar_objeto', a.objeto, 'reagido_em', r.criado_em) order by r.id) as usuarios
+           , json_agg(json_build_object('usuario_id', r.usuario_id, 'nome', u.nome, 'avatar_objeto', a.objeto, 'reagido_em', r.criado_em at time zone 'UTC') order by r.id) as usuarios
         from reacao r
         join usuario u
           on u.id = r.usuario_id
@@ -408,24 +494,38 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
        where r.mensagem_id = ${linha.id}
        group by r.emoji
        order by min(r.id)`
-    if (reacoes.length) {
-      mensagem.reacoes = await Promise.all(reacoes.map(async (reacao) => ({
-        emoji: reacao.emoji,
-        quantidade: reacao.quantidade,
-        reagiu: reacao.reagiu,
-        usuarios: await Promise.all((reacao.usuarios as Linha[]).map(async ({ avatar_objeto, ...pessoa }) => ({
-          ...pessoa,
-          avatar_url: avatar_objeto ? await urlPublica('GET', avatar_objeto, 600) : null,
-        }))),
-      })))
-    }
+    const reacoesResposta: ReacaoResposta[] = await Promise.all(reacoes.map(async (reacao) => ({
+      emoji: reacao.emoji,
+      quantidade: reacao.quantidade,
+      reagiu: reacao.reagiu,
+      usuarios: await Promise.all(reacao.usuarios.map(async ({ avatar_objeto, reagido_em, ...pessoa }) => ({
+        ...pessoa,
+        reagido_em: new Date(reagido_em),
+        avatar_url: avatar_objeto ? await urlPublica('GET', avatar_objeto, 600) : null,
+      }))),
+    })))
 
-    resultado.push(mensagem)
+    // Mesmas chaves e na mesma ordem de sempre; referencia e reacoes so quando existem
+    resultado.push({
+      id: linha.id,
+      remetente_id: linha.remetente_id,
+      remetente: linha.remetente ?? '',
+      conversa_id: linha.conversa_id,
+      inserida: linha.inserida,
+      alterada: linha.alterada,
+      visivel_em: linha.visivel_em,
+      ...(mensagemReferencia ? { mensagem_referencia: mensagemReferencia } : {}),
+      recebida: (status?.recebida ?? 0) === total,
+      visualizada: (status?.visualizada ?? 0) === total,
+      reproduzida: (status?.reproduzida ?? 0) === total,
+      conteudos,
+      ...(reacoesResposta.length ? { reacoes: reacoesResposta } : {}),
+    })
   }
   return resultado
 }
 
-export async function marcarStatus(sql: Sql, usuario: number, corpo: Linha, coluna: 'visualizada' | 'reproduzida') {
+export async function marcarStatus(sql: Sql, usuario: number, corpo: Corpo<'marcarStatus'>, coluna: 'visualizada' | 'reproduzida') {
   await validarAcessoConversa(sql, usuario, corpo.conversa)
   await sql`
     update mensagem_status
@@ -447,7 +547,7 @@ export async function statusMensagens(sql: Sql, conversa: number, usuario: numbe
   if (!ids.length) {
     return []
   }
-  const linhas = await sql`
+  const linhas = await sql<({ conversa_id: number; mensagem_id: number } & StatusLinha)[]>`
     select conversa_id
          , mensagem_id
          , sum(case when recebida is null then 0 else 1 end) as recebida
@@ -471,14 +571,14 @@ export async function statusMensagens(sql: Sql, conversa: number, usuario: numbe
 // Quem recebeu, viu e ouviu uma mensagem, com o horário de cada um. Só quem
 // enviou a mensagem pode ver.
 export async function detalheStatusMensagem(sql: Sql, usuario: number, mensagem: number) {
-  const [dados] = await sql`select conversa_id, usuario_id from mensagem where id = ${mensagem}`
+  const [dados] = await sql<{ conversa_id: number; usuario_id: number }[]>`select conversa_id, usuario_id from mensagem where id = ${mensagem}`
   if (!dados) {
     throw httpErrors.notFound('Mensagem não encontrada!')
   }
   if (dados.usuario_id !== usuario) {
     throw httpErrors.forbidden('Só quem enviou a mensagem vê quem recebeu e visualizou.')
   }
-  return sql`
+  return sql<{ usuario_id: number; nome: string; recebida: Date | null; visualizada: Date | null; reproduzida: Date | null }[]>`
     select ms.usuario_id
          , u.nome
          , ms.recebida
@@ -505,7 +605,7 @@ export async function novasMensagens(sql: Sql, usuario: number, desde: string) {
   // PostgreSQL grava microssegundos. Sem truncar os dois lados, a ultima
   // mensagem de cada conversa volta em toda consulta e vira notificacao
   // repetida. A comparacao direta na coluna fica junto so para o indice valer.
-  return sql`
+  return sql<{ conversa_id: number; mensagem_id: number; ate: Date }[]>`
     select m.conversa_id
          , max(m.id) as mensagem_id
          , date_trunc('milliseconds', max(coalesce(m.visivel_em, m.inserida))) as ate
@@ -525,14 +625,14 @@ export async function novasMensagens(sql: Sql, usuario: number, desde: string) {
      group by m.conversa_id`
 }
 
-export async function alternarReacao(sql: Sql, usuario: number, corpo: Linha) {
+export async function alternarReacao(sql: Sql, usuario: number, corpo: Corpo<'reacao'>) {
   const [alvo] = await sql<{ conversa_id: number }[]>`select conversa_id from mensagem where id = ${corpo.mensagem_id}`
   if (!alvo) {
     throw httpErrors.notFound('Mensagem não encontrada!')
   }
   await validarAcessoConversa(sql, usuario, alvo.conversa_id)
 
-  const [existe] = await sql`select id from reacao where mensagem_id = ${corpo.mensagem_id} and usuario_id = ${usuario} and emoji = ${corpo.emoji}`
+  const [existe] = await sql<{ id: number }[]>`select id from reacao where mensagem_id = ${corpo.mensagem_id} and usuario_id = ${usuario} and emoji = ${corpo.emoji}`
   let acao: 'add' | 'remove'
   if (existe) {
     await sql`delete from reacao where mensagem_id = ${corpo.mensagem_id} and usuario_id = ${usuario} and emoji = ${corpo.emoji}`

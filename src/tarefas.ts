@@ -1,5 +1,3 @@
-import type { FastifyInstance } from 'fastify'
-import { AsyncTask, SimpleIntervalJob } from 'toad-scheduler'
 import { comUsuario } from './banco.ts'
 import { notificarMensagemAgendada } from './mensagens.ts'
 import { objetoExiste } from './minio.ts'
@@ -66,16 +64,32 @@ async function verificarAnexosPendentes() {
   })
 }
 
-// Executa ao iniciar e depois no intervalo, sem sobrepor execucoes.
-function tarefa(id: string, segundos: number, executar: () => Promise<void>) {
-  return new SimpleIntervalJob(
-    { seconds: segundos, runImmediately: true },
-    new AsyncTask(id, executar, (erro) => console.error(`[${id}]`, erro)),
-    { id, preventOverrun: true },
-  )
+// Executa ao iniciar e depois no intervalo, sem sobrepor execucoes: se a
+// anterior ainda esta rodando, a vez e pulada.
+function agendar(id: string, segundos: number, executar: () => Promise<void>): ReturnType<typeof setInterval> {
+  let rodando = false
+  const rodar = async () => {
+    if (rodando) {
+      return
+    }
+    rodando = true
+    try {
+      await executar()
+    } catch (erro) {
+      console.error(`[${id}]`, erro)
+    } finally {
+      rodando = false
+    }
+  }
+  void rodar()
+  return setInterval(rodar, segundos * 1000)
 }
 
-export function registrarTarefas(app: FastifyInstance) {
-  app.scheduler.addSimpleIntervalJob(tarefa('AgendadorMensagens', 60, notificarAgendadas))
-  app.scheduler.addSimpleIntervalJob(tarefa('VerificacaoAnexos', 120, verificarAnexosPendentes))
+// Devolve a funcao que para as tarefas, chamada ao encerrar o servidor.
+export function iniciarTarefas(): () => void {
+  const intervalos = [
+    agendar('AgendadorMensagens', 60, notificarAgendadas),
+    agendar('VerificacaoAnexos', 120, verificarAnexosPendentes),
+  ]
+  return () => intervalos.forEach(clearInterval)
 }

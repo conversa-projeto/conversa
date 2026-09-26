@@ -1,5 +1,7 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { comUsuario, type Linha, type Sql } from './banco.ts'
+import { Elysia } from 'elysia'
+import { tokenDoCabecalho, usuarioDoToken, type Token } from './autenticacao.ts'
+import { comUsuario, type Sql } from './banco.ts'
+import { comOrigemPublica } from './contexto.ts'
 import { esquemas } from './esquemas.ts'
 import { notificarMembrosConversa } from './notificacoes.ts'
 import { TipoMensagemSocket } from './websocket.ts'
@@ -11,190 +13,175 @@ import * as sip from './sip.ts'
 import * as transcricoes from './transcricoes.ts'
 import * as usuarios from './usuarios.ts'
 
-const usuarioDe = (req: FastifyRequest) => Number((req.user as { sub: string }).sub)
-
-// Executa em nome do usuario do token, numa conexao com app.usuario_id definido.
-function comoUsuario<T>(req: FastifyRequest, operacao: (sql: Sql, usuario: number, corpo: Linha, consulta: Linha) => Promise<T>) {
-  const usuario = usuarioDe(req)
-  return comUsuario(usuario, (sql) => operacao(sql, usuario, req.body as Linha, req.query as Linha))
+// Executa em nome do usuario do token, numa conexao com app.usuario_id definido
+// e com o endereco publico da requisicao guardado para as URLs do MinIO.
+function comoUsuario<T>(contexto: { request: Request; usuario: number }, operacao: (sql: Sql, usuario: number) => Promise<T>) {
+  const { request, usuario } = contexto
+  return comOrigemPublica(request, () => comUsuario(usuario, (sql) => operacao(sql, usuario)))
 }
 
-export async function registrarRotas(app: FastifyInstance) {
-  // --- Autenticacao e usuario ---
+// Todas as rotas da API, em /api. Ficam numa cadeia so para o Elysia (e o
+// cliente Eden da pagina) conhecer o tipo de cada uma.
+export function criarRotas(token: Token) {
+  return new Elysia({ prefix: '/api' })
+    .use(token)
 
-  app.post('/api/login', { schema: esquemas.login }, async (req) => {
-    const resposta = await comUsuario(0, (sql) => usuarios.login(sql, req.body as Linha))
-    resposta.token = app.jwt.sign({ sub: String(resposta.id), iss: 'conversa.login' }, { expiresIn: '12h' })
-    return resposta
-  })
+    // --- Publicas: login e cadastro ---
 
-  app.post('/api/alterar-senha', { schema: esquemas.alterarSenha }, async (req) => {
-    await comoUsuario(req, (sql, usuario, corpo) => usuarios.alterarSenha(sql, usuario, corpo))
-    return {}
-  })
+    .post('/login', async ({ body, jwt }) => {
+      const resposta = await comUsuario(0, (sql) => usuarios.login(sql, body))
+      return { ...resposta, token: await jwt.sign({ sub: String(resposta.id), iss: 'conversa.login', iat: true }) }
+    }, esquemas.login)
 
-  app.patch('/api/dispositivo', { schema: esquemas.alterarDispositivo }, (req) =>
-    comoUsuario(req, (sql, _, corpo) => usuarios.alterarDispositivo(sql, corpo)))
+    .put('/usuario', ({ body }) => comUsuario(0, (sql) => usuarios.incluirUsuario(sql, body)), esquemas.incluirUsuario)
 
-  app.put('/api/dispositivo/usuario', { schema: esquemas.incluirDispositivoUsuario }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => usuarios.incluirDispositivoUsuario(sql, usuario, consulta.dispositivo_id)))
+    // --- Daqui em diante exigem o token ---
 
-  // Cadastro publico: nao exige token.
-  app.put('/api/usuario', { schema: esquemas.incluirUsuario }, (req) =>
-    comUsuario(0, (sql) => usuarios.incluirUsuario(sql, req.body as Linha)))
+    .resolve(async ({ jwt, headers }) => ({ usuario: await usuarioDoToken(jwt.verify, tokenDoCabecalho(headers.authorization)) }))
 
-  app.patch('/api/usuario', { schema: esquemas.alterarUsuario }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => usuarios.alterarUsuario(sql, usuario, corpo)))
+    // --- Usuario ---
 
-  app.delete('/api/usuario', { schema: esquemas.idNaConsulta }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => usuarios.excluirUsuario(sql, usuario, consulta.id)))
+    .post('/alterar-senha', async (c) => {
+      await comoUsuario(c, (sql, usuario) => usuarios.alterarSenha(sql, usuario, c.body))
+      return {}
+    }, esquemas.alterarSenha)
 
-  app.put('/api/usuario/contato', { schema: esquemas.incluirContato }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => usuarios.incluirContato(sql, usuario, consulta.relacionamento_id)))
+    .patch('/dispositivo', (c) => comoUsuario(c, (sql) => usuarios.alterarDispositivo(sql, c.body)), esquemas.alterarDispositivo)
 
-  app.delete('/api/usuario/contato', { schema: esquemas.idNaConsulta }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => usuarios.excluirContato(sql, usuario, consulta.id)))
+    .put('/dispositivo/usuario', (c) =>
+      comoUsuario(c, (sql, usuario) => usuarios.incluirDispositivoUsuario(sql, usuario, c.query.dispositivo_id)), esquemas.incluirDispositivoUsuario)
 
-  app.get('/api/usuario/contatos', (req) => comoUsuario(req, (sql) => usuarios.contatos(sql)))
+    .patch('/usuario', (c) => comoUsuario(c, (sql, usuario) => usuarios.alterarUsuario(sql, usuario, c.body)), esquemas.alterarUsuario)
 
-  app.get('/api/contatos/online', (req) => comoUsuario(req, (sql, usuario) => usuarios.contatosOnline(sql, usuario)))
+    .delete('/usuario', (c) => comoUsuario(c, (sql, usuario) => usuarios.excluirUsuario(sql, usuario, c.query.id)), esquemas.idNaConsulta)
 
-  // --- Conversas ---
+    .put('/usuario/contato', (c) =>
+      comoUsuario(c, (sql, usuario) => usuarios.incluirContato(sql, usuario, c.query.relacionamento_id)), esquemas.incluirContato)
 
-  app.put('/api/conversa', { schema: esquemas.incluirConversa }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => conversas.incluirConversa(sql, usuario, corpo)))
+    .delete('/usuario/contato', (c) => comoUsuario(c, (sql, usuario) => usuarios.excluirContato(sql, usuario, c.query.id)), esquemas.idNaConsulta)
 
-  app.patch('/api/conversa', { schema: esquemas.alterarConversa }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => conversas.alterarConversa(sql, usuario, corpo)))
+    .get('/usuario/contatos', (c) => comoUsuario(c, (sql) => usuarios.contatos(sql)))
 
-  app.delete('/api/conversa', { schema: esquemas.idNaConsulta }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => conversas.excluirConversa(sql, usuario, consulta.id)))
+    .get('/contatos/online', (c) => comoUsuario(c, (sql, usuario) => usuarios.contatosOnline(sql, usuario)))
 
-  app.get('/api/conversas', (req) => comoUsuario(req, (sql, usuario) => conversas.conversas(sql, usuario)))
+    // --- Conversas ---
 
-  app.get('/api/conversa/usuarios', { schema: esquemas.membrosConversa }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => conversas.membrosConversa(sql, usuario, consulta.conversa)))
+    .put('/conversa', (c) => comoUsuario(c, (sql, usuario) => conversas.incluirConversa(sql, usuario, c.body)), esquemas.incluirConversa)
 
-  app.put('/api/conversa/usuario', { schema: esquemas.incluirMembro }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => conversas.incluirMembro(sql, usuario, corpo)))
+    .patch('/conversa', (c) => comoUsuario(c, (sql, usuario) => conversas.alterarConversa(sql, usuario, c.body)), esquemas.alterarConversa)
 
-  app.delete('/api/conversa/usuario', { schema: esquemas.idNaConsulta }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => conversas.excluirMembro(sql, usuario, consulta.id)))
+    .delete('/conversa', (c) => comoUsuario(c, (sql, usuario) => conversas.excluirConversa(sql, usuario, c.query.id)), esquemas.idNaConsulta)
 
-  app.post('/api/conversa/digitando', { schema: esquemas.idNoCorpo }, async (req) => {
-    await comoUsuario(req, (sql, usuario, corpo) => notificarMembrosConversa(sql, corpo.id, usuario, TipoMensagemSocket.Digitando))
-    return {}
-  })
+    .get('/conversas', (c) => comoUsuario(c, (sql, usuario) => conversas.conversas(sql, usuario)))
 
-  app.post('/api/conversa/gravando', { schema: esquemas.idNoCorpo }, async (req) => {
-    await comoUsuario(req, (sql, usuario, corpo) => notificarMembrosConversa(sql, corpo.id, usuario, TipoMensagemSocket.GravandoAudio))
-    return {}
-  })
+    .patch('/conversa/fixadas', (c) =>
+      comoUsuario(c, (sql, usuario) => conversas.ordenarFixadas(sql, usuario, c.body.conversas)), esquemas.ordenarFixadas)
 
-  // --- Mensagens ---
+    .patch('/conversa/arquivada', (c) =>
+      comoUsuario(c, (sql, usuario) => conversas.arquivarConversa(sql, usuario, c.body.conversa, c.body.arquivada)), esquemas.arquivarConversa)
 
-  app.put('/api/mensagem', { schema: esquemas.incluirMensagem }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => mensagens.incluirMensagem(sql, usuario, corpo)))
+    .get('/conversa/usuarios', (c) =>
+      comoUsuario(c, (sql, usuario) => conversas.membrosConversa(sql, usuario, c.query.conversa)), esquemas.membrosConversa)
 
-  app.delete('/api/mensagem', { schema: esquemas.idNaConsulta }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => mensagens.excluirMensagem(sql, usuario, consulta.id)))
+    .put('/conversa/usuario', (c) => comoUsuario(c, (sql, usuario) => conversas.incluirMembro(sql, usuario, c.body)), esquemas.incluirMembro)
 
-  app.get('/api/mensagens', { schema: esquemas.mensagens }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => mensagens.mensagens(
-      sql, consulta.conversa, usuario, consulta.mensagemreferencia, consulta.mensagensprevias, consulta.mensagensseguintes)))
+    .delete('/conversa/usuario', (c) => comoUsuario(c, (sql, usuario) => conversas.excluirMembro(sql, usuario, c.query.id)), esquemas.idNaConsulta)
 
-  app.post('/api/mensagem/visualizar', { schema: esquemas.marcarStatus }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => mensagens.marcarStatus(sql, usuario, corpo, 'visualizada')))
+    .post('/conversa/digitando', async (c) => {
+      await comoUsuario(c, (sql, usuario) => notificarMembrosConversa(sql, c.body.id, usuario, TipoMensagemSocket.Digitando))
+      return {}
+    }, esquemas.idNoCorpo)
 
-  app.post('/api/mensagem/reproduzir', { schema: esquemas.marcarStatus }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => mensagens.marcarStatus(sql, usuario, corpo, 'reproduzida')))
+    .post('/conversa/gravando', async (c) => {
+      await comoUsuario(c, (sql, usuario) => notificarMembrosConversa(sql, c.body.id, usuario, TipoMensagemSocket.GravandoAudio))
+      return {}
+    }, esquemas.idNoCorpo)
 
-  app.get('/api/mensagem/status', { schema: esquemas.statusMensagens }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => mensagens.statusMensagens(sql, consulta.conversa, usuario, consulta.mensagem)))
+    // --- Mensagens ---
 
-  app.get('/api/mensagem/status/detalhe', { schema: esquemas.idNaConsulta }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => mensagens.detalheStatusMensagem(sql, usuario, consulta.id)))
+    .put('/mensagem', (c) => comoUsuario(c, (sql, usuario) => mensagens.incluirMensagem(sql, usuario, c.body)), esquemas.incluirMensagem)
 
-  app.get('/api/mensagens/novas', { schema: esquemas.novasMensagens }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => mensagens.novasMensagens(sql, usuario, consulta.desde)))
+    .delete('/mensagem', (c) => comoUsuario(c, (sql, usuario) => mensagens.excluirMensagem(sql, usuario, c.query.id)), esquemas.idNaConsulta)
 
-  // A pesquisa sempre usa o usuario do token, nunca o parametro "usuario".
-  app.get('/api/pesquisar', { schema: esquemas.pesquisar }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => mensagens.pesquisar(sql, consulta.conversa, usuario, consulta.texto)))
+    .get('/mensagens', (c) => comoUsuario(c, (sql, usuario) => mensagens.mensagens(
+      sql, c.query.conversa, usuario, c.query.mensagemreferencia, c.query.mensagensprevias, c.query.mensagensseguintes)), esquemas.mensagens)
 
-  app.put('/api/mensagem/reacao', { schema: esquemas.reacao }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => mensagens.alternarReacao(sql, usuario, corpo)))
+    .post('/mensagem/visualizar', (c) =>
+      comoUsuario(c, (sql, usuario) => mensagens.marcarStatus(sql, usuario, c.body, 'visualizada')), esquemas.marcarStatus)
 
-  // --- Anexos ---
+    .post('/mensagem/reproduzir', (c) =>
+      comoUsuario(c, (sql, usuario) => mensagens.marcarStatus(sql, usuario, c.body, 'reproduzida')), esquemas.marcarStatus)
 
-  app.get('/api/anexo/existe', { schema: esquemas.identificador }, (req) =>
-    comoUsuario(req, (sql, _, __, consulta) => anexos.anexoExiste(sql, consulta.identificador)))
+    .get('/mensagem/status', (c) =>
+      comoUsuario(c, (sql, usuario) => mensagens.statusMensagens(sql, c.query.conversa, usuario, c.query.mensagem)), esquemas.statusMensagens)
 
-  app.get('/api/anexo', { schema: esquemas.identificador }, (req) =>
-    comoUsuario(req, (sql, _, __, consulta) => anexos.urlAnexo(sql, consulta.identificador)))
+    .get('/mensagem/status/detalhe', (c) =>
+      comoUsuario(c, (sql, usuario) => mensagens.detalheStatusMensagem(sql, usuario, c.query.id)), esquemas.idNaConsulta)
 
-  app.put('/api/anexo', { schema: esquemas.incluirAnexo }, (req) =>
-    comoUsuario(req, (sql, _, corpo) => anexos.incluirAnexo(sql, corpo)))
+    .get('/mensagens/novas', (c) =>
+      comoUsuario(c, (sql, usuario) => mensagens.novasMensagens(sql, usuario, c.query.desde)), esquemas.novasMensagens)
 
-  app.post('/api/anexo/confirmar', { schema: esquemas.identificador }, (req) =>
-    comoUsuario(req, (sql, _, __, consulta) => anexos.confirmarUpload(sql, consulta.identificador)))
+    // A pesquisa sempre usa o usuario do token, nunca o parametro "usuario".
+    .get('/pesquisar', (c) =>
+      comoUsuario(c, (sql, usuario) => mensagens.pesquisar(sql, c.query.conversa, usuario, c.query.texto)), esquemas.pesquisar)
 
-  app.get('/api/anexos', { schema: esquemas.anexos }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => anexos.anexos(sql, usuario, consulta)))
+    .put('/mensagem/reacao', (c) => comoUsuario(c, (sql, usuario) => mensagens.alternarReacao(sql, usuario, c.body)), esquemas.reacao)
 
-  // --- Transcricao de audio ---
+    // --- Anexos ---
 
-  app.get('/api/anexo/transcricao', { schema: esquemas.identificador }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => transcricoes.obterTranscricao(sql, usuario, consulta.identificador)))
+    .get('/anexo/existe', (c) => comoUsuario(c, (sql) => anexos.anexoExiste(sql, c.query.identificador)), esquemas.identificador)
 
-  app.put('/api/anexo/transcricao', { schema: esquemas.transcricao }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => transcricoes.transcrever(sql, usuario, corpo.identificador)))
+    .get('/anexo', (c) => comoUsuario(c, (sql) => anexos.urlAnexo(sql, c.query.identificador)), esquemas.identificador)
 
-  // --- Chamadas ---
+    .put('/anexo', (c) => comoUsuario(c, (sql) => anexos.incluirAnexo(sql, c.body)), esquemas.incluirAnexo)
 
-  app.put('/api/chamada/iniciar', { schema: esquemas.iniciarChamada }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => chamadas.iniciarChamada(sql, usuario, corpo)))
+    .post('/anexo/confirmar', (c) => comoUsuario(c, (sql) => anexos.confirmarUpload(sql, c.query.identificador)), esquemas.identificador)
 
-  app.post('/api/chamada/cancelar', { schema: esquemas.idNoCorpo }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => chamadas.cancelarChamada(sql, usuario, corpo.id)))
+    .get('/anexos', (c) => comoUsuario(c, (sql, usuario) => anexos.anexos(sql, usuario, c.query)), esquemas.anexos)
 
-  app.post('/api/chamada/entrar', { schema: esquemas.idNoCorpo }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => chamadas.entrarChamada(sql, usuario, corpo.id)))
+    // --- Transcricao de audio ---
 
-  app.post('/api/chamada/recusar', { schema: esquemas.idNoCorpo }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => chamadas.recusarChamada(sql, usuario, corpo.id)))
+    .get('/anexo/transcricao', (c) =>
+      comoUsuario(c, (sql, usuario) => transcricoes.obterTranscricao(sql, usuario, c.query.identificador)), esquemas.identificador)
 
-  app.post('/api/chamada/sair', { schema: esquemas.idNoCorpo }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => chamadas.sairChamada(sql, usuario, corpo.id)))
+    .put('/anexo/transcricao', (c) =>
+      comoUsuario(c, (sql, usuario) => transcricoes.transcrever(sql, usuario, c.body.identificador)), esquemas.transcricao)
 
-  app.put('/api/chamada/usuario', { schema: esquemas.adicionarUsuarioChamada }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => chamadas.adicionarUsuarioChamada(sql, usuario, corpo)))
+    // --- Chamadas ---
 
-  app.post('/api/chamada/finalizar', { schema: esquemas.idNoCorpo }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => chamadas.finalizarChamada(sql, usuario, corpo.id)))
+    .put('/chamada/iniciar', (c) => comoUsuario(c, (sql, usuario) => chamadas.iniciarChamada(sql, usuario, c.body)), esquemas.iniciarChamada)
 
-  app.get('/api/chamada/dados', { schema: esquemas.idNaConsulta }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => chamadas.dadosChamadaUsuario(sql, usuario, consulta.id)))
+    .post('/chamada/cancelar', (c) => comoUsuario(c, (sql, usuario) => chamadas.cancelarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 
-  app.get('/api/chamadas/pendentes', (req) => comoUsuario(req, (sql, usuario) => chamadas.chamadasPendentes(sql, usuario)))
+    .post('/chamada/entrar', (c) => comoUsuario(c, (sql, usuario) => chamadas.entrarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 
-  app.get('/api/chamadas', { schema: esquemas.historicoChamadas }, (req) =>
-    comoUsuario(req, (sql, usuario, _, consulta) => chamadas.historicoChamadas(sql, usuario, consulta)))
+    .post('/chamada/recusar', (c) => comoUsuario(c, (sql, usuario) => chamadas.recusarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 
-  app.post('/api/chamada/video', { schema: esquemas.idNoCorpo }, async (req) => {
-    await comoUsuario(req, (sql, usuario, corpo) => chamadas.ativarVideo(sql, usuario, corpo.id))
-    return {}
-  })
+    .post('/chamada/sair', (c) => comoUsuario(c, (sql, usuario) => chamadas.sairChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 
-  app.get('/api/ice', async (req) => chamadas.servidoresIce(usuarioDe(req)))
+    .put('/chamada/usuario', (c) =>
+      comoUsuario(c, (sql, usuario) => chamadas.adicionarUsuarioChamada(sql, usuario, c.body)), esquemas.adicionarUsuarioChamada)
 
-  // --- SIP ---
+    .post('/chamada/finalizar', (c) => comoUsuario(c, (sql, usuario) => chamadas.finalizarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 
-  app.get('/api/sip', (req) => comoUsuario(req, (sql, usuario) => sip.sip(sql, usuario)))
+    .get('/chamada/dados', (c) => comoUsuario(c, (sql, usuario) => chamadas.dadosChamadaUsuario(sql, usuario, c.query.id)), esquemas.idNaConsulta)
 
-  app.put('/api/sip', { schema: esquemas.incluirSip }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => sip.incluirSip(sql, usuario, corpo)))
+    .get('/chamadas/pendentes', (c) => comoUsuario(c, (sql, usuario) => chamadas.chamadasPendentes(sql, usuario)))
 
-  app.patch('/api/sip', { schema: esquemas.alterarSip }, (req) =>
-    comoUsuario(req, (sql, usuario, corpo) => sip.alterarSip(sql, usuario, corpo)))
+    .get('/chamadas', (c) => comoUsuario(c, (sql, usuario) => chamadas.historicoChamadas(sql, usuario, c.query)), esquemas.historicoChamadas)
+
+    .post('/chamada/video', async (c) => {
+      await comoUsuario(c, (sql, usuario) => chamadas.ativarVideo(sql, usuario, c.body.id))
+      return {}
+    }, esquemas.idNoCorpo)
+
+    .get('/ice', (c) => comOrigemPublica(c.request, () => chamadas.servidoresIce(c.usuario)))
+
+    // --- SIP ---
+
+    .get('/sip', (c) => comoUsuario(c, (sql, usuario) => sip.sip(sql, usuario)))
+
+    .put('/sip', (c) => comoUsuario(c, (sql, usuario) => sip.incluirSip(sql, usuario, c.body)), esquemas.incluirSip)
+
+    .patch('/sip', (c) => comoUsuario(c, (sql, usuario) => sip.alterarSip(sql, usuario, c.body)), esquemas.alterarSip)
 }

@@ -1,6 +1,4 @@
-import websocket from '@fastify/websocket'
-import type { FastifyInstance } from 'fastify'
-import type { WebSocket } from 'ws'
+import { Elysia } from 'elysia'
 import { comUsuario } from './banco.ts'
 
 export const TipoMensagemSocket = {
@@ -22,28 +20,42 @@ export const TipoMensagemSocket = {
 } as const
 export type TipoMensagemSocket = (typeof TipoMensagemSocket)[keyof typeof TipoMensagemSocket]
 
-// Conexoes abertas por usuario. Um usuario pode ter varias abas e aparelhos.
-const conexoes = new Map<number, Set<WebSocket>>()
+// Conexao aberta, o socket nativo do Bun (o mesmo objeto do abrir ao fechar).
+interface Conexao {
+  send(texto: string): unknown
+}
 
-type VerificarToken = (token: string) => { sub: string }
+// Conexoes abertas por usuario. Um usuario pode ter varias abas e aparelhos.
+const conexoes = new Map<number, Set<Conexao>>()
+// Usuario de cada conexao, depois do login pela primeira mensagem
+const usuarioDaConexao = new WeakMap<Conexao, number>()
+
+// Confere o token do login e devolve o id do usuario; token invalido lanca erro.
+export type VerificarToken = (token: string) => Promise<number>
+
+// O Elysia ja entrega a mensagem convertida quando ela e JSON; texto que nao e
+// JSON chega como string.
+function lerMensagem(dado: unknown): { tipo?: unknown; token?: unknown } | undefined {
+  if (typeof dado === 'object' && dado !== null) {
+    return dado
+  }
+  try {
+    const convertido: unknown = JSON.parse(String(dado))
+    return typeof convertido === 'object' && convertido !== null ? convertido : undefined
+  } catch {
+    return undefined
+  }
+}
 
 // WebSocket na mesma porta da API, em /ws/. A autenticacao nao usa o
 // cabecalho: o cliente manda { tipo: 1, token } como primeira mensagem.
-export async function registrarWebSocket(app: FastifyInstance, verificarToken: VerificarToken) {
-  await app.register(websocket)
+export function criarWebSocket(verificarToken: VerificarToken) {
+  return new Elysia({ name: 'websocket' }).ws('/ws/', {
+    async message(ws, dado) {
+      const socket: Conexao = ws.raw
+      const mensagem = lerMensagem(dado)
 
-  app.get('/ws/', { websocket: true }, (socket) => {
-    let usuarioId = 0
-
-    socket.on('message', (bruto) => {
-      let mensagem: { tipo?: unknown; token?: unknown } | undefined
-      try {
-        mensagem = JSON.parse(bruto.toString())
-      } catch {
-        mensagem = undefined
-      }
-
-      if (!mensagem || typeof mensagem !== 'object' || mensagem.tipo === undefined) {
+      if (!mensagem || mensagem.tipo === undefined) {
         socket.send(JSON.stringify({
           tipo: 9,
           message: mensagem
@@ -53,16 +65,18 @@ export async function registrarWebSocket(app: FastifyInstance, verificarToken: V
         return
       }
 
-      if (mensagem.tipo !== TipoMensagemSocket.Login || usuarioId) {
+      if (mensagem.tipo !== TipoMensagemSocket.Login || usuarioDaConexao.has(socket)) {
         return
       }
 
+      let usuarioId: number
       try {
-        usuarioId = Number(verificarToken(String(mensagem.token ?? '')).sub)
+        usuarioId = await verificarToken(String(mensagem.token ?? ''))
       } catch (erro) {
         socket.send(JSON.stringify({ tipo: TipoMensagemSocket.Erro, message: erro instanceof Error ? erro.message : String(erro) }))
         return
       }
+      usuarioDaConexao.set(socket, usuarioId)
 
       let doUsuario = conexoes.get(usuarioId)
       if (!doUsuario) {
@@ -73,9 +87,11 @@ export async function registrarWebSocket(app: FastifyInstance, verificarToken: V
       if (doUsuario.size === 1) {
         notificarContatosStatus(usuarioId, true)
       }
-    })
+    },
 
-    socket.on('close', () => {
+    close(ws) {
+      const socket: Conexao = ws.raw
+      const usuarioId = usuarioDaConexao.get(socket)
       if (!usuarioId) {
         return
       }
@@ -86,7 +102,7 @@ export async function registrarWebSocket(app: FastifyInstance, verificarToken: V
         conexoes.delete(usuarioId)
         notificarContatosStatus(usuarioId, false)
       }
-    })
+    },
   })
 }
 
