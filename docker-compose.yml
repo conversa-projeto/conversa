@@ -47,7 +47,8 @@ services:
 
   # Usuario e senha do MinIO sao gerados aleatorios na primeira vez e ficam em
   # /dados, no volume conversa-dados, que a API tambem le. Depois so sao lidos.
-  # O dono uid 1000 e o usuario node da API, que tambem grava o pepper ali.
+  # O dono uid 1000 e o usuario da API (bun em desenvolvimento, conversa em
+  # producao), que tambem grava o pepper ali.
   minio:
     image: quay.io/minio/minio
     container_name: minio
@@ -123,8 +124,8 @@ services:
       rtc:
         ipv4_address: 172.30.0.20
 
-  # API em Node. HTTP e WebSocket, em /ws/, na porta 8080. O nginx chega nela
-  # pelo nome; a porta em 127.0.0.1 serve para testes locais.
+  # API em Bun com Elysia. HTTP e WebSocket, em /ws/, na porta 8080. O nginx
+  # chega nela pelo nome; a porta em 127.0.0.1 serve para testes locais.
   api:
     build: .
     image: conversa-api
