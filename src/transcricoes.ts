@@ -106,14 +106,14 @@ async function processar(identificador: string, anexo: AnexoAudio, idioma: strin
   try {
     const audio = await lerObjeto(anexo.objeto)
 
-    // Sempre um unico falante: sem separacao por falante e sem alinhamento por
-    // palavra, que so atrasam o resultado de um audio de conversa.
+    // Sem separacao por falante, que a versao Windows do transcritor nao faz
+    // (true devolve 400), e sem alinhamento por palavra, que so atrasa: aqui
+    // basta o texto.
     const formulario = new FormData()
     formulario.append('file', new Blob([new Uint8Array(audio)]), `audio.${anexo.extensao || 'bin'}`)
     if (idioma) formulario.append('language', idioma)
     formulario.append('diarization', 'false')
     formulario.append('alignment', 'false')
-    formulario.append('num_speakers', '1')
 
     const criado = await fetch(`${base}/jobs`, { method: 'POST', body: formulario })
     if (!criado.ok) {

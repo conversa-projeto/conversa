@@ -116,9 +116,17 @@ Rode num terminal na pasta `conversa`.
 
 ## Transcricao de audio
 
-As mensagens de audio ganham um botao **Transcrever**. O texto fica salvo na tabela `anexo_transcricao` e aparece abaixo do player para todos da conversa. Quem faz a transcricao e o [transcritor-api](../transcritor-api), sempre com um unico falante.
+As mensagens de audio ganham um botao **Transcrever**. O texto fica salvo na tabela `anexo_transcricao` e aparece abaixo do player para todos da conversa. Quem faz a transcricao e a versao Windows do [transcritor-api](../transcritor-api/windows), na GPU, sem separacao por falante.
 
-Fica desligada ate informar o endereco do transcritor. Com ele rodando na mesma maquina (porta 8000), entre no banco (`docker exec -it postgres psql -U postgres -d conversa`) e rode:
+Instale pelo `instalar.bat` da pasta `transcritor-api\windows` e suba com:
+
+```bat
+iniciar.bat -Endereco 0.0.0.0
+```
+
+O `-Endereco 0.0.0.0` e obrigatorio: sem ele o transcritor so aceita conexoes da propria maquina, e a API, dentro do Docker, nao chega nele. A porta padrao e a 8000 (`-Porta` troca).
+
+Fica desligada ate informar o endereco do transcritor. Com ele rodando na mesma maquina, entre no banco (`docker exec -it postgres psql -U postgres -d conversa`) e rode:
 
 ```sql
 update parametros set valor = 'http://host.docker.internal:8000' where nome = 'transcritor_url';
