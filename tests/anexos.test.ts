@@ -66,9 +66,7 @@ describe('envio e leitura', () => {
     expect(anexo?.upload_status).toBe(1)
   })
 
-  // FALHA CONHECIDA: anexo inexistente e arquivo acima de 1 GiB lançam Error
-  // comum (anexos.ts), e a API responde 500 em vez de 404 e 400.
-  test.failing('anexo inexistente é 404 e arquivo grande demais é 400', async () => {
+  test('anexo inexistente é 404 e arquivo grande demais é 400', async () => {
     expect((await chamar('GET', '/anexo', { token: ana.token, consulta: { identificador: 'e'.repeat(64) } })).status).toBe(404)
     const grande = await chamar('PUT', '/anexo', { token: ana.token, corpo: { identificador: 'd'.repeat(64), tipo: 3, nome: 'g.bin', extensao: 'bin', tamanho: 2 * 1024 ** 3 } })
     expect(grande.status).toBe(400)

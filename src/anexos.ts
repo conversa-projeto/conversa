@@ -41,7 +41,7 @@ export async function anexoExiste(sql: Sql, identificador: string) {
 export async function urlAnexo(sql: Sql, identificador: string) {
   const [anexo] = await sql<AnexoObjeto[]>`select objeto, upload_status from anexo where identificador = ${identificador}`
   if (!anexo) {
-    throw new Error('Anexo não encontrado')
+    throw httpErrors.notFound('Anexo não encontrado')
   }
   if (anexo.upload_status === 0) {
     if (!await objetoExiste(anexo.objeto)) {
@@ -57,7 +57,7 @@ export async function urlAnexo(sql: Sql, identificador: string) {
 
 export async function incluirAnexo(sql: Sql, corpo: Corpo<'incluirAnexo'>) {
   if (corpo.tamanho > TAMANHO_MAXIMO) {
-    throw new Error('Arquivo muito grande!')
+    throw httpErrors.badRequest('Arquivo muito grande!')
   }
 
   const [existente] = await sql<{ id: number; objeto: string }[]>`select id, objeto from anexo where identificador = ${corpo.identificador}`
@@ -83,7 +83,7 @@ export async function incluirAnexo(sql: Sql, corpo: Corpo<'incluirAnexo'>) {
 export async function confirmarUpload(sql: Sql, identificador: string) {
   const [anexo] = await sql<AnexoObjeto[]>`select objeto, upload_status from anexo where identificador = ${identificador}`
   if (!anexo) {
-    throw new Error('Anexo não encontrado')
+    throw httpErrors.notFound('Anexo não encontrado')
   }
   if (anexo.upload_status !== 1) {
     if (!await objetoExiste(anexo.objeto)) {

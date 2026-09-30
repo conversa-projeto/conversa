@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, spyOn, test } from 'bun:test'
+import { criarApp } from '../src/app.ts'
 import { executarMigracoes } from '../src/migracoes.ts'
 import { configuracao, definirAmbiente } from '../src/configuracao.ts'
 import { iniciarTarefas } from '../src/tarefas.ts'
@@ -12,6 +13,19 @@ describe('respostas de erro', () => {
     const { status, dados } = await chamar('GET', '/nao-existe', { token: ana.token })
     expect(status).toBe(404)
     expect(dados).toEqual({ error: 'Rota GET:/api/nao-existe não encontrada' })
+  })
+
+  test('erro inesperado é 500 no formato { error } e vai para o log', async () => {
+    const log = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const app = criarApp('chave-dos-testes').get('/api/quebra', () => { throw new Error('quebrou') })
+      const resposta = await app.handle(new Request('http://localhost/api/quebra'))
+      expect(resposta.status).toBe(500)
+      expect(await resposta.json()).toEqual({ error: 'quebrou' })
+      expect(log).toHaveBeenCalled()
+    } finally {
+      log.mockRestore()
+    }
   })
 
   test('corpo que não é JSON válido é 400', async () => {

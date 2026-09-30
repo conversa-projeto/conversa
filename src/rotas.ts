@@ -45,7 +45,7 @@ export function criarRotas(token: Token) {
       return {}
     }, esquemas.alterarSenha)
 
-    .patch('/dispositivo', (c) => comoUsuario(c, (sql) => usuarios.alterarDispositivo(sql, c.body)), esquemas.alterarDispositivo)
+    .patch('/dispositivo', (c) => comoUsuario(c, (sql, usuario) => usuarios.alterarDispositivo(sql, usuario, c.body)), esquemas.alterarDispositivo)
 
     .put('/dispositivo/usuario', (c) =>
       comoUsuario(c, (sql, usuario) => usuarios.incluirDispositivoUsuario(sql, usuario, c.query.dispositivo_id)), esquemas.incluirDispositivoUsuario)

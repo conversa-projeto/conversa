@@ -288,7 +288,7 @@ export async function mensagens(sql: Sql, conversa: number, usuario: number, ref
 
 export async function pesquisar(sql: Sql, conversa: number, usuario: number, texto: string) {
   if (!texto.trim()) {
-    throw new Error('Texto inválido!')
+    throw httpErrors.badRequest('Texto inválido!')
   }
   const padrao = `%${texto.replaceAll(' ', ' ').replaceAll(' ', '%')}%`
   const script = sql`

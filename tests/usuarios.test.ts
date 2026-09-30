@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { chamar, criarUsuario, loginUnico, noBanco, usuariosComuns, type UsuarioTeste } from './api.ts'
+import { chamar, criarConversa, criarUsuario, enviarTexto, loginUnico, noBanco, usuariosComuns, type UsuarioTeste } from './api.ts'
 
 let ana: UsuarioTeste, bruno: UsuarioTeste
 beforeAll(async () => ({ ana, bruno } = await usuariosComuns()))
@@ -48,18 +48,15 @@ describe('login e dispositivo', () => {
     expect(dados).toEqual({ id: 123 })
   })
 
-  // FALHA CONHECIDA: PATCH /dispositivo não confere o dono. Qualquer pessoa
-  // logada troca o token_fcm do aparelho de outra e passa a receber os pushes
-  // dela (remetente e texto das mensagens).
-  test.failing('não altera o dispositivo de outra pessoa', async () => {
+  // Trocar o token_fcm do aparelho de outra pessoa desviaria os pushes dela
+  test('não altera o dispositivo de outra pessoa', async () => {
     const vitima = await criarUsuario()
     const { dados } = await entrar(vitima.login, vitima.senha)
     const { status } = await chamar('PATCH', '/dispositivo', { token: ana.token, corpo: { id: dados.dispositivo.id, token_fcm: 'token-do-invasor' } })
     expect(status).toBe(403)
   })
 
-  // FALHA CONHECIDA: o login aceita o dispositivo_id de outra pessoa.
-  test.failing('login com o dispositivo de outra pessoa não o reaproveita', async () => {
+  test('login com o dispositivo de outra pessoa não o reaproveita', async () => {
     const vitima = await criarUsuario()
     const daVitima = (await entrar(vitima.login, vitima.senha)).dados.dispositivo.id
     const { dados } = await entrar(ana.login, ana.senha, daVitima)
@@ -113,15 +110,22 @@ describe('cadastro do usuário', () => {
     expect((await chamar('DELETE', '/usuario', { token: ana.token, consulta: { id: usuario.id } })).status).toBe(403)
   })
 
-  // FALHA CONHECIDA: excluir a própria conta dá 500 para quem já fez login. O
-  // dispositivo criado no login continua apontando para o usuário
-  // (dispositivo_usuario_fk) e o banco recusa a exclusão.
-  test.failing('exclui a própria conta', async () => {
+  // O dispositivo criado no login sai junto com a conta
+  test('exclui a própria conta', async () => {
     const usuario = await criarUsuario()
     const exclusao = await chamar('DELETE', '/usuario', { token: usuario.token, consulta: { id: usuario.id } })
     expect(exclusao.status).toBe(200)
     expect(exclusao.dados.senha).toBeUndefined()
     expect((await entrar(usuario.login, usuario.senha)).status).toBe(401)
+  })
+
+  test('conta com histórico não é excluída (409, não 500)', async () => {
+    const [usuario, outro] = [await criarUsuario(), await criarUsuario()]
+    const conversa = await criarConversa(usuario, [outro])
+    await enviarTexto(usuario, conversa, 'oi')
+    const exclusao = await chamar('DELETE', '/usuario', { token: usuario.token, consulta: { id: usuario.id } })
+    expect(exclusao.status).toBe(409)
+    expect((await entrar(usuario.login, usuario.senha)).status).toBe(200)
   })
 
   test('lista de contatos traz os usuários sem a senha', async () => {

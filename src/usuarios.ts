@@ -47,7 +47,8 @@ export async function login(sql: Sql, corpo: Corpo<'login'>) {
   let dispositivo: DispositivoLogin | undefined
   const dispositivoId = corpo.dispositivo_id ?? 0
   if (dispositivoId > 0) {
-    dispositivo = (await sql<DispositivoLogin[]>`select id, nome, modelo, versao_so, plataforma, ativo from dispositivo where id = ${dispositivoId}`)[0]
+    // Só reaproveita o dispositivo que é da própria pessoa
+    dispositivo = (await sql<DispositivoLogin[]>`select id, nome, modelo, versao_so, plataforma, ativo from dispositivo where id = ${dispositivoId} and usuario_id = ${usuario.id}`)[0]
   }
   dispositivo ??= await inserir(sql, 'dispositivo', {
     nome: 'desconhecido',
@@ -72,9 +73,13 @@ export async function alterarSenha(sql: Sql, usuario: number, corpo: Corpo<'alte
   await sql`update usuario set senha = ${await gerarHash(corpo.senha)} where id = ${usuario}`
 }
 
-export async function alterarDispositivo(sql: Sql, corpo: Corpo<'alterarDispositivo'>) {
+export async function alterarDispositivo(sql: Sql, usuario: number, corpo: Corpo<'alterarDispositivo'>) {
   if (!COLUNAS_DISPOSITIVO_ALTERAR.some((coluna) => corpo[coluna] !== undefined)) {
     return { ...corpo }
+  }
+  const [dono] = await sql<Pick<Dispositivo, 'usuario_id'>[]>`select usuario_id from dispositivo where id = ${corpo.id}`
+  if (dono?.usuario_id !== usuario) {
+    throw httpErrors.forbidden('Acesso negado!')
   }
   return alterar(sql, 'dispositivo', corpo.id, corpo, COLUNAS_DISPOSITIVO_ALTERAR)
 }
@@ -108,7 +113,14 @@ export async function excluirUsuario(sql: Sql, usuario: number, id: number) {
   if (id !== usuario) {
     throw httpErrors.forbidden('Acesso negado!')
   }
-  const excluido = await excluir(sql, 'usuario', id)
+  // Os dispositivos são da conta e saem junto. Outro histórico (mensagens,
+  // conversas, chamadas) impede a exclusão.
+  await sql`delete from dispositivo_usuario where usuario_id = ${id} or dispositivo_id in (select d.id from dispositivo as d where d.usuario_id = ${id})`
+  await sql`delete from dispositivo where usuario_id = ${id}`
+  const excluido = await excluir(sql, 'usuario', id).catch((erro: { code?: string }) => {
+    if (erro.code === '23503') throw httpErrors.conflict('A conta tem histórico e não pode ser excluída!')
+    throw erro
+  })
   return semSenha(excluido)
 }
 

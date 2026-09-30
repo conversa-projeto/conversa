@@ -189,8 +189,7 @@ describe('pesquisa', () => {
     expect((await chamar('GET', '/pesquisar', { token: ana.token, consulta: { conversa, texto: marca } })).dados).toHaveLength(1)
   })
 
-  // FALHA CONHECIDA: texto vazio lança Error comum (mensagens.ts) e vira 500.
-  test.failing('texto vazio é 400', async () => {
+  test('texto vazio é 400', async () => {
     expect((await chamar('GET', '/pesquisar', { token: ana.token, consulta: { conversa: 0, texto: ' ' } })).status).toBe(400)
   })
 })
