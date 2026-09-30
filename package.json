@@ -9,7 +9,9 @@
   "scripts": {
     "start": "bun src/servidor.ts",
     "dev": "bun --watch src/servidor.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test --timeout 30000",
+    "test:cobertura": "bun test --timeout 30000 --coverage"
   },
   "dependencies": {
     "@elysiajs/jwt": "^1.4.2",

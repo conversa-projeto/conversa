@@ -1,0 +1,182 @@
+import { beforeAll, describe, expect, test } from 'bun:test'
+import { chamar, criarConversa, usuariosComuns, type UsuarioTeste } from './api.ts'
+
+let ana: UsuarioTeste, bruno: UsuarioTeste, carla: UsuarioTeste
+beforeAll(async () => ({ ana, bruno, carla } = await usuariosComuns()))
+
+// Quem liga entra na lista junto com os convidados, como a página faz.
+async function ligar(de: UsuarioTeste, para: UsuarioTeste[], tipo = 2) {
+  const conversa = await criarConversa(de, para)
+  const { status, dados } = await chamar('PUT', '/chamada/iniciar', {
+    token: de.token,
+    corpo: { tipo, usuarios: [{ id: de.id }, ...para.map((u) => ({ id: u.id }))], conversa_id: conversa },
+  })
+  expect(status).toBe(200)
+  return dados.id as number
+}
+
+const dados = (quem: UsuarioTeste, id: number) => chamar('GET', '/chamada/dados', { token: quem.token, consulta: { id } })
+
+describe('chamadas', () => {
+  test('convidado vê a chamada como pendente', async () => {
+    const id = await ligar(ana, [bruno])
+    const pendentes = await chamar('GET', '/chamadas/pendentes', { token: bruno.token })
+    expect(pendentes.dados.map((c: { id: number }) => c.id)).toContain(id)
+  })
+
+  test('ao entrar, a chamada fica em andamento e registra o início', async () => {
+    const id = await ligar(ana, [bruno])
+    expect((await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id } })).status).toBe(200)
+    const { dados: chamada } = await dados(ana, id)
+    expect(chamada.status).toBe(3)
+    expect(chamada.iniciada).not.toBeNull()
+  })
+
+  test('recusar sozinho encerra a chamada como recusada', async () => {
+    const id = await ligar(ana, [bruno])
+    await chamar('POST', '/chamada/recusar', { token: bruno.token, corpo: { id } })
+    expect((await dados(ana, id)).dados.status).toBe(2)
+  })
+
+  test('finalizar marca o fim', async () => {
+    const id = await ligar(ana, [bruno])
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id } })
+    await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id } })
+    const { dados: chamada } = await dados(ana, id)
+    expect(chamada.status).toBe(4)
+    expect(chamada.finalizada).not.toBeNull()
+  })
+
+  test('quem não participa não vê nem entra: para ele a chamada não existe (404)', async () => {
+    const id = await ligar(ana, [bruno])
+    for (const resposta of [await dados(carla, id), await chamar('POST', '/chamada/entrar', { token: carla.token, corpo: { id } })]) {
+      expect(resposta.status).toBe(404)
+      expect(resposta.dados.error).toBe('Chamada não encontrada!')
+    }
+  })
+
+  test('chamada inexistente é 404', async () => {
+    expect((await dados(ana, 999_999_999)).status).toBe(404)
+  })
+
+  // Para os membros, o aviso de vídeo abre a janela "Apenas assistir".
+  test('só quem participa anuncia vídeo na chamada', async () => {
+    const id = await ligar(ana, [bruno])
+    expect((await chamar('POST', '/chamada/video', { token: bruno.token, corpo: { id } })).status).toBe(200)
+    expect((await chamar('POST', '/chamada/video', { token: carla.token, corpo: { id } })).status).toBe(404)
+  })
+
+  test('cancelar antes de atender marca como cancelada', async () => {
+    const id = await ligar(ana, [bruno])
+    expect((await chamar('POST', '/chamada/cancelar', { token: ana.token, corpo: { id } })).status).toBe(200)
+    expect((await dados(ana, id)).dados.status).toBe(6)
+  })
+
+  test('quando o penúltimo sai, a chamada termina', async () => {
+    const id = await ligar(ana, [bruno])
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id } })
+    await chamar('POST', '/chamada/sair', { token: bruno.token, corpo: { id } })
+    const { dados: chamada } = await dados(ana, id)
+    expect(chamada.status).toBe(4)
+    expect(chamada.usuarios.find((u: { usuario_id: number }) => u.usuario_id === bruno.id).saiu_em).not.toBeNull()
+  })
+
+  test('dados trazem quem adicionou cada participante', async () => {
+    const id = await ligar(ana, [bruno])
+    const { dados: chamada } = await dados(bruno, id)
+    expect(chamada.usuarios).toEqual(expect.arrayContaining([
+      expect.objectContaining({ usuario_id: bruno.id, usuario_nome: 'Bruno', adicionado_por: ana.id, adicionado_por_nome: 'Ana', status: 1 }),
+      expect.objectContaining({ usuario_id: ana.id, status: 3 }),
+    ]))
+  })
+
+  test('sem conversa informada, a chamada funciona sem resumo', async () => {
+    const { dados: criada } = await chamar('PUT', '/chamada/iniciar', { token: ana.token, corpo: { usuarios: [{ id: ana.id }, { id: bruno.id }] } })
+    expect(criada.tipo).toBe(1) // dois participantes sem tipo informado: áudio
+    await chamar('POST', '/chamada/recusar', { token: bruno.token, corpo: { id: criada.id } })
+    expect((await dados(ana, criada.id)).dados.status).toBe(2)
+  })
+
+  test('participante pode adicionar outra pessoa, que passa a ver a chamada', async () => {
+    const id = await ligar(ana, [bruno])
+    expect((await chamar('PUT', '/chamada/usuario', { token: ana.token, corpo: { chamada_id: id, usuario_id: carla.id } })).status).toBe(200)
+    expect((await dados(carla, id)).status).toBe(200)
+  })
+})
+
+describe('resumo da chamada na conversa', () => {
+  const resumoNaConversa = async (quem: UsuarioTeste, conversa: number) => {
+    const { dados: lista } = await chamar('GET', '/mensagens', { token: quem.token, consulta: { conversa, mensagemreferencia: 0, mensagensprevias: 10, mensagensseguintes: 0 } })
+    return lista.filter((m: { conteudos: { tipo: number }[] }) => m.conteudos[0]?.tipo === 6)
+  }
+
+  test('ao terminar, grava uma única mensagem de resumo com os participantes', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const { dados: criada } = await chamar('PUT', '/chamada/iniciar', { token: ana.token, corpo: { tipo: 2, usuarios: [{ id: ana.id }, { id: bruno.id }], conversa_id: conversa } })
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id: criada.id } })
+    await chamar('POST', '/chamada/sair', { token: bruno.token, corpo: { id: criada.id } })
+    await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id: criada.id } })
+    const resumos = await resumoNaConversa(bruno, conversa)
+    expect(resumos).toHaveLength(1)
+    const conteudo = JSON.parse(resumos[0].conteudos[0].conteudo)
+    expect(conteudo).toMatchObject({ chamada_id: criada.id, tipo: 2, status: 4 })
+    expect(conteudo.participantes.map((p: { usuario_id: number }) => p.usuario_id)).toEqual([ana.id, bruno.id])
+    expect(resumos[0].remetente_id).toBe(ana.id)
+  })
+
+  test('quem participou recebe o resumo já como lido; quem perdeu, como não lido', async () => {
+    const conversa = await criarConversa(ana, [bruno, carla])
+    const { dados: criada } = await chamar('PUT', '/chamada/iniciar', { token: ana.token, corpo: { tipo: 1, usuarios: [{ id: ana.id }, { id: bruno.id }, { id: carla.id }], conversa_id: conversa } })
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id: criada.id } })
+    await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id: criada.id } })
+    expect((await resumoNaConversa(bruno, conversa))[0].visualizada).toBe(true)
+    expect((await resumoNaConversa(carla, conversa))[0].visualizada).toBe(false)
+  })
+})
+
+describe('histórico', () => {
+  const historico = (quem: UsuarioTeste, filtro: Record<string, string | number> = {}) =>
+    chamar('GET', '/chamadas', { token: quem.token, consulta: { participante: 0, de: '', ate: '', ...filtro } })
+
+  test('só chamadas encerradas, com participantes e duração', async () => {
+    const encerrada = await ligar(ana, [bruno])
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id: encerrada } })
+    await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id: encerrada } })
+    const aberta = await ligar(ana, [bruno])
+    const lista = (await historico(bruno)).dados
+    const item = lista.find((c: { id: number }) => c.id === encerrada)
+    expect(item).toMatchObject({ status: 4 })
+    expect(item.duracao).toBeGreaterThanOrEqual(0)
+    expect(item.participantes.map((p: { usuario_id: number }) => p.usuario_id).sort()).toEqual([ana.id, bruno.id].sort())
+    expect(lista.find((c: { id: number }) => c.id === aberta)).toBeUndefined()
+  })
+
+  test('filtra por participante e por data', async () => {
+    const comCarla = await ligar(ana, [carla])
+    await chamar('POST', '/chamada/recusar', { token: carla.token, corpo: { id: comCarla } })
+    const comBruno = await ligar(ana, [bruno])
+    await chamar('POST', '/chamada/recusar', { token: bruno.token, corpo: { id: comBruno } })
+    const soCarla = (await historico(ana, { participante: carla.id })).dados.map((c: { id: number }) => c.id)
+    expect(soCarla).toContain(comCarla)
+    expect(soCarla).not.toContain(comBruno)
+    const hoje = new Date().toISOString().slice(0, 10)
+    expect((await historico(ana, { de: '2000-01-01', ate: hoje })).dados.map((c: { id: number }) => c.id)).toContain(comBruno)
+    expect((await historico(ana, { ate: '2000-01-01' })).dados).toEqual([])
+  })
+
+  test('quem não participou não vê a chamada no histórico', async () => {
+    const id = await ligar(ana, [bruno])
+    await chamar('POST', '/chamada/recusar', { token: bruno.token, corpo: { id } })
+    expect((await historico(carla)).dados.map((c: { id: number }) => c.id)).not.toContain(id)
+  })
+})
+
+describe('servidores ICE', () => {
+  // O segredo do TURN é lido de /dados/turn-segredo, que só existe no container.
+  // Fora dele, a API responde sem servidores, e o WebRTC usa só a rede local.
+  test('sem o segredo do TURN, não oferece servidor', async () => {
+    const { status, dados: ice } = await chamar('GET', '/ice', { token: ana.token })
+    expect(status).toBe(200)
+    expect(ice).toEqual({ iceServers: [], iceTransportPolicy: 'all' })
+  })
+})

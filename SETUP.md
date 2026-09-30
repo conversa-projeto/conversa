@@ -114,6 +114,32 @@ Rode num terminal na pasta `conversa`.
 | Usuario e senha do console do MinIO (`http://localhost:9001`) | `docker exec minio cat /dados/minio-usuario /dados/minio-senha` |
 | Parar tudo sem apagar dados | `docker compose down` |
 
+## Testes
+
+Com o Docker no ar, rode na pasta `conversa`:
+
+```bash
+bun run test
+```
+
+Com o relatorio de cobertura, que falha se algum arquivo ficar abaixo do minimo do `bunfig.toml`:
+
+```bash
+bun run test:cobertura
+```
+
+Os testes chamam as rotas da API sem subir o servidor, e o WebSocket numa porta livre, com clientes de verdade. O que eles usam:
+
+- **Banco:** `conversa_teste`, no mesmo PostgreSQL (`127.0.0.1:5433`), apagado e recriado com as migracoes a cada execucao. O banco `conversa` nunca e tocado. Se a senha do PostgreSQL nao for a padrao, informe em `POSTGRES_PASSWORD`.
+- **MinIO:** o do Docker, com o bucket `conversa-teste`, criado no inicio e apagado no fim. As credenciais sao lidas do container por `docker exec` (ou informadas em `CONVERSA_TESTE_MINIO_USUARIO` e `CONVERSA_TESTE_MINIO_SENHA`). Os envios passam pelo nginx, como no navegador.
+- **Pasta de dados:** uma pasta temporaria no lugar do volume `/dados`, pela variavel `CONVERSA_DADOS`. O pepper e gerado nela.
+- **Push:** o envio ao Firebase e trocado por um falso, que so registra.
+- **Transcricao:** um transcritor falso, subido pelo proprio teste.
+
+Levam cerca de 3 minutos, porque cadastro e login calculam o hash das senhas com o custo de producao.
+
+Testes marcados com `test.failing` sao falhas conhecidas da API, com a explicacao no comentario: passam enquanto o problema existe e passam a acusar quando ele for corrigido, lembrando de tirar a marca.
+
 ## Transcricao de audio
 
 As mensagens de audio ganham um botao **Transcrever**. O texto fica salvo na tabela `anexo_transcricao` e aparece abaixo do player para todos da conversa. Quem faz a transcricao e a versao Windows do [transcritor-api](../transcritor-api/windows), na GPU, sem separacao por falante.

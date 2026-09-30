@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { transacao, type Sql } from './banco.ts'
-import { configuracao } from './configuracao.ts'
+import { configuracao, pastaDados } from './configuracao.ts'
 import { origemPublica } from './contexto.ts'
 import type { Corpo, Consulta } from './esquemas.ts'
 import { httpErrors } from './erros.ts'
@@ -72,8 +72,9 @@ async function validarChamada(sql: Sql, usuario: number, chamada: number) {
         on u.chamada_id = c.id
        and u.usuario_id = ${usuario}
      where c.id = ${chamada}`
+  // 404, nao 403: para quem nao participa, a chamada nao existe.
   if (!participa) {
-    throw new Error('Chamada não encontrada!')
+    throw httpErrors.notFound('Chamada não encontrada!')
   }
 }
 
@@ -196,6 +197,7 @@ export async function finalizarChamada(sql: Sql, usuario: number, chamada: numbe
 }
 
 export async function ativarVideo(sql: Sql, usuario: number, chamada: number) {
+  await validarChamada(sql, usuario, chamada)
   await notificarMembrosChamada(sql, chamada, usuario, TipoMensagemSocket.VideoAtivado)
 }
 
@@ -454,13 +456,11 @@ async function inserirMensagemChamada(sql: Sql, chamada: number) {
   await notificarStatusMensagens(sql, 0, conversa, String(mensagem.id))
 }
 
-// Gerado pelo container coturn na primeira vez. Lido a cada pedido, porque a
-// API pode subir antes do coturn gravar o arquivo.
-const ARQUIVO_SEGREDO_TURN = '/dados/turn-segredo'
-
+// Gerado pelo container coturn na primeira vez, em turn-segredo na pasta de
+// dados. Lido a cada pedido, porque a API pode subir antes do coturn gravar o arquivo.
 function segredoTurn() {
   try {
-    return readFileSync(ARQUIVO_SEGREDO_TURN, 'utf8').trim()
+    return readFileSync(`${pastaDados()}/turn-segredo`, 'utf8').trim()
   } catch {
     return ''
   }

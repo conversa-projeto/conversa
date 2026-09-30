@@ -68,14 +68,18 @@ export function definirAmbiente() {
   configuracao.turnPorta = textoAmbiente('CONVERSA_TURN_PORTA', '').trim()
 }
 
-// Pepper das senhas, sempre neste arquivo. No Docker e o volume conversa-dados.
-const ARQUIVO_PEPPER = '/dados/pepper'
+// Pasta dos segredos gerados na primeira execucao (pepper, credenciais do MinIO,
+// segredo do TURN). No Docker e o volume conversa-dados, em /dados. Os testes
+// apontam CONVERSA_DADOS para uma pasta temporaria.
+export function pastaDados() {
+  return process.env.CONVERSA_DADOS?.trim() || '/dados'
+}
 
 // Le o pepper do arquivo ou, em instalacao nova, gera e grava. Ele fica fora do
 // banco de proposito: um dump vazado nao leva junto o que falta para quebrar
 // as senhas.
 export async function resolverPepper(sql: Sql) {
-  const arquivo = ARQUIVO_PEPPER
+  const arquivo = `${pastaDados()}/pepper`
   if (existsSync(arquivo)) {
     configuracao.bcryptPepper = readFileSync(arquivo, 'utf8').trim()
     if (!configuracao.bcryptPepper) {
@@ -101,7 +105,7 @@ export async function resolverPepper(sql: Sql) {
 
 // Usuario e senha do MinIO, gerados pelo container minio no mesmo volume do pepper.
 function lerCredencialMinio(nome: string) {
-  const arquivo = `${dirname(ARQUIVO_PEPPER)}/${nome}`
+  const arquivo = `${pastaDados()}/${nome}`
   const valor = existsSync(arquivo) ? readFileSync(arquivo, 'utf8').trim() : ''
   if (!valor) {
     throw new Error(`Credencial do MinIO não encontrada em ${arquivo}. Ela é gerada pelo container minio ao iniciar.`)

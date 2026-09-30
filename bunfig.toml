@@ -1,0 +1,11 @@
+[test]
+# Recria o banco conversa_teste e aplica as migracoes antes dos testes
+preload = ["./tests/preparar.ts"]
+
+# Com --coverage (bun run test:cobertura), falha se algum arquivo ficar abaixo
+# disto. O limite vale por arquivo, nao pela media. O que falta cobrir sao
+# ramos defensivos dificeis de provocar (insert que nao devolve linha, por
+# exemplo). A pasta tests fica fora da conta.
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = ["tests/**"]
+coverageThreshold = { lines = 0.93, functions = 0.85 }

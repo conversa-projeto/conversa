@@ -230,6 +230,12 @@ export async function incluirMembro(sql: Sql, usuario: number, corpo: Corpo<'inc
   return membro
 }
 
+// Digitando e gravando: so quem participa avisa os demais membros.
+export async function avisarAtividade(sql: Sql, usuario: number, conversa: number, tipo: TipoMensagemSocket) {
+  await validarAcessoConversa(sql, usuario, conversa)
+  await notificarMembrosConversa(sql, conversa, usuario, tipo)
+}
+
 export async function excluirMembro(sql: Sql, usuario: number, conversaUsuario: number) {
   await validarRemocaoConversaUsuario(sql, usuario, conversaUsuario)
   return excluir(sql, 'conversa_usuario', conversaUsuario)

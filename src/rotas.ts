@@ -3,7 +3,6 @@ import { tokenDoCabecalho, usuarioDoToken, type Token } from './autenticacao.ts'
 import { comUsuario, type Sql } from './banco.ts'
 import { comOrigemPublica } from './contexto.ts'
 import { esquemas } from './esquemas.ts'
-import { notificarMembrosConversa } from './notificacoes.ts'
 import { TipoMensagemSocket } from './websocket.ts'
 import * as anexos from './anexos.ts'
 import * as chamadas from './chamadas.ts'
@@ -88,12 +87,12 @@ export function criarRotas(token: Token) {
     .delete('/conversa/usuario', (c) => comoUsuario(c, (sql, usuario) => conversas.excluirMembro(sql, usuario, c.query.id)), esquemas.idNaConsulta)
 
     .post('/conversa/digitando', async (c) => {
-      await comoUsuario(c, (sql, usuario) => notificarMembrosConversa(sql, c.body.id, usuario, TipoMensagemSocket.Digitando))
+      await comoUsuario(c, (sql, usuario) => conversas.avisarAtividade(sql, usuario, c.body.id, TipoMensagemSocket.Digitando))
       return {}
     }, esquemas.idNoCorpo)
 
     .post('/conversa/gravando', async (c) => {
-      await comoUsuario(c, (sql, usuario) => notificarMembrosConversa(sql, c.body.id, usuario, TipoMensagemSocket.GravandoAudio))
+      await comoUsuario(c, (sql, usuario) => conversas.avisarAtividade(sql, usuario, c.body.id, TipoMensagemSocket.GravandoAudio))
       return {}
     }, esquemas.idNoCorpo)
 
