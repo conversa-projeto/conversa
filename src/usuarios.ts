@@ -77,14 +77,20 @@ export async function alterarDispositivo(sql: Sql, usuario: number, corpo: Corpo
   if (!COLUNAS_DISPOSITIVO_ALTERAR.some((coluna) => corpo[coluna] !== undefined)) {
     return { ...corpo }
   }
-  const [dono] = await sql<Pick<Dispositivo, 'usuario_id'>[]>`select usuario_id from dispositivo where id = ${corpo.id}`
-  if (dono?.usuario_id !== usuario) {
-    throw httpErrors.forbidden('Acesso negado!')
-  }
+  await validarDonoDispositivo(sql, usuario, corpo.id)
   return alterar(sql, 'dispositivo', corpo.id, corpo, COLUNAS_DISPOSITIVO_ALTERAR)
 }
 
-export function incluirDispositivoUsuario(sql: Sql, usuario: number, dispositivo: number) {
+// Cada usuario so mexe nos proprios dispositivos
+async function validarDonoDispositivo(sql: Sql, usuario: number, dispositivo: number) {
+  const [dono] = await sql<Pick<Dispositivo, 'usuario_id'>[]>`select usuario_id from dispositivo where id = ${dispositivo}`
+  if (dono?.usuario_id !== usuario) {
+    throw httpErrors.forbidden('Acesso negado!')
+  }
+}
+
+export async function incluirDispositivoUsuario(sql: Sql, usuario: number, dispositivo: number) {
+  await validarDonoDispositivo(sql, usuario, dispositivo)
   return inserir(sql, 'dispositivo_usuario', { usuario_id: usuario, dispositivo_id: dispositivo }, ['usuario_id', 'dispositivo_id'])
 }
 

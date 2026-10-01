@@ -136,7 +136,7 @@ Os testes chamam as rotas da API sem subir o servidor, e o WebSocket numa porta 
 - **Push:** o envio ao Firebase e trocado por um falso, que so registra.
 - **Transcricao:** um transcritor falso, subido pelo proprio teste.
 
-Levam cerca de 3 minutos, porque cadastro e login calculam o hash das senhas com o custo de producao.
+Levam cerca de 40 segundos. O hash das senhas usa o custo minimo do bcrypt nos testes (`tests/preparar.ts`); com o de producao levariam uns 3 minutos.
 
 Testes marcados com `test.failing` sao falhas conhecidas da API, com a explicacao no comentario: passam enquanto o problema existe e passam a acusar quando ele for corrigido, lembrando de tirar a marca.
 

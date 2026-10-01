@@ -152,6 +152,13 @@ describe('contatos salvos', () => {
     expect(vinculo.status).toBe(200)
     expect(vinculo.dados).toMatchObject({ usuario_id: usuario.id, dispositivo_id: dados.dispositivo.id })
   })
+
+  test('não vincula o dispositivo de outra pessoa', async () => {
+    const vitima = await criarUsuario()
+    const { dados } = await entrar(vitima.login, vitima.senha)
+    const vinculo = await chamar('PUT', '/dispositivo/usuario', { token: ana.token, consulta: { dispositivo_id: dados.dispositivo.id } })
+    expect(vinculo.status).toBe(403)
+  })
 })
 
 describe('SIP', () => {

@@ -1,6 +1,9 @@
 import { configuracao } from './configuracao.ts'
 
-const CUSTO = 15
+// Custo do bcrypt. Os testes baixam o valor (tests/preparar.ts) para nao gastar
+// segundos em cada hash; de proposito nao vem de variavel de ambiente, para
+// producao nunca rodar com custo baixo por engano.
+export const custoBcrypt = { valor: 15 }
 
 // O pepper entra antes do corte em 72, que e o limite do bcrypt. Mesma regra da
 // API anterior, para os hashes ja gravados continuarem conferindo: corta em 72
@@ -11,7 +14,7 @@ function comPepper(senha: string): Uint8Array {
 }
 
 export const gerarHash = (senha: string): Promise<string> =>
-  Bun.password.hash(comPepper(senha), { algorithm: 'bcrypt', cost: CUSTO })
+  Bun.password.hash(comPepper(senha), { algorithm: 'bcrypt', cost: custoBcrypt.valor })
 
 export const conferirSenha = (senha: string, hash: string): Promise<boolean> =>
   Bun.password.verify(comPepper(senha), hash)

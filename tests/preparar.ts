@@ -28,6 +28,11 @@ const { carregarParametros, configuracao, definirAmbiente, resolverPepper } = aw
 const { executarMigracoes } = await import('../src/migracoes.ts')
 const { iniciarMinio, verificarBucketS3 } = await import('../src/minio.ts')
 const { Client } = await import('minio')
+const { custoBcrypt } = await import('../src/senha.ts')
+
+// Custo minimo do bcrypt: com o de producao (15) cada cadastro ou login de
+// teste levava uns 2 segundos
+custoBcrypt.valor = 4
 
 process.env.CONVERSA_SERVER ??= '127.0.0.1'
 process.env.CONVERSA_PORT ??= '5433'
