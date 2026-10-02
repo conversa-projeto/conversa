@@ -123,9 +123,10 @@ export async function conversas(sql: Sql, usuario: number) {
               ( select tcm.conversa_id
                      , tcm.mensagem_id as mensagem_id
                      , tcm.inserida as ultima_mensagem
-                     , case mc.tipo
-                       when 1 then mc.conteudo
-                       when 2 then 'imagem'
+                     , case
+                       when tcm.excluida_em is not null then convert_to('Mensagem excluída', 'UTF8')
+                       when mc.tipo = 1 then mc.conteudo
+                       when mc.tipo = 2 then 'imagem'
                        else ''
                         end as ultima_mensagem_texto
                      , row_number() over(partition by tcm.conversa_id, tcm.mensagem_id order by mc.ordem) as rid_conteudo
@@ -135,6 +136,7 @@ export async function conversas(sql: Sql, usuario: number) {
                             ( select tc.id as conversa_id
                                    , m.id as mensagem_id
                                    , coalesce(m.visivel_em, m.inserida) as inserida
+                                   , m.excluida_em
                                    , row_number() over(partition by tc.id order by coalesce(m.visivel_em, m.inserida) desc) as rid
                                 from temp_conversa tc
                                inner

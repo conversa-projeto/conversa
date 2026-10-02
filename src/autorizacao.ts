@@ -31,13 +31,10 @@ export async function validarExclusaoMensagem(sql: Sql, usuario: number, mensage
   if (usuario <= 0 || mensagem <= 0) {
     throw acessoNegado()
   }
+  // So o autor exclui, a qualquer momento
   const [autor] = await sql`select 1 from mensagem where id = ${mensagem} and usuario_id = ${usuario}`
   if (!autor) {
     throw acessoNegado()
-  }
-  const [recebida] = await sql`select 1 from mensagem_status where mensagem_id = ${mensagem} and recebida is not null limit 1`
-  if (recebida) {
-    throw httpErrors.conflict('Mensagem não pode ser excluída: já foi recebida por algum destinatário.')
   }
 }
 

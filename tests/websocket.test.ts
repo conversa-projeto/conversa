@@ -117,6 +117,16 @@ describe('eventos chegam só a quem participa', () => {
     expect(aviso).toMatchObject({ grupo: conversa, mensagens: String(enviada.dados.id) })
   })
 
+  test('status: os outros ficam sabendo quando o autor exclui a mensagem', async () => {
+    const conversa = await criarConversa(ana, [bruno, carla])
+    const enviada = await enviarTexto(ana, conversa, 'vou excluir')
+    const [doBruno, daCarla] = [await conectar(bruno), await conectar(carla)]
+    await chamar('DELETE', '/mensagem', { token: ana.token, consulta: { id: enviada.dados.id } })
+    for (const socket of [doBruno, daCarla]) {
+      expect(await socket.esperar((e) => e.tipo === 3)).toMatchObject({ grupo: conversa, mensagens: String(enviada.dados.id) })
+    }
+  })
+
   test('chamada: convidado é avisado, e as outras abas de quem atende param de tocar', async () => {
     const conversa = await criarConversa(ana, [bruno])
     const doBruno1 = await conectar(bruno)

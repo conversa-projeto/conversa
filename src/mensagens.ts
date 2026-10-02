@@ -28,6 +28,7 @@ interface MensagemResumida {
   conversa_id: number
   remetente: string
   inserida: Date
+  excluida_em: Date | null
   conteudos: ConteudoResposta[]
   mensagem_referencia?: ReferenciaResposta
 }
@@ -59,6 +60,7 @@ export interface MensagemResposta {
   inserida: Date
   alterada: Date | null
   visivel_em: Date | null
+  excluida_em: Date | null
   mensagem_referencia?: ReferenciaResposta
   recebida: boolean
   visualizada: boolean
@@ -88,6 +90,7 @@ interface MensagemLinha {
   inserida: Date
   alterada: Date | null
   visivel_em: Date | null
+  excluida_em: Date | null
   referencia_tipo: number | null
   referencia_origem_mensagem_id: number | null
 }
@@ -223,8 +226,31 @@ export async function notificarMensagemAgendada(sql: Sql, mensagemId: number) {
   await notificarStatusMensagens(sql, mensagem.usuario_id, mensagem.conversa_id, String(mensagemId))
 }
 
+// Excluir marca a mensagem: ela continua na conversa como excluida, com o
+// conteudo guardado, e a marca chega aos outros como mudanca de status. So a
+// agendada que ainda nao saiu (ninguem viu) e apagada de vez.
 export async function excluirMensagem(sql: Sql, usuario: number, mensagem: number) {
   await validarExclusaoMensagem(sql, usuario, mensagem)
+
+  const [alvo] = await sql<{ conversa_id: number; agendada: boolean; excluida_em: Date | null }[]>`
+    select conversa_id
+         , coalesce(visivel_em > now(), false) as agendada
+         , excluida_em
+      from mensagem
+     where id = ${mensagem}`
+  if (!alvo!.agendada) {
+    if (alvo!.excluida_em) {
+      return { id: mensagem, conversa_id: alvo!.conversa_id, excluida_em: alvo!.excluida_em }
+    }
+    const [marcada] = await sql<{ excluida_em: Date }[]>`
+      update mensagem
+         set excluida_em = now()
+           , excluida_por = ${usuario}
+       where id = ${mensagem}
+   returning excluida_em`
+    await notificarStatusMensagens(sql, usuario, alvo!.conversa_id, String(mensagem))
+    return { id: mensagem, conversa_id: alvo!.conversa_id, excluida_em: marcada!.excluida_em }
+  }
 
   // Dependentes primeiro: todos apontam para mensagem.id sem cascade.
   await sql`delete from mensagem_referencia where origem_mensagem_id = ${mensagem} or destino_mensagem_id = ${mensagem}`
@@ -306,6 +332,8 @@ export async function pesquisar(sql: Sql, conversa: number, usuario: number, tex
                 and mc.tipo = 1 /* 1-Texto */
                 and unaccent(convert_from(mc.conteudo, 'UTF8')) ilike unaccent(${padrao})
               where (m.usuario_id = ${usuario} or m.visivel_em is null or m.visivel_em <= now())
+                /* Texto de mensagem excluida nao aparece na pesquisa */
+                and m.excluida_em is null
               order by m.id
            ) as tbl`
 
@@ -366,10 +394,11 @@ async function carregarConteudos(sql: Sql, mensagemId: number): Promise<Conteudo
 }
 
 async function mensagemResumida(sql: Sql, id: number): Promise<MensagemResumida | undefined> {
-  const [linha] = await sql<{ id: number; conversa_id: number; inserida: Date; remetente: string | null }[]>`
+  const [linha] = await sql<{ id: number; conversa_id: number; inserida: Date; excluida_em: Date | null; remetente: string | null }[]>`
     select m.id
          , m.conversa_id
          , m.inserida
+         , m.excluida_em
          , substring(trim(u.nome) from '^([^ ]+)') as remetente
       from mensagem m
      inner join usuario u
@@ -383,6 +412,7 @@ async function mensagemResumida(sql: Sql, id: number): Promise<MensagemResumida 
     conversa_id: linha.conversa_id,
     remetente: linha.remetente ?? '',
     inserida: linha.inserida,
+    excluida_em: linha.excluida_em,
     conteudos: await carregarConteudos(sql, linha.id),
   }
 }
@@ -420,6 +450,7 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
                   , m.inserida
                   , m.alterada
                   , m.visivel_em
+                  , m.excluida_em
                   , mr.tipo as referencia_tipo
                   , mr.destino_mensagem_id as referencia_origem_mensagem_id
                from ( select m.*
@@ -514,6 +545,7 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
       inserida: linha.inserida,
       alterada: linha.alterada,
       visivel_em: linha.visivel_em,
+      excluida_em: linha.excluida_em,
       ...(mensagemReferencia ? { mensagem_referencia: mensagemReferencia } : {}),
       recebida: (status?.recebida ?? 0) === total,
       visualizada: (status?.visualizada ?? 0) === total,
@@ -547,24 +579,28 @@ export async function statusMensagens(sql: Sql, conversa: number, usuario: numbe
   if (!ids.length) {
     return []
   }
-  const linhas = await sql<({ conversa_id: number; mensagem_id: number } & StatusLinha)[]>`
-    select conversa_id
-         , mensagem_id
-         , sum(case when recebida is null then 0 else 1 end) as recebida
-         , sum(case when visualizada is null then 0 else 1 end) as visualizada
-         , sum(case when reproduzida is null then 0 else 1 end) as reproduzida
+  const linhas = await sql<({ conversa_id: number; mensagem_id: number; excluida_em: Date | null } & StatusLinha)[]>`
+    select ms.conversa_id
+         , ms.mensagem_id
+         , sum(case when ms.recebida is null then 0 else 1 end) as recebida
+         , sum(case when ms.visualizada is null then 0 else 1 end) as visualizada
+         , sum(case when ms.reproduzida is null then 0 else 1 end) as reproduzida
          , count(*) as total
+         , max(m.excluida_em) as excluida_em
       from mensagem_status ms
+     inner join mensagem m
+        on m.id = ms.mensagem_id
      where ms.conversa_id = ${conversa}
        and ms.mensagem_id in ${sql(ids)}
-     group by conversa_id, mensagem_id
-     order by mensagem_id`
+     group by ms.conversa_id, ms.mensagem_id
+     order by ms.mensagem_id`
   return linhas.map((linha) => ({
     conversa_id: linha.conversa_id,
     mensagem_id: linha.mensagem_id,
     recebida: linha.recebida === linha.total,
     visualizada: linha.visualizada === linha.total,
     reproduzida: linha.reproduzida === linha.total,
+    excluida_em: linha.excluida_em,
   }))
 }
 

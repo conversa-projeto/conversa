@@ -22,7 +22,7 @@ describe('status de entrega', () => {
     const conversa = await criarConversa(ana, [bruno])
     const { dados } = await enviarTexto(ana, conversa, 'áudio')
     const id = dados.id
-    expect((await statusDe(ana, conversa, [id])).dados).toEqual([{ conversa_id: conversa, mensagem_id: id, recebida: false, visualizada: false, reproduzida: false }])
+    expect((await statusDe(ana, conversa, [id])).dados).toEqual([{ conversa_id: conversa, mensagem_id: id, recebida: false, visualizada: false, reproduzida: false, excluida_em: null }])
     await listar(bruno, conversa)
     expect((await statusDe(ana, conversa, [id])).dados[0]).toMatchObject({ recebida: true, visualizada: false })
     await chamar('POST', '/mensagem/visualizar', { token: bruno.token, corpo: { conversa, mensagem: id } })

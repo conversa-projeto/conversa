@@ -71,18 +71,64 @@ describe('agendadas', () => {
 })
 
 describe('excluir', () => {
-  test('o autor exclui enquanto ninguém recebeu', async () => {
+  const excluir = (quem: UsuarioTeste, id: number) => chamar('DELETE', '/mensagem', { token: quem.token, consulta: { id } })
+
+  test('marca como excluída: continua na conversa, com o conteúdo, para todos', async () => {
     const conversa = await criarConversa(ana, [bruno])
     const enviada = await enviarTexto(ana, conversa, 'engano')
-    expect((await chamar('DELETE', '/mensagem', { token: ana.token, consulta: { id: enviada.dados.id } })).status).toBe(200)
+    await listar(bruno, conversa) // recebida pelo destinatário: antes isso impedia excluir
+    const exclusao = await excluir(ana, enviada.dados.id)
+    expect(exclusao.status).toBe(200)
+    expect(exclusao.dados).toMatchObject({ id: enviada.dados.id, conversa_id: conversa })
+    expect(Date.parse(exclusao.dados.excluida_em)).toBeGreaterThan(Date.now() - 60_000)
+    for (const quem of [ana, bruno]) {
+      const [mensagem] = (await listar(quem, conversa)).dados
+      expect(mensagem.excluida_em).toBe(exclusao.dados.excluida_em)
+      expect(textos([mensagem])).toEqual(['engano'])
+    }
   })
 
-  test('depois de recebida não pode mais ser excluída', async () => {
+  test('excluir de novo não muda o horário', async () => {
     const conversa = await criarConversa(ana, [bruno])
-    const enviada = await enviarTexto(ana, conversa, 'já foi')
-    await listar(bruno, conversa) // ao listar, o destinatário marca como recebida
-    const { status } = await chamar('DELETE', '/mensagem', { token: ana.token, consulta: { id: enviada.dados.id } })
-    expect(status).toBe(409)
+    const enviada = await enviarTexto(ana, conversa, 'duas vezes')
+    const primeira = await excluir(ana, enviada.dados.id)
+    await Bun.sleep(20)
+    expect((await excluir(ana, enviada.dados.id)).dados.excluida_em).toBe(primeira.dados.excluida_em)
+  })
+
+  test('mensagem normal vem com excluida_em nulo', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    await enviarTexto(ana, conversa, 'normal')
+    expect((await listar(bruno, conversa)).dados[0].excluida_em).toBeNull()
+  })
+
+  test('agendada que ainda não saiu é apagada de vez', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const daqui30 = new Date(Date.now() + 30 * 60_000).toISOString()
+    const agendada = await enviarTexto(ana, conversa, 'cancelada', { visivel_em: daqui30 })
+    expect((await excluir(ana, agendada.dados.id)).status).toBe(200)
+    expect((await listar(ana, conversa)).dados).toEqual([])
+  })
+
+  test('status, pesquisa e prévia da conversa mostram a exclusão sem o texto', async () => {
+    const termo = `segredo${Date.now()}`
+    const conversa = await criarConversa(ana, [bruno])
+    const enviada = await enviarTexto(ana, conversa, `o ${termo}`)
+    await excluir(ana, enviada.dados.id)
+    const status = await chamar('GET', '/mensagem/status', { token: bruno.token, consulta: { conversa, mensagem: String(enviada.dados.id) } })
+    expect(status.dados[0].excluida_em).not.toBeNull()
+    expect((await chamar('GET', '/pesquisar', { token: bruno.token, consulta: { texto: termo, conversa: 0 } })).dados).toEqual([])
+    const conversas = (await chamar('GET', '/conversas', { token: bruno.token })).dados
+    expect(conversas.find((c: { id: number }) => c.id === conversa).ultima_mensagem_texto).toBe('Mensagem excluída')
+  })
+
+  test('resposta a uma mensagem excluída traz a marca na referência', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const original = await enviarTexto(ana, conversa, 'original')
+    await enviarTexto(bruno, conversa, 'respondendo', { mensagem_referencia: { tipo: 1, origem_mensagem_id: original.dados.id } })
+    await excluir(ana, original.dados.id)
+    const resposta = (await listar(bruno, conversa)).dados.find((m: { id: number }) => m.id !== original.dados.id)
+    expect(resposta.mensagem_referencia.mensagem.excluida_em).not.toBeNull()
   })
 
   test('outra pessoa não exclui', async () => {

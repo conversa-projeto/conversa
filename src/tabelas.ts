@@ -76,6 +76,8 @@ export interface Mensagem {
   inserida: Date
   alterada: Date | null
   visivel_em: Date | null
+  excluida_em: Date | null
+  excluida_por: number | null
 }
 
 export interface MensagemConteudo {
