@@ -1,4 +1,6 @@
 import { comUsuario } from './banco.ts'
+import { configuracao, pastaGravacoes } from './configuracao.ts'
+import { apagarGravacoesVencidas } from './gravacoes.ts'
 import { notificarMensagemAgendada } from './mensagens.ts'
 import { objetoExiste } from './minio.ts'
 
@@ -64,6 +66,12 @@ async function verificarAnexosPendentes() {
   })
 }
 
+// Gravacoes das chamadas mais antigas que o parametro gravacao_dias
+async function limparGravacoes() {
+  const apagados = await apagarGravacoesVencidas(pastaGravacoes(), configuracao.gravacaoDias)
+  if (apagados) console.log(`[LimpezaGravacoes] ${apagados} gravação(ões) com mais de ${configuracao.gravacaoDias} dias apagada(s)`)
+}
+
 // Executa ao iniciar e depois no intervalo, sem sobrepor execucoes: se a
 // anterior ainda esta rodando, a vez e pulada.
 function agendar(id: string, segundos: number, executar: () => Promise<void>): ReturnType<typeof setInterval> {
@@ -90,6 +98,7 @@ export function iniciarTarefas(): () => void {
   const intervalos = [
     agendar('AgendadorMensagens', 60, notificarAgendadas),
     agendar('VerificacaoAnexos', 120, verificarAnexosPendentes),
+    agendar('LimpezaGravacoes', 3600, limparGravacoes),
   ]
   return () => intervalos.forEach(clearInterval)
 }

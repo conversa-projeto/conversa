@@ -76,6 +76,8 @@ function credencialMinio(arquivo: string, variavel: string) {
 // carregada pelo mesmo caminho do servidor (resolverPepper e carregarParametros).
 const pastaTeste = mkdtempSync(join(tmpdir(), 'conversa-dados-'))
 process.env.CONVERSA_DADOS = pastaTeste
+// Gravacoes das chamadas: a limpeza periodica olha so esta pasta vazia
+process.env.CONVERSA_GRAVACOES = join(pastaTeste, 'gravacoes')
 writeFileSync(join(pastaTeste, 'minio-usuario'), credencialMinio('minio-usuario', 'CONVERSA_TESTE_MINIO_USUARIO'))
 writeFileSync(join(pastaTeste, 'minio-senha'), credencialMinio('minio-senha', 'CONVERSA_TESTE_MINIO_SENHA'))
 

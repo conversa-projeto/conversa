@@ -68,7 +68,7 @@ Fechar o VS Code para o Vite. Para parar os containers, `docker compose down` na
 
 3. **Subir:** duplo-clique em `bin\producao.bat`. Sobe tudo, com o nginx na porta 80.
 
-4. **Backup:** inclua os volumes `pgdata` (banco), `minio` (anexos) e `conversa-dados` (pepper das senhas, credenciais do MinIO e segredo do TURN). Sem o `conversa-dados`, nenhum login confere.
+4. **Backup:** inclua os volumes `pgdata` (banco), `minio` (anexos) e `conversa-dados` (pepper das senhas, credenciais do MinIO e segredo do TURN). Sem o `conversa-dados`, nenhum login confere. Se as gravacoes das chamadas precisarem de copia, inclua tambem o `conversa-gravacoes` (veja [Gravacao das chamadas](#gravacao-das-chamadas)).
 
 ### nginx de borda
 
@@ -160,3 +160,22 @@ update parametros set valor = 'pt' where nome = 'transcritor_idioma';  -- idioma
 ```
 
 Depois reinicie a API: `docker restart api`.
+
+## Gravacao das chamadas
+
+Toda chamada e gravada para auditoria: audio e video (camera ou tela) de cada participante, num arquivo proprio. O app nao mostra as gravacoes e nao avisa os participantes.
+
+- Quem grava e o MediaMTX, pelo qual passa a midia de todos (`bin/mediamtx/mediamtx.docker.yml`, caminhos `call-*`). O navegador nao consegue evitar a gravacao.
+- Os arquivos ficam no volume `conversa-gravacoes`, em `/gravacoes/call-<chamada>-u-<usuario>/<data e hora>.mp4` (fMP4, um arquivo por hora de chamada). O usuario e o `id` da tabela `usuario` e a chamada o `id` da tabela `chamada`.
+- O video sai em H264 (ou VP9, em navegador sem H264). VP8, o padrao dos navegadores, nao e gravado pelo MediaMTX.
+- A API apaga, a cada hora, as gravacoes mais antigas que o parametro `gravacao_dias` (padrao 90; 0 guarda para sempre). Para mudar, rode no banco e reinicie a API (`docker restart api`):
+
+```sql
+update parametros set valor = '180' where nome = 'gravacao_dias';
+```
+
+Para ouvir uma gravacao, copie o arquivo do volume e abra em qualquer player (VLC, navegador):
+
+```bat
+docker run --rm -v conversa-gravacoes:/g -v "%cd%":/saida alpine cp -r /g/call-42-u-7 /saida
+```

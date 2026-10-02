@@ -35,6 +35,9 @@ function inteiroAmbiente(nome: string, padrao: number): number {
   return numero
 }
 
+// Dias que as gravacoes das chamadas ficam guardadas (parametro gravacao_dias)
+const GRAVACAO_DIAS_PADRAO = 90
+
 export const configuracao = {
   banco: {} as ConfigBanco,
   portaHttp: 8080,
@@ -48,6 +51,7 @@ export const configuracao = {
   turnForcarRelay: false,
   transcritorUrl: '',
   transcritorIdioma: 'pt',
+  gravacaoDias: GRAVACAO_DIAS_PADRAO,
 }
 
 export function definirAmbiente() {
@@ -73,6 +77,12 @@ export function definirAmbiente() {
 // apontam CONVERSA_DADOS para uma pasta temporaria.
 export function pastaDados() {
   return process.env.CONVERSA_DADOS?.trim() || '/dados'
+}
+
+// Gravacoes das chamadas, feitas pelo MediaMTX. No Docker e o volume
+// conversa-gravacoes, em /gravacoes. Os testes apontam para uma pasta temporaria.
+export function pastaGravacoes() {
+  return process.env.CONVERSA_GRAVACOES?.trim() || '/gravacoes'
 }
 
 // Le o pepper do arquivo ou, em instalacao nova, gera e grava. Ele fica fora do
@@ -125,6 +135,7 @@ const PARAMETROS = [
   'turn_forcar_relay',
   'transcritor_url',
   'transcritor_idioma',
+  'gravacao_dias',
 ]
 
 export async function carregarParametros(sql: Sql) {
@@ -158,8 +169,17 @@ export async function carregarParametros(sql: Sql) {
   configuracao.turnForcarRelay = valor('turn_forcar_relay').trim() === '1'
   configuracao.transcritorUrl = valor('transcritor_url')
   configuracao.transcritorIdioma = valor('transcritor_idioma')
+  configuracao.gravacaoDias = lerGravacaoDias(valor('gravacao_dias'))
 
   exibirAvisos()
+}
+
+// Inteiro de dias; 0 guarda para sempre. Valor invalido fica no padrao, com aviso.
+function lerGravacaoDias(texto: string) {
+  const dias = Number(texto.trim())
+  if (texto.trim() && Number.isInteger(dias) && dias >= 0) return dias
+  console.log(`⚠  Parâmetro "gravacao_dias" inválido ("${texto}"): usando ${GRAVACAO_DIAS_PADRAO} dias.`)
+  return GRAVACAO_DIAS_PADRAO
 }
 
 function exibirAvisos() {

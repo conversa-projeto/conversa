@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Sql } from '../src/banco.ts'
-import { carregarParametros, configuracao, pastaDados, resolverPepper } from '../src/configuracao.ts'
+import { carregarParametros, configuracao, pastaDados, pastaGravacoes, resolverPepper } from '../src/configuracao.ts'
 import { iniciarMinio, verificarBucketS3 } from '../src/minio.ts'
 import { chamar, usuariosComuns, type UsuarioTeste } from './api.ts'
 
@@ -63,6 +63,20 @@ describe('pasta de dados', () => {
   })
 })
 
+describe('pasta das gravações', () => {
+  test('padrão é /gravacoes; CONVERSA_GRAVACOES troca', () => {
+    const original = process.env.CONVERSA_GRAVACOES
+    try {
+      delete process.env.CONVERSA_GRAVACOES
+      expect(pastaGravacoes()).toBe('/gravacoes')
+      process.env.CONVERSA_GRAVACOES = '/outra'
+      expect(pastaGravacoes()).toBe('/outra')
+    } finally {
+      process.env.CONVERSA_GRAVACOES = original
+    }
+  })
+})
+
 describe('pepper das senhas', () => {
   test('lê o pepper do arquivo', async () => {
     novaPasta({ pepper: '  segredo-gravado \n' })
@@ -95,6 +109,7 @@ describe('parâmetros', () => {
     jwt_token: 'chave-existente',
     fcm_project_id: 'p', fcm_client_email: 'e', fcm_private_key: 'k',
     s3_bucket: 'chat', turn_forcar_relay: '0', transcritor_url: 'http://t', transcritor_idioma: 'en',
+    gravacao_dias: '30',
     ...valores,
   }).map(([nome, valor]) => ({ nome, valor }))
 
@@ -106,8 +121,22 @@ describe('parâmetros', () => {
       transcritorUrl: 'http://t',
       transcritorIdioma: 'en',
       turnForcarRelay: true,
+      gravacaoDias: 30,
       s3: { accessKey: 'usuario-minio', secretKey: 'senha-minio', bucket: 'chat' },
     })
+  })
+
+  test.each([['0', 0], ['365', 365]])('dias das gravações %p', async (texto, dias) => {
+    novaPasta({ 'minio-usuario': 'u', 'minio-senha': 's' })
+    await capturarLog(() => carregarParametros(sqlFalso(todos({ gravacao_dias: texto })).sql))
+    expect(configuracao.gravacaoDias).toBe(dias)
+  })
+
+  test.each([[''], ['-1'], ['1.5'], ['noventa']])('dias das gravações inválido (%p) fica em 90, com aviso', async (texto) => {
+    novaPasta({ 'minio-usuario': 'u', 'minio-senha': 's' })
+    const log = await capturarLog(() => carregarParametros(sqlFalso(todos({ gravacao_dias: texto })).sql))
+    expect(configuracao.gravacaoDias).toBe(90)
+    expect(log).toContain('"gravacao_dias" inválido')
   })
 
   test('parâmetro faltando impede a inicialização', async () => {

@@ -25,4 +25,14 @@ webrtcAdditionalHosts: []
 
 # Permite qualquer stream sem autenticacao (rede local)
 paths:
+  # Chamadas (call-<chamada>-u-<usuario>): cada participante gravado em seu
+  # proprio arquivo, para auditoria, no volume conversa-gravacoes. Arquivos de
+  # 1 hora. O MediaMTX nao apaga nada: a API apaga os mais antigos que o
+  # parametro gravacao_dias. O video vem em H264 ou VP9 (VP8 nao e gravado).
+  "~^call-":
+    record: yes
+    recordPath: /gravacoes/%path/%Y-%m-%d_%H-%M-%S-%f
+    recordFormat: fmp4
+    recordSegmentDuration: 1h
+    recordDeleteAfter: 0s
   all_others:

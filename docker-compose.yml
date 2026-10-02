@@ -109,17 +109,32 @@ services:
       rtc:
         ipv4_address: 172.30.0.10
 
+  # Pasta das gravacoes das chamadas: o MediaMTX grava e a API apaga as
+  # vencidas, os dois com o uid 1000. Roda uma vez antes do MediaMTX e termina.
+  gravacoes-dono:
+    image: alpine:3.22
+    container_name: gravacoes-dono
+    command: chown 1000:1000 /gravacoes
+    volumes:
+      - gravacoes:/gravacoes
+
   # Servidor WebRTC. Precisa estar na mesma rede do coturn, com este IP fixo.
-  # O nginx chega nele pelo nome.
+  # O nginx chega nele pelo nome. Grava o audio e o video das chamadas para
+  # auditoria (bin/mediamtx/mediamtx.docker.yml).
   mediamtx:
     image: bluenviron/mediamtx:1.16.2
     container_name: mediamtx
     restart: always
+    user: "1000:1000"
     command: /config/mediamtx.docker.yml
     ports:
       - "127.0.0.1:8889:8889/tcp"
     volumes:
       - ./bin/mediamtx:/config:ro
+      - gravacoes:/gravacoes
+    depends_on:
+      gravacoes-dono:
+        condition: service_completed_successfully
     networks:
       rtc:
         ipv4_address: 172.30.0.20
@@ -145,6 +160,9 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - dados:/dados
+      # Gravacoes das chamadas: a API apaga as mais antigas que o parametro
+      # gravacao_dias
+      - gravacoes:/gravacoes
     depends_on:
       postgres:
         condition: service_healthy
@@ -189,3 +207,5 @@ volumes:
     name: minio
   dados:
     name: conversa-dados
+  gravacoes:
+    name: conversa-gravacoes
