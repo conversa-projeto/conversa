@@ -16,6 +16,7 @@ export const TipoMensagemSocket = {
   UsuarioEntrou: 54,
   UsuarioSaiu: 55,
   VideoAtivado: 56,
+  SinalChamada: 57,
   StatusUsuario: 60,
 } as const
 export type TipoMensagemSocket = (typeof TipoMensagemSocket)[keyof typeof TipoMensagemSocket]
@@ -35,7 +36,7 @@ export type VerificarToken = (token: string) => Promise<number>
 
 // O Elysia ja entrega a mensagem convertida quando ela e JSON; texto que nao e
 // JSON chega como string.
-function lerMensagem(dado: unknown): { tipo?: unknown; token?: unknown } | undefined {
+function lerMensagem(dado: unknown): { tipo?: unknown; token?: unknown; chamada_id?: unknown; dados?: unknown } | undefined {
   if (typeof dado === 'object' && dado !== null) {
     return dado
   }
@@ -62,6 +63,14 @@ export function criarWebSocket(verificarToken: VerificarToken) {
             ? 'Erro ao ler os dados do WebSocket: Par "tipo" não encontrado!'
             : 'Erro ao ler os dados do WebSocket: JSON inválido!',
         }))
+        return
+      }
+
+      if (mensagem.tipo === TipoMensagemSocket.SinalChamada) {
+        const usuarioId = usuarioDaConexao.get(socket)
+        if (usuarioId) {
+          await repassarSinalChamada(usuarioId, mensagem.chamada_id, mensagem.dados)
+        }
         return
       }
 
@@ -137,8 +146,72 @@ export function notificarReacao(conversa: number, mensagem: number, remetente: n
   enviar(destinatario, { tipo: TipoMensagemSocket.ReacaoMensagem, conversa_id: conversa, mensagem_id: mensagem, usuario_id: remetente, emoji, acao })
 }
 
+// Sinal da chamada enviado pelo proprio servidor (o chat da chamada foi criado)
+export function notificarSinalChamada(chamada: number, remetente: number, destinatario: number, dados: object) {
+  enviar(destinatario, { tipo: TipoMensagemSocket.SinalChamada, chamada_id: chamada, usuario_id: remetente, dados })
+}
+
 export function notificarChamada(chamada: number, remetente: number, destinatario: number, tipo: TipoMensagemSocket) {
   enviar(destinatario, { tipo, chamada_id: chamada, usuario_id: remetente })
+}
+
+// Quem esta dentro de cada chamada, lido do banco no maximo a cada 5 segundos:
+// o ponteiro da tela compartilhada manda dezenas de sinais por segundo.
+const participantesEmCache = new Map<number, { ate: number; usuarios: Promise<number[]> }>()
+
+function participantesChamada(chamada: number): Promise<number[]> {
+  const agora = Date.now()
+  for (const [id, cache] of participantesEmCache) {
+    if (cache.ate <= agora) {
+      participantesEmCache.delete(id)
+    }
+  }
+  const cache = participantesEmCache.get(chamada)
+  if (cache) {
+    return cache.usuarios
+  }
+  const usuarios = comUsuario(0, (sql) => sql<{ usuario_id: number }[]>`
+    select cu.usuario_id
+      from chamada_usuario cu
+     inner join chamada c on c.id = cu.chamada_id and c.status in (1, 3)
+     where cu.chamada_id = ${chamada}
+       and cu.status = 3`)
+    .then((linhas) => linhas.map((linha) => linha.usuario_id))
+  participantesEmCache.set(chamada, { ate: agora + 5000, usuarios })
+  return usuarios
+}
+
+// Alguem entrou ou saiu: a proxima leitura vem do banco
+export function esquecerParticipantesChamada(chamada: number) {
+  participantesEmCache.delete(chamada)
+}
+
+const TAMANHO_MAXIMO_SINAL = 2000
+
+// Sinal da chamada (quem compartilha a tela, ponteiro sobre ela): o servidor so
+// repassa aos outros que estao na chamada, sem gravar. Quem nao esta nela nao
+// envia nem recebe.
+async function repassarSinalChamada(usuarioId: number, chamada: unknown, dados: unknown) {
+  if (typeof chamada !== 'number' || !Number.isInteger(chamada) || chamada <= 0) {
+    return
+  }
+  if (typeof dados !== 'object' || dados === null || JSON.stringify(dados).length > TAMANHO_MAXIMO_SINAL) {
+    return
+  }
+  try {
+    const usuarios = await participantesChamada(chamada)
+    if (!usuarios.includes(usuarioId)) {
+      return
+    }
+    for (const destino of usuarios) {
+      if (destino !== usuarioId) {
+        enviar(destino, { tipo: TipoMensagemSocket.SinalChamada, chamada_id: chamada, usuario_id: usuarioId, dados })
+      }
+    }
+  } catch (erro) {
+    participantesEmCache.delete(chamada)
+    console.error('[WebSocket] Falha ao repassar sinal da chamada', chamada, erro)
+  }
 }
 
 // Avisa quem tem conversa direta com o usuario que ele entrou ou saiu.

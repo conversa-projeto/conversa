@@ -163,6 +163,8 @@ export function criarRotas(token: Token) {
 
     .post('/chamada/finalizar', (c) => comoUsuario(c, (sql, usuario) => chamadas.finalizarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 
+    .put('/chamada/chat', (c) => comoUsuario(c, (sql, usuario) => chamadas.chatChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
+
     .get('/chamada/dados', (c) => comoUsuario(c, (sql, usuario) => chamadas.dadosChamadaUsuario(sql, usuario, c.query.id)), esquemas.idNaConsulta)
 
     .get('/chamadas/pendentes', (c) => comoUsuario(c, (sql, usuario) => chamadas.chamadasPendentes(sql, usuario)))

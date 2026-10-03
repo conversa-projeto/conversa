@@ -142,6 +142,25 @@ describe('eventos chegam só a quem participa', () => {
     await daCarla.nadaChega((e) => e.chamada_id === id)
   })
 
+  test('sinal da chamada: vai só a quem está nela, e quem não entrou não envia', async () => {
+    const conversa = await criarConversa(ana, [bruno, carla])
+    const daAna = await conectar(ana)
+    const doBruno = await conectar(bruno)
+    const daCarla = await conectar(carla)
+    const ligacao = await chamar('PUT', '/chamada/iniciar', { token: ana.token, corpo: { tipo: 2, usuarios: [{ id: ana.id }, { id: bruno.id }, { id: carla.id }], conversa_id: conversa } })
+    const id = ligacao.dados.id
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id } })
+
+    daAna.enviar({ tipo: 57, chamada_id: id, dados: { acao: 'ponteiro', x: 0.5, y: 0.25 } })
+    const sinal = await doBruno.esperar((e) => e.tipo === 57 && e.chamada_id === id)
+    expect(sinal.usuario_id).toBe(ana.id)
+    expect(sinal.dados).toEqual({ acao: 'ponteiro', x: 0.5, y: 0.25 })
+    await daCarla.nadaChega((e) => e.tipo === 57)
+
+    daCarla.enviar({ tipo: 57, chamada_id: id, dados: { acao: 'ponteiro', x: 0, y: 0 } })
+    await doBruno.nadaChega((e) => e.tipo === 57 && e.usuario_id === carla.id)
+  })
+
   test('conversa nova: quem é adicionado recebe o aviso', async () => {
     const doBruno = await conectar(bruno)
     const conversa = await criarConversa(ana, [bruno])

@@ -3,7 +3,7 @@
 
 // Valores das colunas de tipo e status, os mesmos que a pagina usa
 export type TipoConversa = 1 | 2 // 1-Direta, 2-Grupo
-export type TipoConteudo = 1 | 2 | 3 | 4 | 5 | 6 // 1-Texto, 2-Imagem, 3-Arquivo, 4-Audio, 5-Gravacao de audio, 6-Chamada
+export type TipoConteudo = 1 | 2 | 3 | 4 | 5 | 6 | 7 // 1-Texto, 2-Imagem, 3-Arquivo, 4-Audio, 5-Gravacao de audio, 6-Chamada, 7-Figurinha
 export type TipoChamada = 1 | 2 // 1-Audio, 2-Video
 export type StatusChamada = 1 | 2 | 3 | 4 | 5 | 6 // 1-Pendente, 2-Recusada, 3-Em andamento, 4-Encerrada, 5-Desconectada, 6-Cancelada
 export type StatusUsuarioChamada = 1 | 2 | 3 | 4 | 5 // 1-Pendente, 2-Recusou, 3-Entrou, 4-Saiu, 5-Desconectou

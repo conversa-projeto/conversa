@@ -104,6 +104,37 @@ describe('chamadas', () => {
   })
 })
 
+describe('chat da chamada', () => {
+  const membros = async (quem: UsuarioTeste, conversa: number) =>
+    ((await chamar('GET', '/conversa/usuarios', { token: quem.token, consulta: { conversa } })).dados as { usuario_id: number }[]).map((m) => m.usuario_id).sort()
+
+  test('só existe depois de pedido; cria um grupo com quem esteve na chamada e devolve o mesmo depois', async () => {
+    const id = await ligar(ana, [bruno, carla])
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id } })
+    expect((await dados(ana, id)).dados.conversa_chat_id).toBeNull()
+
+    const { status, dados: chat } = await chamar('PUT', '/chamada/chat', { token: bruno.token, corpo: { id } })
+    expect(status).toBe(200)
+    expect((await dados(ana, id)).dados.conversa_chat_id).toBe(chat.conversa_id)
+    // Carla não atendeu: fica de fora até entrar
+    expect(await membros(ana, chat.conversa_id)).toEqual([ana.id, bruno.id].sort())
+    const conversas = (await chamar('GET', '/conversas', { token: ana.token })).dados as { id: number; tipo: number; descricao: string }[]
+    const grupo = conversas.find((c) => c.id === chat.conversa_id)!
+    expect(grupo.tipo).toBe(2)
+    expect(grupo.descricao).toStartWith('Chamada: ')
+
+    expect((await chamar('PUT', '/chamada/chat', { token: ana.token, corpo: { id } })).dados.conversa_id).toBe(chat.conversa_id)
+
+    await chamar('POST', '/chamada/entrar', { token: carla.token, corpo: { id } })
+    expect(await membros(ana, chat.conversa_id)).toEqual([ana.id, bruno.id, carla.id].sort())
+  })
+
+  test('quem não participa da chamada não cria o chat', async () => {
+    const id = await ligar(ana, [bruno])
+    expect((await chamar('PUT', '/chamada/chat', { token: carla.token, corpo: { id } })).status).toBe(404)
+  })
+})
+
 describe('resumo da chamada na conversa', () => {
   const resumoNaConversa = async (quem: UsuarioTeste, conversa: number) => {
     const { dados: lista } = await chamar('GET', '/mensagens', { token: quem.token, consulta: { conversa, mensagemreferencia: 0, mensagensprevias: 10, mensagensseguintes: 0 } })

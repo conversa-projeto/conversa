@@ -122,11 +122,14 @@ function resumirTexto(texto: string) {
     .trim()
 }
 
+const FIGURINHA = /^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/
+
 function textoConteudo(tipo: number, conteudo: string) {
   switch (tipo) {
     case 1: return resumirTexto(conteudo)
     case 2: return 'imagem'
     case 3: return 'arquivo'
+    case 7: return 'figurinha'
     default: return ''
   }
 }
@@ -157,6 +160,12 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
   const conteudos = corpo.conteudos
   if (agendada && conteudos.some((item) => item.tipo === 6)) {
     throw httpErrors.badRequest('Mensagens agendadas não podem ser de chamada (tipo 6).')
+  }
+
+  // Figurinha: o conteudo e o identificador pacote/nome; a animacao fica no
+  // cliente, entao so aceita o formato do identificador
+  if (conteudos.some((item) => item.tipo === 7 && !FIGURINHA.test(item.conteudo ?? ''))) {
+    throw httpErrors.badRequest('Figurinha inválida!')
   }
 
   const referencia = corpo.mensagem_referencia
@@ -343,7 +352,7 @@ export async function pesquisar(sql: Sql, conversa: number, usuario: number, tex
 async function carregarConteudos(sql: Sql, mensagemId: number): Promise<ConteudoResposta[]> {
   const linhas = await sql<ConteudoLinha[]>`
     select id, ordem, tipo, conteudo, nome, extensao, transcricao_status, transcricao
-      from ( /* Texto e chamada */
+      from ( /* Texto, chamada e figurinha */
              select id
                   , ordem
                   , tipo
@@ -354,7 +363,7 @@ async function carregarConteudos(sql: Sql, mensagemId: number): Promise<Conteudo
                   , null::text as transcricao
                from mensagem_conteudo
               where mensagem_id = ${mensagemId}
-                and tipo in (1, 6)
+                and tipo in (1, 6, 7)
 
               union
 

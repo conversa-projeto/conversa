@@ -48,6 +48,27 @@ describe('enviar e listar', () => {
   })
 })
 
+describe('figurinha', () => {
+  const enviarFigurinha = (quem: UsuarioTeste, conversa: number, conteudo: string) =>
+    chamar('PUT', '/mensagem', { token: quem.token, corpo: { conversa_id: conversa, conteudos: [{ ordem: 1, tipo: 7, conteudo }] } })
+
+  test('volta com o identificador e aparece como "figurinha" na prévia da conversa', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    expect((await enviarFigurinha(ana, conversa, 'basico/coracao')).status).toBe(200)
+    const [mensagem] = (await listar(bruno, conversa)).dados
+    expect(mensagem.conteudos).toMatchObject([{ ordem: 1, tipo: 7, conteudo: 'basico/coracao' }])
+    const conversas = (await chamar('GET', '/conversas', { token: bruno.token })).dados as { id: number; ultima_mensagem_texto: string }[]
+    expect(conversas.find((c) => c.id === conversa)!.ultima_mensagem_texto).toBe('figurinha')
+  })
+
+  test('identificador fora do formato pacote/nome é 400', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    for (const conteudo of ['../segredo', 'coracao', 'Basico/Coracao', '<script>/x']) {
+      expect((await enviarFigurinha(ana, conversa, conteudo)).status).toBe(400)
+    }
+  })
+})
+
 describe('agendadas', () => {
   const daquiA = (minutos: number) => new Date(Date.now() + minutos * 60_000).toISOString()
 

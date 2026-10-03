@@ -7,8 +7,8 @@ import type { Corpo, Consulta } from './esquemas.ts'
 import { httpErrors } from './erros.ts'
 import type { StatusChamada, StatusUsuarioChamada, TipoChamada } from './tabelas.ts'
 import { urlPublica } from './minio.ts'
-import { notificarMembrosChamada, notificarStatusMensagens } from './notificacoes.ts'
-import { notificarChamada, TipoMensagemSocket } from './websocket.ts'
+import { notificarMembrosChamada, notificarMembrosConversa, notificarStatusMensagens } from './notificacoes.ts'
+import { esquecerParticipantesChamada, notificarChamada, notificarConversa, notificarSinalChamada, TipoMensagemSocket } from './websocket.ts'
 
 // Status da chamada: 1-Pendente, 2-Recusada, 3-Em andamento, 4-Encerrada, 5-Desconectada, 6-Cancelada
 // Status do usuario: 1-Pendente, 2-Recusou, 3-Entrou, 4-Saiu, 5-Desconectou
@@ -22,6 +22,7 @@ interface DadosChamada {
   status: StatusChamada
   criado_em: Date
   criado_por: number
+  conversa_chat_id: number | null
 }
 
 export interface UsuarioChamada {
@@ -159,6 +160,8 @@ export async function entrarChamada(sql: Sql, usuario: number, chamada: number) 
     await registrarEvento(sql, chamada, usuario, 5, usuario)
   })
   await atualizarStatusChamada(sql, chamada)
+  esquecerParticipantesChamada(chamada)
+  await incluirNoChatChamada(sql, usuario, chamada)
   await notificarMembrosChamada(sql, chamada, usuario, TipoMensagemSocket.UsuarioEntrou)
   // As outras abas e aparelhos do usuário param de tocar
   notificarChamada(chamada, usuario, usuario, TipoMensagemSocket.UsuarioEntrou)
@@ -172,9 +175,66 @@ export async function sairChamada(sql: Sql, usuario: number, chamada: number) {
     await registrarEvento(sql, chamada, usuario, 6, usuario)
   })
   await atualizarStatusChamada(sql, chamada)
+  esquecerParticipantesChamada(chamada)
   await tentarInserirMensagem(sql, chamada)
   await notificarMembrosChamada(sql, chamada, usuario, TipoMensagemSocket.UsuarioSaiu)
   return { id: chamada }
+}
+
+// Chat da chamada: grupo criado na primeira mensagem, com quem esteve nela
+// (entrou, saiu ou caiu; convidado que nao atendeu fica de fora). Ja existindo,
+// devolve o mesmo grupo.
+export async function chatChamada(sql: Sql, usuario: number, chamada: number) {
+  await validarChamada(sql, usuario, chamada)
+  const { conversa, criada } = await transacao(sql, async () => {
+    const [dados] = await sql<{ conversa_chat_id: number | null }[]>`select conversa_chat_id from chamada where id = ${chamada} for update`
+    if (dados?.conversa_chat_id) {
+      return { conversa: dados.conversa_chat_id, criada: false }
+    }
+    const membros = await sql<{ usuario_id: number; nome: string }[]>`
+      select distinct cu.usuario_id, u.nome
+        from chamada_usuario cu
+       inner join usuario u on u.id = cu.usuario_id
+       where cu.chamada_id = ${chamada}
+         and (cu.status in (3, 4, 5) or cu.usuario_id = ${usuario})
+       order by u.nome`
+    const nomes = membros.map((membro) => membro.nome).join(', ')
+    const descricao = `Chamada: ${nomes.length > 80 ? `${nomes.slice(0, 77)}...` : nomes}`
+    const [nova] = await sql<{ id: number }[]>`insert into conversa (descricao, tipo) values (${descricao}, 2) returning id`
+    if (!nova) {
+      throw new Error('Falha ao criar o chat da chamada')
+    }
+    for (const membro of membros) {
+      await sql`insert into conversa_usuario (conversa_id, usuario_id) values (${nova.id}, ${membro.usuario_id})`
+    }
+    await sql`update chamada set conversa_chat_id = ${nova.id} where id = ${chamada}`
+    return { conversa: nova.id, criada: true }
+  })
+  if (criada) {
+    // A conversa nova aparece na lista de todos, e quem esta na chamada abre o chat
+    await notificarMembrosConversa(sql, conversa, usuario, TipoMensagemSocket.ConversaNova)
+    const participantes = await sql<{ usuario_id: number }[]>`
+      select usuario_id from chamada_usuario where chamada_id = ${chamada} and usuario_id <> ${usuario}`
+    for (const { usuario_id } of participantes) {
+      notificarSinalChamada(chamada, usuario, usuario_id, { acao: 'chat', conversa_id: conversa })
+    }
+  }
+  return { conversa_id: conversa }
+}
+
+// Quem entra depois de o chat existir passa a fazer parte do grupo
+async function incluirNoChatChamada(sql: Sql, usuario: number, chamada: number) {
+  const [incluido] = await sql<{ conversa_id: number }[]>`
+    insert into conversa_usuario (conversa_id, usuario_id)
+    select c.conversa_chat_id, ${usuario}
+      from chamada c
+     where c.id = ${chamada}
+       and c.conversa_chat_id is not null
+       and not exists (select 1 from conversa_usuario cu where cu.conversa_id = c.conversa_chat_id and cu.usuario_id = ${usuario})
+    returning conversa_id`
+  if (incluido) {
+    notificarConversa(incluido.conversa_id, usuario, usuario, TipoMensagemSocket.ConversaNova)
+  }
 }
 
 export async function adicionarUsuarioChamada(sql: Sql, usuario: number, corpo: Corpo<'adicionarUsuarioChamada'>) {
@@ -227,7 +287,7 @@ export async function chamadasPendentes(sql: Sql, usuario: number) {
 }
 
 async function dadosChamada(sql: Sql, chamada: number) {
-  const [dados] = await sql<DadosChamada[]>`select id, iniciada, finalizada, tipo, status, criado_em, criado_por from chamada where id = ${chamada}`
+  const [dados] = await sql<DadosChamada[]>`select id, iniciada, finalizada, tipo, status, criado_em, criado_por, conversa_chat_id from chamada where id = ${chamada}`
   // So e chamada depois de conferir (ou criar) a chamada
   if (!dados) {
     throw httpErrors.notFound('Chamada não encontrada!')

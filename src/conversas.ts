@@ -127,6 +127,7 @@ export async function conversas(sql: Sql, usuario: number) {
                        when tcm.excluida_em is not null then convert_to('Mensagem excluída', 'UTF8')
                        when mc.tipo = 1 then mc.conteudo
                        when mc.tipo = 2 then 'imagem'
+                       when mc.tipo = 7 then 'figurinha'
                        else ''
                         end as ultima_mensagem_texto
                      , row_number() over(partition by tcm.conversa_id, tcm.mensagem_id order by mc.ordem) as rid_conteudo
