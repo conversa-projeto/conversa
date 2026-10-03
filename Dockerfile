@@ -12,8 +12,9 @@ RUN bun install --frozen-lockfile --production
 COPY migracoes ./migracoes
 COPY src ./src
 
-# Volume do pepper. Criada aqui para o volume nascer com dono bun.
-RUN mkdir /dados && chown bun:bun /dados
+# Volumes do pepper e das gravacoes. Criadas aqui para os volumes nascerem com
+# dono bun (uid 1000, o mesmo do MediaMTX).
+RUN mkdir /dados /gravacoes && chown bun:bun /dados /gravacoes
 
 EXPOSE 8080
 USER bun
@@ -33,8 +34,8 @@ FROM alpine:3.22 AS producao
 RUN apk add --no-cache libstdc++ libgcc \
  && addgroup -g 1000 conversa \
  && adduser -D -u 1000 -G conversa conversa \
- && mkdir /dados \
- && chown conversa:conversa /dados
+ && mkdir /dados /gravacoes \
+ && chown conversa:conversa /dados /gravacoes
 
 WORKDIR /app
 ENV NODE_ENV=production TZ=UTC
