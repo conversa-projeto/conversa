@@ -124,7 +124,7 @@ export async function conversas(sql: Sql, usuario: number) {
                      , tcm.mensagem_id as mensagem_id
                      , tcm.inserida as ultima_mensagem
                      , case
-                       when tcm.excluida_em is not null then convert_to('Mensagem excluída', 'UTF8')
+                       when tcm.excluida_em is not null then convert_to('Mensagem oculta', 'UTF8')
                        when mc.tipo = 1 then mc.conteudo
                        when mc.tipo = 2 then 'imagem'
                        when mc.tipo = 7 then 'figurinha'

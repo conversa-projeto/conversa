@@ -140,7 +140,7 @@ describe('excluir', () => {
     expect(status.dados[0].excluida_em).not.toBeNull()
     expect((await chamar('GET', '/pesquisar', { token: bruno.token, consulta: { texto: termo, conversa: 0 } })).dados).toEqual([])
     const conversas = (await chamar('GET', '/conversas', { token: bruno.token })).dados
-    expect(conversas.find((c: { id: number }) => c.id === conversa).ultima_mensagem_texto).toBe('Mensagem excluída')
+    expect(conversas.find((c: { id: number }) => c.id === conversa).ultima_mensagem_texto).toBe('Mensagem oculta')
   })
 
   test('resposta a uma mensagem excluída traz a marca na referência', async () => {
