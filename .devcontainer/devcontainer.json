@@ -23,7 +23,10 @@
   // aparece numa aba de terminal propria. Fechar o VS Code nao para o
   // container, entao antes encerra o Vite que ficou da sessao anterior.
   // O [n] no padrao evita que o pkill encontre este proprio comando.
-  "postAttachCommand": "pkill -f '[n]ode_modules/.bin/vite' && sleep 1; cd /git/conversa-web && bun run dev",
+  // Antes instala as dependencias: o postCreateCommand so roda quando o
+  // container e criado, e codigo novo pode trazer biblioteca nova (sem
+  // mudanca, o bun install termina em cerca de um segundo).
+  "postAttachCommand": "pkill -f '[n]ode_modules/.bin/vite' && sleep 1; cd /git/conversa && bun install --frozen-lockfile && cd /git/conversa-web && bun install --frozen-lockfile && bun run dev",
 
   "customizations": {
     "vscode": {
