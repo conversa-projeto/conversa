@@ -5,6 +5,7 @@ import { comOrigemPublica } from './contexto.ts'
 import { esquemas } from './esquemas.ts'
 import { TipoMensagemSocket } from './websocket.ts'
 import * as anexos from './anexos.ts'
+import * as atividades from './atividades.ts'
 import * as chamadas from './chamadas.ts'
 import * as conversas from './conversas.ts'
 import * as mensagens from './mensagens.ts'
@@ -154,7 +155,8 @@ export function criarRotas(token: Token) {
 
     .post('/chamada/entrar', (c) => comoUsuario(c, (sql, usuario) => chamadas.entrarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 
-    .post('/chamada/recusar', (c) => comoUsuario(c, (sql, usuario) => chamadas.recusarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
+    .post('/chamada/recusar', (c) =>
+      comoUsuario(c, (sql, usuario) => chamadas.recusarChamada(sql, usuario, c.body.id, c.body.nao_atendeu ?? false)), esquemas.recusarChamada)
 
     .post('/chamada/sair', (c) => comoUsuario(c, (sql, usuario) => chamadas.sairChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 
@@ -162,6 +164,12 @@ export function criarRotas(token: Token) {
       comoUsuario(c, (sql, usuario) => chamadas.adicionarUsuarioChamada(sql, usuario, c.body)), esquemas.adicionarUsuarioChamada)
 
     .post('/chamada/finalizar', (c) => comoUsuario(c, (sql, usuario) => chamadas.finalizarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
+
+    .get('/atividades', (c) => comoUsuario(c, (sql, usuario) => atividades.atividades(sql, usuario, c.query)), esquemas.atividades)
+
+    .get('/atividades/novas', (c) => comoUsuario(c, (sql, usuario) => atividades.atividadesNovas(sql, usuario)))
+
+    .post('/atividades/vistas', (c) => comoUsuario(c, (sql, usuario) => atividades.marcarAtividadesVistas(sql, usuario)))
 
     .put('/chamada/chat', (c) => comoUsuario(c, (sql, usuario) => chamadas.chatChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 

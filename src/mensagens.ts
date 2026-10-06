@@ -7,6 +7,15 @@ import { urlPublica } from './minio.ts'
 import { notificarNovaMensagemConversa, notificarStatusMensagens } from './notificacoes.ts'
 import { httpErrors } from './erros.ts'
 import { notificarReacao } from './websocket.ts'
+import {
+  apagarAtividadeReacao,
+  apagarAtividadesMensagem,
+  avisarAtividadesMensagem,
+  idsMencionados,
+  registrarAtividades,
+  TipoAtividade,
+  type NovaAtividade,
+} from './atividades.ts'
 
 
 // --- Formato das mensagens devolvidas ao cliente ---
@@ -208,11 +217,48 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
     partes.push(textoConteudo(item.tipo, item.conteudo ?? ''))
   }
 
+  await registrarAtividadesMensagem(sql, usuario, corpo.conversa_id, mensagem.id, conteudos, referencia, visivelEm)
+
   // Agendadas so notificam quando amadurecem, pelo agendador.
   if (!agendada) {
     await notificarNovaMensagemConversa(sql, usuario, corpo.conversa_id, partes.filter(Boolean).join(' | '))
   }
   return referenciaGravada ? { ...mensagem, mensagem_referencia: referenciaGravada } : mensagem
+}
+
+// Resposta a mensagem de outra pessoa e mencoes (so de membros da conversa)
+// viram atividade de quem foi respondido ou mencionado. Respondido e mencionado
+// na mesma mensagem recebe uma so: a resposta.
+async function registrarAtividadesMensagem(
+  sql: Sql,
+  usuario: number,
+  conversa: number,
+  mensagem: number,
+  conteudos: Corpo<'incluirMensagem'>['conteudos'],
+  referencia: Corpo<'incluirMensagem'>['mensagem_referencia'],
+  visivelEm: string | undefined,
+) {
+  const base = { autor_id: usuario, conversa_id: conversa, mensagem_id: mensagem, criado_em: visivelEm ?? null }
+  const novas: NovaAtividade[] = []
+  let respondido: number | undefined
+  if (referencia?.tipo === 1 && referencia.origem_mensagem_id > 0) {
+    const [original] = await sql<{ usuario_id: number }[]>`
+      select usuario_id from mensagem where id = ${referencia.origem_mensagem_id} and conversa_id = ${conversa}`
+    respondido = original?.usuario_id
+    if (respondido) {
+      novas.push({ ...base, usuario_id: respondido, tipo: TipoAtividade.Resposta })
+    }
+  }
+  const textos = conteudos.filter((c) => c.tipo === 1).map((c) => c.conteudo ?? '').join('\n')
+  const mencionados = idsMencionados(textos).filter((id) => id !== respondido)
+  if (mencionados.length) {
+    const membros = await sql<{ usuario_id: number }[]>`
+      select usuario_id from conversa_usuario where conversa_id = ${conversa} and usuario_id in ${sql(mencionados)}`
+    for (const { usuario_id } of membros) {
+      novas.push({ ...base, usuario_id, tipo: TipoAtividade.Mencao })
+    }
+  }
+  await registrarAtividades(sql, novas)
 }
 
 export async function notificarMensagemAgendada(sql: Sql, mensagemId: number) {
@@ -233,6 +279,7 @@ export async function notificarMensagemAgendada(sql: Sql, mensagemId: number) {
   const texto = mensagem.tipo === 4 || mensagem.tipo === 5 ? 'áudio' : textoConteudo(mensagem.tipo ?? 0, mensagem.conteudo ?? '')
   await notificarNovaMensagemConversa(sql, mensagem.usuario_id, mensagem.conversa_id, texto)
   await notificarStatusMensagens(sql, mensagem.usuario_id, mensagem.conversa_id, String(mensagemId))
+  await avisarAtividadesMensagem(sql, mensagemId)
 }
 
 // Excluir marca a mensagem: ela continua na conversa como excluida, com o
@@ -257,6 +304,7 @@ export async function excluirMensagem(sql: Sql, usuario: number, mensagem: numbe
            , excluida_por = ${usuario}
        where id = ${mensagem}
    returning excluida_em`
+    await apagarAtividadesMensagem(sql, mensagem)
     await notificarStatusMensagens(sql, usuario, alvo!.conversa_id, String(mensagem))
     return { id: mensagem, conversa_id: alvo!.conversa_id, excluida_em: marcada!.excluida_em }
   }
@@ -265,6 +313,7 @@ export async function excluirMensagem(sql: Sql, usuario: number, mensagem: numbe
   await sql`delete from mensagem_referencia where origem_mensagem_id = ${mensagem} or destino_mensagem_id = ${mensagem}`
   await sql`delete from mensagem_status where mensagem_id = ${mensagem}`
   await sql`delete from reacao where mensagem_id = ${mensagem}`
+  await apagarAtividadesMensagem(sql, mensagem)
 
   const conteudo = await excluir(sql, 'mensagem_conteudo', mensagem, 'mensagem_id')
   const excluida = await excluir(sql, 'mensagem', mensagem)
@@ -671,7 +720,7 @@ export async function novasMensagens(sql: Sql, usuario: number, desde: string) {
 }
 
 export async function alternarReacao(sql: Sql, usuario: number, corpo: Corpo<'reacao'>) {
-  const [alvo] = await sql<{ conversa_id: number }[]>`select conversa_id from mensagem where id = ${corpo.mensagem_id}`
+  const [alvo] = await sql<{ conversa_id: number; usuario_id: number }[]>`select conversa_id, usuario_id from mensagem where id = ${corpo.mensagem_id}`
   if (!alvo) {
     throw httpErrors.notFound('Mensagem não encontrada!')
   }
@@ -681,9 +730,18 @@ export async function alternarReacao(sql: Sql, usuario: number, corpo: Corpo<'re
   let acao: 'add' | 'remove'
   if (existe) {
     await sql`delete from reacao where mensagem_id = ${corpo.mensagem_id} and usuario_id = ${usuario} and emoji = ${corpo.emoji}`
+    await apagarAtividadeReacao(sql, corpo.mensagem_id, usuario, corpo.emoji)
     acao = 'remove'
   } else {
     await sql`insert into reacao (mensagem_id, usuario_id, emoji) values (${corpo.mensagem_id}, ${usuario}, ${corpo.emoji})`
+    await registrarAtividades(sql, [{
+      usuario_id: alvo.usuario_id,
+      tipo: TipoAtividade.Reacao,
+      autor_id: usuario,
+      conversa_id: alvo.conversa_id,
+      mensagem_id: corpo.mensagem_id,
+      emoji: corpo.emoji,
+    }])
     acao = 'add'
   }
 

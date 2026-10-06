@@ -18,6 +18,7 @@ export const TipoMensagemSocket = {
   VideoAtivado: 56,
   SinalChamada: 57,
   StatusUsuario: 60,
+  NovaAtividade: 61,
 } as const
 export type TipoMensagemSocket = (typeof TipoMensagemSocket)[keyof typeof TipoMensagemSocket]
 
@@ -144,6 +145,11 @@ export function notificarConversa(conversa: number, remetente: number, destinata
 
 export function notificarReacao(conversa: number, mensagem: number, remetente: number, destinatario: number, emoji: string, acao: string) {
   enviar(destinatario, { tipo: TipoMensagemSocket.ReacaoMensagem, conversa_id: conversa, mensagem_id: mensagem, usuario_id: remetente, emoji, acao })
+}
+
+// Atividade nova (ou retirada) para o usuario: a pagina atualiza o contador
+export function notificarAtividade(usuarioId: number) {
+  enviar(usuarioId, { tipo: TipoMensagemSocket.NovaAtividade })
 }
 
 // Sinal da chamada enviado pelo proprio servidor (o chat da chamada foi criado)

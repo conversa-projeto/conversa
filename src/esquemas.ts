@@ -85,6 +85,9 @@ export const esquemas = {
 
   iniciarChamada: { body: t.Object({ tipo: opcional(inteiro), conversa_id: ouNulo(inteiro), usuarios: t.Array(t.Object({ id: inteiro })) }) },
   adicionarUsuarioChamada: { body: t.Object({ chamada_id: inteiro, usuario_id: inteiro }) },
+  recusarChamada: { body: t.Object({ id: inteiro, nao_atendeu: opcional(t.Boolean()) }) },
+  atividades: { query: t.Object({ antes: inteiroPadraoZero, limite: t.Integer({ default: 30, minimum: 1, maximum: 100 }) }) },
+
   historicoChamadas: { query: t.Object({ participante: inteiroPadraoZero, de: textoPadraoVazio, ate: textoPadraoVazio }) },
 
   incluirSip: { body: t.Object(camposSip) },

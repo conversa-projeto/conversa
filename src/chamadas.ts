@@ -8,11 +8,13 @@ import { httpErrors } from './erros.ts'
 import type { StatusChamada, StatusUsuarioChamada, TipoChamada } from './tabelas.ts'
 import { urlPublica } from './minio.ts'
 import { notificarMembrosChamada, notificarMembrosConversa, notificarStatusMensagens } from './notificacoes.ts'
+import { registrarAtividades, TipoAtividade } from './atividades.ts'
 import { esquecerParticipantesChamada, notificarChamada, notificarConversa, notificarSinalChamada, TipoMensagemSocket } from './websocket.ts'
 
 // Status da chamada: 1-Pendente, 2-Recusada, 3-Em andamento, 4-Encerrada, 5-Desconectada, 6-Cancelada
 // Status do usuario: 1-Pendente, 2-Recusou, 3-Entrou, 4-Saiu, 5-Desconectou
-// Eventos: 1-Iniciada, 2-Cancelada, 3-Convidado, 4-Recusou, 5-Entrou, 6-Saiu, 7-Finalizada
+// Eventos: 1-Iniciada, 2-Cancelada, 3-Convidado, 4-Recusou, 5-Entrou, 6-Saiu, 7-Finalizada,
+// 8-Nao atendeu (o app recusa sozinho a que tocou sem resposta; o status fica Recusou)
 
 interface DadosChamada {
   id: number
@@ -107,13 +109,45 @@ export async function iniciarChamada(sql: Sql, usuario: number, corpo: Corpo<'in
   return dados
 }
 
-// A mensagem de resumo e um efeito colateral: falha nela nao cancela a acao.
+// A mensagem de resumo e as chamadas perdidas sao efeitos colaterais: falha
+// neles nao cancela a acao.
 async function tentarInserirMensagem(sql: Sql, chamada: number) {
   try {
     await inserirMensagemChamada(sql, chamada)
   } catch {
     // mesmo comportamento da API anterior
   }
+  try {
+    await registrarChamadasPerdidas(sql, chamada)
+  } catch (erro) {
+    console.error('[Chamada] Falha ao registrar chamadas perdidas', chamada, erro)
+  }
+}
+
+// Chamada perdida: quem ainda estava tocando quando a chamada terminou e quem
+// deixou tocar ate o fim (usuarios, vindo da recusa automatica do app)
+async function registrarChamadasPerdidas(sql: Sql, chamada: number, usuarios?: number[]) {
+  const [dados] = await sql<{ criado_por: number; conversa_id: number | null; status: number }[]>`
+    select criado_por, conversa_id, status from chamada where id = ${chamada}`
+  if (!dados) {
+    return
+  }
+  let alvos = usuarios
+  if (!alvos) {
+    if (![2, 4, 5, 6].includes(dados.status)) {
+      return
+    }
+    const pendentes = await sql<{ usuario_id: number }[]>`
+      select usuario_id from chamada_usuario where chamada_id = ${chamada} and status = 1`
+    alvos = pendentes.map((p) => p.usuario_id)
+  }
+  await registrarAtividades(sql, alvos.map((usuario_id) => ({
+    usuario_id,
+    tipo: TipoAtividade.ChamadaPerdida,
+    autor_id: dados.criado_por,
+    conversa_id: dados.conversa_id,
+    chamada_id: chamada,
+  })))
 }
 
 export async function cancelarChamada(sql: Sql, usuario: number, chamada: number) {
@@ -125,11 +159,13 @@ export async function cancelarChamada(sql: Sql, usuario: number, chamada: number
   return { id: chamada }
 }
 
-export async function recusarChamada(sql: Sql, usuario: number, chamada: number) {
+// naoAtendeu: o app recusou sozinho a chamada que tocou sem resposta. Conta
+// como recusa para a chamada, mas fica registrada como chamada perdida.
+export async function recusarChamada(sql: Sql, usuario: number, chamada: number, naoAtendeu = false) {
   await validarChamada(sql, usuario, chamada)
   await transacao(sql, async () => {
     await sql`update chamada_usuario set status = 2 where chamada_id = ${chamada} and usuario_id = ${usuario} and entrou_em is null`
-    await registrarEvento(sql, chamada, usuario, 4, usuario)
+    await registrarEvento(sql, chamada, usuario, naoAtendeu ? 8 : 4, usuario)
     // Chamada toda recusada quando todos menos quem ligou recusaram.
     await sql`
       update chamada
@@ -147,6 +183,13 @@ export async function recusarChamada(sql: Sql, usuario: number, chamada: number)
   })
   await atualizarStatusChamada(sql, chamada)
   await tentarInserirMensagem(sql, chamada)
+  if (naoAtendeu) {
+    try {
+      await registrarChamadasPerdidas(sql, chamada, [usuario])
+    } catch (erro) {
+      console.error('[Chamada] Falha ao registrar chamada perdida', chamada, erro)
+    }
+  }
   await notificarMembrosChamada(sql, chamada, usuario, TipoMensagemSocket.UsuarioRecusou)
   // As outras abas e aparelhos do usuário param de tocar
   notificarChamada(chamada, usuario, usuario, TipoMensagemSocket.UsuarioRecusou)
@@ -319,7 +362,7 @@ async function dadosChamada(sql: Sql, chamada: number) {
                     ( select ce.usuario_id
                            , max(case when ce.tipo in (1, 3) then criado_por else null end) as adicionado_por
                            , max(case when ce.tipo in (1, 3) then criado_em else null end) as adicionado_em
-                           , max(case when ce.tipo = 4 then criado_em else null end) as recusou_em
+                           , max(case when ce.tipo in (4, 8) then criado_em else null end) as recusou_em
                            , max(case when ce.tipo = 5 then criado_em else null end) as entrou_em
                            , max(case when ce.tipo = 6 then criado_em else null end) as saiu_em
                         from ( select *
@@ -330,7 +373,7 @@ async function dadosChamada(sql: Sql, chamada: number) {
                                              , row_number() over(partition by usuario_id, tipo order by criado_em desc) as rid
                                           from chamada_evento ce
                                          where ce.chamada_id = ${chamada}
-                                           and ce.tipo in (1, 3, 4, 5, 6)
+                                           and ce.tipo in (1, 3, 4, 5, 6, 8)
                                       ) as ce
                                 where ce.rid = 1 /* Apenas o ultimo evento de cada tipo */
                              ) as ce
