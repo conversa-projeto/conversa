@@ -140,6 +140,18 @@ Levam cerca de 40 segundos. O hash das senhas usa o custo minimo do bcrypt nos t
 
 Testes marcados com `test.failing` sao falhas conhecidas da API, com a explicacao no comentario: passam enquanto o problema existe e passam a acusar quando ele for corrigido, lembrando de tirar a marca.
 
+## Configuracoes e permissoes
+
+Os parametros do sistema (Firebase, TURN, transcricao, dias das gravacoes) se mudam no app, em **Configuracoes > Sistema**, e valem ao salvar, sem reiniciar a API. Quem pode mexer e definido em **Configuracoes > Acessos**: cada usuario recebe ou nao as permissoes `parametros` (aba Sistema) e `permissoes` (aba Acessos). Sem nenhuma delas, as abas nem aparecem, e a API recusa (403).
+
+Numa instalacao nova, enquanto ninguem tem a permissao `permissoes`, **todos os usuarios tem todas as permissoes** (modo aberto, com aviso na aba Acessos). Logo depois de instalar, entre com o seu usuario, abra **Configuracoes > Acessos** e marque as duas permissoes para voce: o modo aberto acaba na hora. Ate la, qualquer um que se cadastrar pode mexer nas configuracoes.
+
+A API nao deixa tirar a permissao `permissoes` de quem e o ultimo a te-la, entao o modo aberto nao volta sem querer. Se ainda assim ninguem conseguir entrar em Acessos, conceda todas pelo banco, na pasta deste repositorio:
+
+```bat
+docker exec -i postgres psql -U postgres -d conversa -v login=fulano < bin\conceder-permissoes.sql
+```
+
 ## Transcricao de audio
 
 As mensagens de audio ganham um botao **Transcrever**. O texto fica salvo na tabela `anexo_transcricao` e aparece abaixo do player para todos da conversa. Quem faz a transcricao e a versao Windows do [transcritor-api](../transcritor-api/windows), na GPU, sem separacao por falante.
@@ -152,14 +164,7 @@ iniciar.bat -Endereco 0.0.0.0
 
 O `-Endereco 0.0.0.0` e obrigatorio: sem ele o transcritor so aceita conexoes da propria maquina, e a API, dentro do Docker, nao chega nele. A porta padrao e a 8000 (`-Porta` troca).
 
-Fica desligada ate informar o endereco do transcritor. Com ele rodando na mesma maquina, entre no banco (`docker exec -it postgres psql -U postgres -d conversa`) e rode:
-
-```sql
-update parametros set valor = 'http://host.docker.internal:8000' where nome = 'transcritor_url';
-update parametros set valor = 'pt' where nome = 'transcritor_idioma';  -- idioma padrao
-```
-
-Depois reinicie a API: `docker restart api`.
+Fica desligada ate informar o endereco do transcritor em **Configuracoes > Sistema**. Com ele rodando na mesma maquina, o endereco e `http://host.docker.internal:8000`, e o idioma padrao, `pt`.
 
 ## Gravacao das chamadas
 
@@ -168,11 +173,7 @@ Toda chamada e gravada para auditoria: audio e video (camera ou tela) de cada pa
 - Quem grava e o MediaMTX, pelo qual passa a midia de todos (`bin/mediamtx/mediamtx.docker.yml`, caminhos `call-*`). O navegador nao consegue evitar a gravacao.
 - Os arquivos ficam no volume `conversa-gravacoes`, em `/gravacoes/call-<chamada>-u-<usuario>/<data e hora>.mp4` (fMP4, um arquivo por hora de chamada). O usuario e o `id` da tabela `usuario` e a chamada o `id` da tabela `chamada`.
 - O video sai em H264 (ou VP9, em navegador sem H264). VP8, o padrao dos navegadores, nao e gravado pelo MediaMTX.
-- A API apaga, a cada hora, as gravacoes mais antigas que o parametro `gravacao_dias` (padrao 90; 0 guarda para sempre). Para mudar, rode no banco e reinicie a API (`docker restart api`):
-
-```sql
-update parametros set valor = '180' where nome = 'gravacao_dias';
-```
+- A API apaga, a cada hora, as gravacoes mais antigas que o parametro `gravacao_dias` (padrao 90; 0 guarda para sempre), que se muda em **Configuracoes > Sistema**.
 
 Para ouvir uma gravacao, copie o arquivo do volume e abra em qualquer player (VLC, navegador):
 

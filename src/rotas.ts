@@ -6,6 +6,8 @@ import { esquemas } from './esquemas.ts'
 import { TipoMensagemSocket } from './websocket.ts'
 import * as anexos from './anexos.ts'
 import * as atividades from './atividades.ts'
+import * as parametros from './parametros.ts'
+import * as permissoes from './permissoes.ts'
 import * as chamadas from './chamadas.ts'
 import * as conversas from './conversas.ts'
 import * as mensagens from './mensagens.ts'
@@ -164,6 +166,20 @@ export function criarRotas(token: Token) {
       comoUsuario(c, (sql, usuario) => chamadas.adicionarUsuarioChamada(sql, usuario, c.body)), esquemas.adicionarUsuarioChamada)
 
     .post('/chamada/finalizar', (c) => comoUsuario(c, (sql, usuario) => chamadas.finalizarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
+
+    .get('/usuario/permissoes', (c) => comoUsuario(c, (sql, usuario) => permissoes.minhasPermissoes(sql, usuario)))
+
+    .get('/permissoes', (c) => comoUsuario(c, (sql, usuario) => permissoes.listarPermissoes(sql, usuario)))
+
+    .put('/permissao/usuario', (c) =>
+      comoUsuario(c, (sql, usuario) => permissoes.concederPermissao(sql, usuario, c.body)), { body: esquemas.permissaoUsuario.body })
+
+    .delete('/permissao/usuario', (c) =>
+      comoUsuario(c, (sql, usuario) => permissoes.retirarPermissao(sql, usuario, c.query)), { query: esquemas.permissaoUsuario.query })
+
+    .get('/parametros', (c) => comoUsuario(c, (sql, usuario) => parametros.parametrosSistema(sql, usuario)))
+
+    .patch('/parametros', (c) => comoUsuario(c, (sql, usuario) => parametros.alterarParametros(sql, usuario, c.body)), esquemas.alterarParametros)
 
     .get('/atividades', (c) => comoUsuario(c, (sql, usuario) => atividades.atividades(sql, usuario, c.query)), esquemas.atividades)
 

@@ -18,7 +18,7 @@ const BUCKET_TESTE = 'conversa-teste'
 
 // Push de verdade exige uma conta do Firebase: o envio e trocado por um que so
 // registra, antes de qualquer modulo da API carregar o firebase-admin.
-mock.module('firebase-admin/app', () => ({ cert: (dados: unknown) => dados, initializeApp: () => ({}) }))
+mock.module('firebase-admin/app', () => ({ cert: (dados: unknown) => dados, initializeApp: () => ({}), deleteApp: async () => {} }))
 mock.module('firebase-admin/messaging', () => ({
   getMessaging: () => ({ send: async (mensagem: unknown) => void pushEnviados.push(mensagem as never) }),
 }))

@@ -86,6 +86,21 @@ export const esquemas = {
   iniciarChamada: { body: t.Object({ tipo: opcional(inteiro), conversa_id: ouNulo(inteiro), usuarios: t.Array(t.Object({ id: inteiro })) }) },
   adicionarUsuarioChamada: { body: t.Object({ chamada_id: inteiro, usuario_id: inteiro }) },
   recusarChamada: { body: t.Object({ id: inteiro, nao_atendeu: opcional(t.Boolean()) }) },
+  permissaoUsuario: {
+    body: t.Object({ usuario_id: inteiro, codigo: texto }),
+    query: t.Object({ usuario_id: inteiro, codigo: texto }),
+  },
+  alterarParametros: {
+    body: t.Object({
+      fcm_project_id: opcional(texto),
+      fcm_client_email: opcional(texto),
+      fcm_private_key: opcional(texto),
+      turn_forcar_relay: opcional(t.Boolean()),
+      transcritor_url: opcional(texto),
+      transcritor_idioma: opcional(texto),
+      gravacao_dias: opcional(t.Integer({ minimum: 0, maximum: 36500 })),
+    }),
+  },
   atividades: { query: t.Object({ antes: inteiroPadraoZero, limite: t.Integer({ default: 30, minimum: 1, maximum: 100 }) }) },
 
   historicoChamadas: { query: t.Object({ participante: inteiroPadraoZero, de: textoPadraoVazio, ate: textoPadraoVazio }) },

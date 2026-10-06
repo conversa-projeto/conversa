@@ -1,4 +1,4 @@
-import { cert, initializeApp, type App } from 'firebase-admin/app'
+import { cert, deleteApp, initializeApp, type App } from 'firebase-admin/app'
 import { getMessaging } from 'firebase-admin/messaging'
 import { configuracao } from './configuracao.ts'
 
@@ -14,6 +14,15 @@ function obterAplicativo() {
     }, 'conversa')
   }
   return aplicativo
+}
+
+// Credenciais trocadas na tela de configuracao: o proximo envio inicializa de novo
+export async function esquecerAplicativoFcm() {
+  if (aplicativo) {
+    const antigo = aplicativo
+    aplicativo = undefined
+    await deleteApp(antigo)
+  }
 }
 
 // So dados, sem o bloco notification: quem mostra a notificacao e o service
