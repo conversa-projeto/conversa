@@ -128,6 +128,7 @@ export async function conversas(sql: Sql, usuario: number) {
                        when mc.tipo = 1 then mc.conteudo
                        when mc.tipo = 2 then 'imagem'
                        when mc.tipo = 7 then 'figurinha'
+                       when mc.tipo = 8 then 'enquete'
                        else ''
                         end as ultima_mensagem_texto
                      , row_number() over(partition by tcm.conversa_id, tcm.mensagem_id order by mc.ordem) as rid_conteudo

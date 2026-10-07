@@ -86,6 +86,15 @@ export const esquemas = {
   iniciarChamada: { body: t.Object({ tipo: opcional(inteiro), conversa_id: ouNulo(inteiro), usuarios: t.Array(t.Object({ id: inteiro })) }) },
   adicionarUsuarioChamada: { body: t.Object({ chamada_id: inteiro, usuario_id: inteiro }) },
   recusarChamada: { body: t.Object({ id: inteiro, nao_atendeu: opcional(t.Boolean()) }) },
+  criarEnquete: {
+    body: t.Object({
+      conversa_id: inteiro,
+      pergunta: t.String({ maxLength: 300 }),
+      opcoes: t.Array(t.String({ maxLength: 200 }), { minItems: 2, maxItems: 12 }),
+      multipla: t.Boolean(),
+    }),
+  },
+  votarEnquete: { body: t.Object({ enquete_id: inteiro, opcoes: t.Array(inteiro, { maxItems: 12 }) }) },
   permissaoUsuario: {
     body: t.Object({ usuario_id: inteiro, codigo: texto }),
     query: t.Object({ usuario_id: inteiro, codigo: texto }),

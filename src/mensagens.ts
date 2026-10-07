@@ -139,12 +139,17 @@ function textoConteudo(tipo: number, conteudo: string) {
     case 2: return 'imagem'
     case 3: return 'arquivo'
     case 7: return 'figurinha'
+    case 8: return 'enquete'
     default: return ''
   }
 }
 
-export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'incluirMensagem'>) {
+// enquete: chamada pela criacao de enquete, a unica que grava o conteudo tipo 8
+export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'incluirMensagem'>, enquete = false) {
   await validarAcessoConversa(sql, usuario, corpo.conversa_id)
+  if (!enquete && corpo.conteudos.some((item) => item.tipo === 8)) {
+    throw httpErrors.badRequest('Votação não pode ser enviada nem encaminhada como mensagem: crie uma nova.')
+  }
 
   // visivel_em: agendamento entre agora + 5 min e agora + 1 ano, cortado no minuto.
   let visivelEm: string | undefined
@@ -401,7 +406,7 @@ export async function pesquisar(sql: Sql, conversa: number, usuario: number, tex
 async function carregarConteudos(sql: Sql, mensagemId: number): Promise<ConteudoResposta[]> {
   const linhas = await sql<ConteudoLinha[]>`
     select id, ordem, tipo, conteudo, nome, extensao, transcricao_status, transcricao
-      from ( /* Texto, chamada e figurinha */
+      from ( /* Texto, chamada, figurinha e enquete */
              select id
                   , ordem
                   , tipo
@@ -412,7 +417,7 @@ async function carregarConteudos(sql: Sql, mensagemId: number): Promise<Conteudo
                   , null::text as transcricao
                from mensagem_conteudo
               where mensagem_id = ${mensagemId}
-                and tipo in (1, 6, 7)
+                and tipo in (1, 6, 7, 8)
 
               union
 

@@ -6,6 +6,7 @@ import { esquemas } from './esquemas.ts'
 import { TipoMensagemSocket } from './websocket.ts'
 import * as anexos from './anexos.ts'
 import * as atividades from './atividades.ts'
+import * as enquetes from './enquetes.ts'
 import * as parametros from './parametros.ts'
 import * as permissoes from './permissoes.ts'
 import * as chamadas from './chamadas.ts'
@@ -166,6 +167,12 @@ export function criarRotas(token: Token) {
       comoUsuario(c, (sql, usuario) => chamadas.adicionarUsuarioChamada(sql, usuario, c.body)), esquemas.adicionarUsuarioChamada)
 
     .post('/chamada/finalizar', (c) => comoUsuario(c, (sql, usuario) => chamadas.finalizarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
+
+    .put('/enquete', (c) => comoUsuario(c, (sql, usuario) => enquetes.criarEnquete(sql, usuario, c.body)), esquemas.criarEnquete)
+
+    .get('/enquete', (c) => comoUsuario(c, (sql, usuario) => enquetes.dadosEnquete(sql, usuario, c.query.id)), esquemas.idNaConsulta)
+
+    .post('/enquete/votar', (c) => comoUsuario(c, (sql, usuario) => enquetes.votarEnquete(sql, usuario, c.body)), esquemas.votarEnquete)
 
     .get('/usuario/permissoes', (c) => comoUsuario(c, (sql, usuario) => permissoes.minhasPermissoes(sql, usuario)))
 

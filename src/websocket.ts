@@ -19,6 +19,7 @@ export const TipoMensagemSocket = {
   SinalChamada: 57,
   StatusUsuario: 60,
   NovaAtividade: 61,
+  EnqueteAtualizada: 62,
 } as const
 export type TipoMensagemSocket = (typeof TipoMensagemSocket)[keyof typeof TipoMensagemSocket]
 
@@ -145,6 +146,11 @@ export function notificarConversa(conversa: number, remetente: number, destinata
 
 export function notificarReacao(conversa: number, mensagem: number, remetente: number, destinatario: number, emoji: string, acao: string) {
   enviar(destinatario, { tipo: TipoMensagemSocket.ReacaoMensagem, conversa_id: conversa, mensagem_id: mensagem, usuario_id: remetente, emoji, acao })
+}
+
+// Voto novo numa enquete: quem tem a bolha aberta le os votos de novo
+export function notificarEnquete(usuarioId: number, enquete: number, conversa: number) {
+  enviar(usuarioId, { tipo: TipoMensagemSocket.EnqueteAtualizada, enquete_id: enquete, conversa_id: conversa })
 }
 
 // Atividade nova (ou retirada) para o usuario: a pagina atualiza o contador
