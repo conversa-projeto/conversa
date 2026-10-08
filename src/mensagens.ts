@@ -724,6 +724,9 @@ export async function novasMensagens(sql: Sql, usuario: number, desde: string) {
      group by m.conversa_id`
 }
 
+// Emojis diferentes que cada pessoa pode deixar na mesma mensagem
+export const LIMITE_REACOES_POR_PESSOA = 5
+
 export async function alternarReacao(sql: Sql, usuario: number, corpo: Corpo<'reacao'>) {
   const [alvo] = await sql<{ conversa_id: number; usuario_id: number }[]>`select conversa_id, usuario_id from mensagem where id = ${corpo.mensagem_id}`
   if (!alvo) {
@@ -738,6 +741,11 @@ export async function alternarReacao(sql: Sql, usuario: number, corpo: Corpo<'re
     await apagarAtividadeReacao(sql, corpo.mensagem_id, usuario, corpo.emoji)
     acao = 'remove'
   } else {
+    const [minhas] = await sql<{ quantidade: number }[]>`
+      select count(1)::int as quantidade from reacao where mensagem_id = ${corpo.mensagem_id} and usuario_id = ${usuario}`
+    if (minhas!.quantidade >= LIMITE_REACOES_POR_PESSOA) {
+      throw httpErrors.badRequest(`Você já reagiu com ${LIMITE_REACOES_POR_PESSOA} emojis nesta mensagem.`)
+    }
     await sql`insert into reacao (mensagem_id, usuario_id, emoji) values (${corpo.mensagem_id}, ${usuario}, ${corpo.emoji})`
     await registrarAtividades(sql, [{
       usuario_id: alvo.usuario_id,

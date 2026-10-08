@@ -183,4 +183,17 @@ describe('reações', () => {
     await reagir()
     expect(await reacoes()).toEqual([])
   })
+
+  test('cada pessoa reage com no máximo 5 emojis na mesma mensagem', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const enviada = await enviarTexto(ana, conversa, 'muitas reações')
+    const reagir = (emoji: string) => chamar('PUT', '/mensagem/reacao', { token: bruno.token, corpo: { mensagem_id: enviada.dados.id, emoji } })
+    for (const emoji of ['👍', '❤️', '😂', '😮', '😢']) expect((await reagir(emoji)).status).toBe(200)
+    const sexta = await reagir('🙏')
+    expect(sexta.status).toBe(400)
+    expect(sexta.dados.error).toBe('Você já reagiu com 5 emojis nesta mensagem.')
+    // Tirar uma libera a vaga
+    await reagir('👍')
+    expect((await reagir('🙏')).status).toBe(200)
+  })
 })
