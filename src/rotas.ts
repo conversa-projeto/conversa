@@ -173,6 +173,8 @@ export function criarRotas(token: Token) {
     .get('/enquete', (c) => comoUsuario(c, (sql, usuario) => enquetes.dadosEnquete(sql, usuario, c.query.id)), esquemas.idNaConsulta)
 
     .post('/enquete/votar', (c) => comoUsuario(c, (sql, usuario) => enquetes.votarEnquete(sql, usuario, c.body)), esquemas.votarEnquete)
+    .post('/enquete/encerrar', (c) => comoUsuario(c, (sql, usuario) => enquetes.encerrarEnquete(sql, usuario, c.body)), esquemas.encerrarEnquete)
+    .patch('/enquete', (c) => comoUsuario(c, (sql, usuario) => enquetes.alterarPrazoEnquete(sql, usuario, c.body)), esquemas.prazoEnquete)
 
     .get('/usuario/permissoes', (c) => comoUsuario(c, (sql, usuario) => permissoes.minhasPermissoes(sql, usuario)))
 

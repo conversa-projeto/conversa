@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { chamar, conectarSocket, criarConversa, criarUsuario, enviarTexto, usuariosComuns, type SocketTeste, type UsuarioTeste } from './api.ts'
+import { chamar, conectarSocket, criarConversa, criarUsuario, enviarTexto, noBanco, usuariosComuns, type SocketTeste, type UsuarioTeste } from './api.ts'
 
 let ana: UsuarioTeste, bruno: UsuarioTeste, carla: UsuarioTeste
 beforeAll(async () => ({ ana, bruno, carla } = await usuariosComuns()))
@@ -16,6 +16,11 @@ interface Enquete {
   opcoes: { id: number; texto: string; votantes: { id: number; nome: string }[] }[]
   total_votantes: number
   meus_votos: number[]
+  encerra_em: string | null
+  encerrada_em: string | null
+  encerrada: boolean
+  pode_encerrar: boolean
+  pode_alterar_prazo: boolean
 }
 
 const criar = (quem: UsuarioTeste, conversa: number, extras: Record<string, unknown> = {}) =>
@@ -110,6 +115,77 @@ describe('votar', () => {
     await votar(bruno, id, [(await ler(bruno, id)).opcoes[0]!.id])
     await daAna.esperar((e) => e.tipo === 62 && e.enquete_id === id && e.conversa_id === grupo)
     await doBruno.esperar((e) => e.tipo === 62 && e.enquete_id === id)
+  })
+})
+
+describe('prazo e encerramento', () => {
+  const daqui = (minutos: number) => new Date(Date.now() + minutos * 60 * 1000).toISOString()
+  const encerrar = (quem: UsuarioTeste, enquete: number) => chamar('POST', '/enquete/encerrar', { token: quem.token, corpo: { enquete_id: enquete } })
+  const prazo = (quem: UsuarioTeste, enquete: number, encerra_em: string | null) => chamar('PATCH', '/enquete', { token: quem.token, corpo: { enquete_id: enquete, encerra_em } })
+
+  test('data final na criação: no futuro e até 1 ano', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    expect((await criar(ana, grupo, { encerra_em: daqui(-5) })).status).toBe(400)
+    expect((await criar(ana, grupo, { encerra_em: daqui(60 * 24 * 400) })).status).toBe(400)
+    expect((await criar(ana, grupo, { encerra_em: 'amanhã' })).status).toBe(400)
+    const { dados } = await criar(ana, grupo, { encerra_em: daqui(90) })
+    const enquete = await ler(bruno, dados.enquete_id)
+    expect(enquete.encerrada).toBe(false)
+    expect(new Date(enquete.encerra_em!).getTime()).toBeGreaterThan(Date.now())
+  })
+
+  test('prazo vencido encerra: ninguém vota mais e ninguém encerra de novo', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const id = (await criar(ana, grupo, { encerra_em: daqui(30) })).dados.enquete_id
+    const pizza = (await ler(ana, id)).opcoes[0]!.id
+    expect((await votar(bruno, id, [pizza])).status).toBe(200)
+    await noBanco((sql) => sql`update enquete set encerra_em = now() at time zone 'UTC' - interval '1 minute' where id = ${id}`)
+    const enquete = await ler(ana, id)
+    expect(enquete).toMatchObject({ encerrada: true, pode_encerrar: false, pode_alterar_prazo: false, total_votantes: 1 })
+    const voto = await votar(carla, id, [pizza])
+    expect(voto.status).toBe(400)
+    expect(voto.dados.error).toBe('Esta votação já foi encerrada.')
+    expect((await encerrar(ana, id)).status).toBe(400)
+  })
+
+  test('encerram antes do prazo: quem criou a votação e quem criou o grupo; os demais não', async () => {
+    // Ana criou o grupo; Bruno cria as votações
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const daBruno = (await criar(bruno, grupo)).dados.enquete_id
+    expect((await ler(bruno, daBruno)).pode_encerrar).toBe(true)
+    expect((await ler(ana, daBruno)).pode_encerrar).toBe(true)
+    expect((await ler(carla, daBruno)).pode_encerrar).toBe(false)
+    expect((await encerrar(carla, daBruno)).status).toBe(403)
+
+    const socket = await conectarSocket(carla)
+    abertos.push(socket)
+    const { status, dados } = await encerrar(ana, daBruno)
+    expect(status).toBe(200)
+    expect(dados).toMatchObject({ encerrada: true, pode_encerrar: false })
+    expect(dados.encerrada_em).toBeTruthy()
+    await socket.esperar((evento) => evento.tipo === 62 && evento.enquete_id === daBruno)
+
+    const outra = (await criar(bruno, grupo)).dados.enquete_id
+    expect((await encerrar(bruno, outra)).status).toBe(200)
+    expect((await votar(carla, outra, [])).status).toBe(400)
+  })
+
+  test('a data final muda só por quem criou, enquanto aberta; null tira o prazo', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const id = (await criar(bruno, grupo, { encerra_em: daqui(30) })).dados.enquete_id
+    // Dono do grupo encerra, mas não mexe na data
+    expect((await ler(ana, id)).pode_alterar_prazo).toBe(false)
+    expect((await prazo(ana, id, daqui(120))).status).toBe(403)
+    expect((await prazo(bruno, id, daqui(-1))).status).toBe(400)
+
+    const adiada = await prazo(bruno, id, daqui(120))
+    expect(adiada.status).toBe(200)
+    expect(new Date(adiada.dados.encerra_em).getTime()).toBeGreaterThan(Date.now() + 100 * 60 * 1000)
+    const semPrazo = await prazo(bruno, id, null)
+    expect(semPrazo.dados.encerra_em).toBeNull()
+
+    await encerrar(bruno, id)
+    expect((await prazo(bruno, id, daqui(60))).status).toBe(400)
   })
 })
 

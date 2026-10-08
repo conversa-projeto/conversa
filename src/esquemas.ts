@@ -92,9 +92,12 @@ export const esquemas = {
       pergunta: t.String({ maxLength: 300 }),
       opcoes: t.Array(t.String({ maxLength: 200 }), { minItems: 2, maxItems: 12 }),
       multipla: t.Boolean(),
+      encerra_em: ouNulo(texto),
     }),
   },
   votarEnquete: { body: t.Object({ enquete_id: inteiro, opcoes: t.Array(inteiro, { maxItems: 12 }) }) },
+  encerrarEnquete: { body: t.Object({ enquete_id: inteiro }) },
+  prazoEnquete: { body: t.Object({ enquete_id: inteiro, encerra_em: t.Nullable(texto) }) },
   permissaoUsuario: {
     body: t.Object({ usuario_id: inteiro, codigo: texto }),
     query: t.Object({ usuario_id: inteiro, codigo: texto }),
