@@ -39,12 +39,14 @@ if errorlevel 1 goto erro
 goto vite
 
 :atualizar
-rem Pega bibliotecas novas da pagina, se o package.json mudou.
-echo  Conferindo dependencias da pagina...
+rem Pega bibliotecas novas da API e da pagina, se algum package.json mudou
+rem (a API roda no container "api", mas a checagem de tipos da pagina e os
+rem testes da API no container "dev" usam o node_modules daqui).
+echo  Conferindo dependencias...
 rem node_modules antigo, do npm, pode ter pastas de outro dono.
-docker exec -u root dev sh -c "chown -R bun:bun /git/conversa-web/node_modules"
+docker exec -u root dev sh -c "chown -R bun:bun /git/conversa/node_modules /git/conversa-web/node_modules"
 if errorlevel 1 goto erro
-docker exec -u bun dev sh -c "cd /git/conversa-web && bun install --frozen-lockfile"
+docker exec -u bun dev sh -c "cd /git/conversa && bun install --frozen-lockfile && cd /git/conversa-web && bun install --frozen-lockfile"
 if errorlevel 1 goto erro
 
 :vite
