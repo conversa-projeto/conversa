@@ -52,6 +52,8 @@ export const configuracao = {
   transcritorUrl: '',
   transcritorIdioma: 'pt',
   gravacaoDias: GRAVACAO_DIAS_PADRAO,
+  // Servidor de IA no padrao da OpenAI (vLLM, Ollama ou OpenAI)
+  ia: { url: '', token: '', modelo: '' },
 }
 
 export function definirAmbiente() {
@@ -136,6 +138,9 @@ const PARAMETROS = [
   'transcritor_url',
   'transcritor_idioma',
   'gravacao_dias',
+  'ia_url',
+  'ia_token',
+  'ia_modelo',
 ]
 
 export async function carregarParametros(sql: Sql) {
@@ -170,6 +175,7 @@ export async function carregarParametros(sql: Sql) {
   configuracao.transcritorUrl = valor('transcritor_url')
   configuracao.transcritorIdioma = valor('transcritor_idioma')
   configuracao.gravacaoDias = lerGravacaoDias(valor('gravacao_dias'))
+  configuracao.ia = { url: valor('ia_url'), token: valor('ia_token'), modelo: valor('ia_modelo') }
 
   exibirAvisos()
 }
@@ -193,6 +199,9 @@ function exibirAvisos() {
   }
   if (!c.transcritorUrl.trim()) {
     console.log('ℹ  Parâmetro "transcritor_url" vazio: transcrição de áudio desligada.')
+  }
+  if (!c.ia.url.trim() || !c.ia.modelo.trim()) {
+    console.log('ℹ  Parâmetros "ia_url" e "ia_modelo" vazios: recursos de IA desligados.')
   }
   if (c.turnForcarRelay) {
     console.log('ℹ  TURN ativo em modo relay-only. Toda mídia passa pelo coturn.')

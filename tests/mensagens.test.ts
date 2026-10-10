@@ -197,3 +197,34 @@ describe('reações', () => {
     expect((await reagir('🙏')).status).toBe(200)
   })
 })
+
+describe('confirmação de leitura', () => {
+  const confirmar = (quem: UsuarioTeste, mensagem: number) => chamar('POST', '/mensagem/confirmar', { token: quem.token, corpo: { mensagem_id: mensagem } })
+  const daLista = async (quem: UsuarioTeste, conversa: number, mensagem: number) =>
+    ((await listar(quem, conversa)).dados as { id: number; confirmacao?: { total: number; confirmou: boolean; usuarios: { usuario_id: number; nome: string }[] } }[])
+      .find((m) => m.id === mensagem)!
+
+  test('quem envia pede; cada destinatário confirma uma vez e todos veem quem confirmou', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const { dados: mensagem } = await enviarTexto(ana, grupo, 'Leiam, por favor', { pede_confirmacao: true })
+    expect((await daLista(ana, grupo, mensagem.id)).confirmacao).toEqual({ total: 2, confirmou: false, usuarios: [] })
+
+    expect((await confirmar(bruno, mensagem.id)).status).toBe(200)
+    expect((await confirmar(bruno, mensagem.id)).status).toBe(200)
+    const vistaAna = (await daLista(ana, grupo, mensagem.id)).confirmacao!
+    expect(vistaAna.total).toBe(2)
+    expect(vistaAna.usuarios.map((u) => u.usuario_id)).toEqual([bruno.id])
+    expect((await daLista(bruno, grupo, mensagem.id)).confirmacao!.confirmou).toBe(true)
+    expect((await daLista(carla, grupo, mensagem.id)).confirmacao!.confirmou).toBe(false)
+  })
+
+  test('sem o pedido, não há confirmação; quem enviou e quem está fora não confirmam', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const { dados: comum } = await enviarTexto(ana, conversa, 'oi')
+    expect((await daLista(bruno, conversa, comum.id)).confirmacao).toBeUndefined()
+    expect((await confirmar(bruno, comum.id)).status).toBe(400)
+    const { dados: pedida } = await enviarTexto(ana, conversa, 'confirma?', { pede_confirmacao: true })
+    expect((await confirmar(ana, pedida.id)).status).toBe(400)
+    expect((await confirmar(carla, pedida.id)).status).toBe(403)
+  })
+})

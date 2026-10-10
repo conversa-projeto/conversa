@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { chamar, criarConversa, enviarTexto, usuariosComuns, type UsuarioTeste } from './api.ts'
+import { chamar, criarConversa, criarUsuario, enviarTexto, noBanco, usuariosComuns, type UsuarioTeste } from './api.ts'
 
 let ana: UsuarioTeste, bruno: UsuarioTeste, carla: UsuarioTeste
 beforeAll(async () => ({ ana, bruno, carla } = await usuariosComuns()))
@@ -32,6 +32,46 @@ describe('conversas', () => {
     const conversa = await criarConversa(ana, [bruno])
     expect((await chamar('PATCH', '/conversa', { token: carla.token, corpo: { id: conversa, descricao: 'Invadida' } })).status).toBe(403)
     expect((await chamar('DELETE', '/conversa', { token: carla.token, consulta: { id: conversa } })).status).toBe(403)
+  })
+})
+
+describe('imagem e emoji do grupo', () => {
+  const daLista = async (u: UsuarioTeste, conversa: number) =>
+    (await chamar('GET', '/conversas', { token: u.token })).dados.find((c: { id: number }) => c.id === conversa)
+
+  test('emoji vale para todos os membros; vazio volta à letra', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    expect((await chamar('PATCH', '/conversa', { token: bruno.token, corpo: { id: grupo, emoji: ' 🚀 ' } })).status).toBe(200)
+    expect((await daLista(ana, grupo)).emoji).toBe('🚀')
+    expect((await daLista(carla, grupo)).emoji).toBe('🚀')
+    await chamar('PATCH', '/conversa', { token: ana.token, corpo: { id: grupo, emoji: '' } })
+    expect((await daLista(ana, grupo)).emoji).toBeNull()
+  })
+
+  test('emoji composto conta como um; mais de um é recusado', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    expect((await chamar('PATCH', '/conversa', { token: ana.token, corpo: { id: grupo, emoji: '👨‍👩‍👧' } })).status).toBe(200)
+    expect((await chamar('PATCH', '/conversa', { token: ana.token, corpo: { id: grupo, emoji: '🚀🚀' } })).status).toBe(400)
+  })
+
+  test('imagem do grupo vira o avatar_url; tirar volta a nulo', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const identificador = crypto.randomUUID().replaceAll('-', '').padEnd(64, '0')
+    const [anexo] = await noBanco((sql) => sql<{ id: number }[]>`
+      insert into anexo (identificador, tipo, tamanho, nome, extensao, objeto)
+      values (${identificador}, 2, 100, 'avatar.jpg', 'jpg', ${`avatar/${identificador}`}) returning id`)
+    expect((await chamar('PATCH', '/conversa', { token: ana.token, corpo: { id: grupo, avatar_anexo_id: anexo!.id } })).status).toBe(200)
+    expect((await daLista(bruno, grupo)).avatar_url).toContain(identificador)
+    await chamar('PATCH', '/conversa', { token: ana.token, corpo: { id: grupo, avatar_anexo_id: null } })
+    expect((await daLista(bruno, grupo)).avatar_url).toBeNull()
+  })
+
+  test('conversa direta não tem imagem nem emoji; quem está fora não muda', async () => {
+    const direta = await criarConversa(ana, [bruno])
+    expect((await chamar('PATCH', '/conversa', { token: ana.token, corpo: { id: direta, emoji: '🚀' } })).status).toBe(400)
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const deFora = await criarUsuario()
+    expect((await chamar('PATCH', '/conversa', { token: deFora.token, corpo: { id: grupo, emoji: '🚀' } })).status).toBe(403)
   })
 })
 

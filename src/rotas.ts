@@ -9,6 +9,7 @@ import * as atividades from './atividades.ts'
 import * as enquetes from './enquetes.ts'
 import * as parametros from './parametros.ts'
 import * as permissoes from './permissoes.ts'
+import * as resumos from './resumos.ts'
 import * as chamadas from './chamadas.ts'
 import * as conversas from './conversas.ts'
 import * as mensagens from './mensagens.ts'
@@ -66,6 +67,13 @@ export function criarRotas(token: Token) {
     .get('/usuario/contatos', (c) => comoUsuario(c, (sql) => usuarios.contatos(sql)))
 
     .get('/contatos/online', (c) => comoUsuario(c, (sql, usuario) => usuarios.contatosOnline(sql, usuario)))
+
+    .get('/contatos/presenca', (c) => comoUsuario(c, (sql, usuario) => usuarios.contatosPresenca(sql, usuario)))
+
+    .get('/usuario/privacidade', (c) => comoUsuario(c, (sql, usuario) => usuarios.privacidade(sql, usuario)))
+
+    .get('/conversa/presentes', (c) =>
+      comoUsuario(c, (sql, usuario) => conversas.presentesConversa(sql, usuario, c.query.conversa)), esquemas.presentesConversa)
 
     // --- Conversas ---
 
@@ -128,6 +136,8 @@ export function criarRotas(token: Token) {
     .get('/pesquisar', (c) =>
       comoUsuario(c, (sql, usuario) => mensagens.pesquisar(sql, c.query.conversa, usuario, c.query.texto)), esquemas.pesquisar)
 
+    .post('/mensagem/confirmar', (c) => comoUsuario(c, (sql, usuario) => mensagens.confirmarLeitura(sql, usuario, c.body)), esquemas.confirmarLeitura)
+
     .put('/mensagem/reacao', (c) => comoUsuario(c, (sql, usuario) => mensagens.alternarReacao(sql, usuario, c.body)), esquemas.reacao)
 
     // --- Anexos ---
@@ -166,6 +176,9 @@ export function criarRotas(token: Token) {
     .put('/chamada/usuario', (c) =>
       comoUsuario(c, (sql, usuario) => chamadas.adicionarUsuarioChamada(sql, usuario, c.body)), esquemas.adicionarUsuarioChamada)
 
+    .post('/chamada/chamar-novamente', (c) =>
+      comoUsuario(c, (sql, usuario) => chamadas.chamarNovamente(sql, usuario, c.body)), esquemas.adicionarUsuarioChamada)
+
     .post('/chamada/finalizar', (c) => comoUsuario(c, (sql, usuario) => chamadas.finalizarChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 
     .put('/enquete', (c) => comoUsuario(c, (sql, usuario) => enquetes.criarEnquete(sql, usuario, c.body)), esquemas.criarEnquete)
@@ -178,6 +191,8 @@ export function criarRotas(token: Token) {
 
     .get('/usuario/permissoes', (c) => comoUsuario(c, (sql, usuario) => permissoes.minhasPermissoes(sql, usuario)))
 
+    .get('/recursos', (c) => comoUsuario(c, () => parametros.recursosSistema()))
+
     .get('/permissoes', (c) => comoUsuario(c, (sql, usuario) => permissoes.listarPermissoes(sql, usuario)))
 
     .put('/permissao/usuario', (c) =>
@@ -185,6 +200,12 @@ export function criarRotas(token: Token) {
 
     .delete('/permissao/usuario', (c) =>
       comoUsuario(c, (sql, usuario) => permissoes.retirarPermissao(sql, usuario, c.query)), { query: esquemas.permissaoUsuario.query })
+
+    .post('/parametros/ia/testar', (c) => comoUsuario(c, (sql, usuario) => parametros.testarIa(sql, usuario, c.body)), esquemas.testarIa)
+
+    .post('/conversa/resumo', (c) => comoUsuario(c, (sql, usuario) => resumos.pedirResumo(sql, usuario, c.body)), esquemas.pedirResumo)
+
+    .get('/conversa/resumo', (c) => comoUsuario(c, async (_sql, usuario) => resumos.consultarResumo(usuario, c.query.id)), esquemas.consultarResumo)
 
     .get('/parametros', (c) => comoUsuario(c, (sql, usuario) => parametros.parametrosSistema(sql, usuario)))
 

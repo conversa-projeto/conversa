@@ -5,13 +5,13 @@ import type { Corpo } from './esquemas.ts'
 import { conferirSenha, gerarHash } from './senha.ts'
 import type { Dispositivo, Usuario } from './tabelas.ts'
 import { httpErrors } from './erros.ts'
-import { usuarioConectado } from './websocket.ts'
+import { alterarPreferenciasPresenca, presencaVisivel } from './websocket.ts'
 
 
 const COLUNAS_DISPOSITIVO_INCLUIR = ['nome', 'modelo', 'versao_so', 'plataforma', 'ativo', 'usuario_id'] as const
 const COLUNAS_DISPOSITIVO_ALTERAR = ['nome', 'modelo', 'versao_so', 'plataforma', 'token_fcm'] as const
 const COLUNAS_USUARIO_INCLUIR = ['nome', 'login', 'email', 'telefone', 'senha'] as const
-const COLUNAS_USUARIO_ALTERAR = ['nome', 'email', 'telefone', 'avatar_anexo_id'] as const
+const COLUNAS_USUARIO_ALTERAR = ['nome', 'email', 'telefone', 'avatar_anexo_id', 'mostrar_visto_em', 'mostrar_na_conversa', 'aparecer_offline'] as const
 
 type UsuarioLogin = Pick<Usuario, 'id' | 'nome' | 'email' | 'telefone' | 'senha'> & { avatar_identificador: string | null }
 type DispositivoLogin = Pick<Dispositivo, 'id' | 'nome' | 'modelo' | 'versao_so' | 'plataforma' | 'ativo'>
@@ -112,7 +112,18 @@ export async function alterarUsuario(sql: Sql, usuario: number, corpo: Corpo<'al
     throw httpErrors.forbidden('Acesso negado!')
   }
   const alterado = await alterar(sql, 'usuario', corpo.id, corpo, COLUNAS_USUARIO_ALTERAR)
+  if ('aparecer_offline' in alterado) {
+    const { mostrar_visto_em, mostrar_na_conversa, aparecer_offline } = alterado
+    await alterarPreferenciasPresenca(usuario, { mostrar_visto_em, mostrar_na_conversa, aparecer_offline })
+  }
   return semSenha(alterado)
+}
+
+// O que o usuario mostra aos outros, para a tela de configuracoes
+export async function privacidade(sql: Sql, usuario: number) {
+  const [linha] = await sql<Pick<Usuario, 'mostrar_visto_em' | 'mostrar_na_conversa' | 'aparecer_offline'>[]>`
+    select mostrar_visto_em, mostrar_na_conversa, aparecer_offline from usuario where id = ${usuario}`
+  return linha!
 }
 
 export async function excluirUsuario(sql: Sql, usuario: number, id: number) {
@@ -151,5 +162,19 @@ export async function contatosOnline(sql: Sql, usuario: number) {
      inner join conversa c on c.id = cu1.conversa_id and c.tipo = 1
      inner join conversa_usuario cu2 on cu2.conversa_id = cu1.conversa_id and cu2.usuario_id <> cu1.usuario_id
      where cu1.usuario_id = ${usuario}`
-  return linhas.map((linha) => linha.usuario_id).filter(usuarioConectado)
+  return linhas.map((linha) => linha.usuario_id).filter((id) => presencaVisivel(id).estado !== 'offline')
+}
+
+// Contatos de conversas diretas com o estado (ativo, ausente ou offline) e,
+// para quem deixa mostrar, quando esteve ativo pela ultima vez
+export async function contatosPresenca(sql: Sql, usuario: number) {
+  const linhas = await sql<{ usuario_id: number; visto_em: Date | null }[]>`
+    select distinct cu2.usuario_id
+         , case when u.mostrar_visto_em then u.visto_em end as visto_em
+      from conversa_usuario cu1
+     inner join conversa c on c.id = cu1.conversa_id and c.tipo = 1
+     inner join conversa_usuario cu2 on cu2.conversa_id = cu1.conversa_id and cu2.usuario_id <> cu1.usuario_id
+     inner join usuario u on u.id = cu2.usuario_id
+     where cu1.usuario_id = ${usuario}`
+  return linhas.map(({ usuario_id, visto_em }) => ({ usuario_id, estado: presencaVisivel(usuario_id).estado, visto_em }))
 }

@@ -34,14 +34,15 @@ export const esquemas = {
   incluirDispositivoUsuario: { query: t.Object({ dispositivo_id: inteiro }) },
 
   incluirUsuario: { body: t.Object({ nome: texto, login: texto, email: texto, telefone: ouNulo(texto), senha: texto }) },
-  alterarUsuario: { body: t.Object({ id: inteiro, nome: opcional(texto), email: opcional(texto), telefone: ouNulo(texto), avatar_anexo_id: ouNulo(inteiro) }) },
+  alterarUsuario: { body: t.Object({ id: inteiro, nome: opcional(texto), email: opcional(texto), telefone: ouNulo(texto), avatar_anexo_id: ouNulo(inteiro), mostrar_visto_em: opcional(t.Boolean()), mostrar_na_conversa: opcional(t.Boolean()), aparecer_offline: opcional(t.Boolean()) }) },
+  presentesConversa: { query: t.Object({ conversa: inteiro }) },
   incluirContato: { query: t.Object({ relacionamento_id: inteiro }) },
 
   idNaConsulta: { query: soId },
   idNoCorpo: { body: soId },
 
   incluirConversa: { body: t.Object({ descricao: ouNulo(texto), tipo: opcional(inteiro) }) },
-  alterarConversa: { body: t.Object({ id: inteiro, descricao: texto }) },
+  alterarConversa: { body: t.Object({ id: inteiro, descricao: opcional(texto), avatar_anexo_id: ouNulo(inteiro), emoji: ouNulo(texto) }) },
   membrosConversa: { query: t.Object({ conversa: inteiro }) },
   ordenarFixadas: { body: t.Object({ conversas: t.Array(inteiro) }) },
   arquivarConversa: { body: t.Object({ conversa: inteiro, arquivada: t.Boolean() }) },
@@ -53,6 +54,7 @@ export const esquemas = {
       visivel_em: ouNulo(texto),
       conteudos: t.Array(t.Object({ ordem: inteiro, tipo: inteiro, conteudo: t.Nullable(texto) })),
       mensagem_referencia: ouNulo(t.Object({ tipo: inteiro, origem_mensagem_id: inteiro })),
+      pede_confirmacao: opcional(t.Boolean()),
     }),
   },
   mensagens: {
@@ -68,6 +70,7 @@ export const esquemas = {
   novasMensagens: { query: t.Object({ desde: textoPadraoVazio }) },
   pesquisar: { query: t.Object({ conversa: inteiroPadraoZero, texto: textoPadraoVazio }) },
   reacao: { body: t.Object({ mensagem_id: inteiro, emoji: texto }) },
+  confirmarLeitura: { body: t.Object({ mensagem_id: inteiro }) },
 
   identificador: { query: t.Object({ identificador: texto }) },
   transcricao: { body: t.Object({ identificador: texto }) },
@@ -111,8 +114,14 @@ export const esquemas = {
       transcritor_url: opcional(texto),
       transcritor_idioma: opcional(texto),
       gravacao_dias: opcional(t.Integer({ minimum: 0, maximum: 36500 })),
+      ia_url: opcional(texto),
+      ia_token: opcional(texto),
+      ia_modelo: opcional(texto),
     }),
   },
+  testarIa: { body: t.Object({ url: texto, modelo: texto, token: opcional(texto) }) },
+  pedirResumo: { body: t.Object({ conversa_id: inteiro, periodo: t.Union([t.Literal('24h'), t.Literal('7d'), t.Literal('30d'), t.Literal('recentes')]) }) },
+  consultarResumo: { query: t.Object({ id: texto }) },
   atividades: { query: t.Object({ antes: inteiroPadraoZero, limite: t.Integer({ default: 30, minimum: 1, maximum: 100 }) }) },
 
   historicoChamadas: { query: t.Object({ participante: inteiroPadraoZero, de: textoPadraoVazio, ate: textoPadraoVazio }) },

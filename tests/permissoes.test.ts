@@ -134,6 +134,45 @@ describe('parâmetros', () => {
     expect(configuracao.gravacaoDias).toBe(antes)
   })
 
+  test('servidor de IA: o token é gravado mas nunca volta; recursos dizem se está ligado', async () => {
+    const { status, dados } = await chamar('PATCH', '/parametros', {
+      token: gestor.token,
+      corpo: { ia_url: 'http://ollama:11434', ia_modelo: 'llama3.1', ia_token: 'segredo-da-ia' },
+    })
+    expect(status).toBe(200)
+    expect(dados).toMatchObject({ ia_url: 'http://ollama:11434', ia_modelo: 'llama3.1', ia_token_configurado: true })
+    expect(JSON.stringify(dados)).not.toContain('segredo-da-ia')
+    expect(configuracao.ia).toEqual({ url: 'http://ollama:11434', modelo: 'llama3.1', token: 'segredo-da-ia' })
+    expect((await chamar('GET', '/recursos', { token: comum.token })).dados).toMatchObject({ ia: true })
+    expect((await chamar('PATCH', '/parametros', { token: gestor.token, corpo: { ia_url: 'ollama:11434' } })).status).toBe(400)
+    await chamar('PATCH', '/parametros', { token: gestor.token, corpo: { ia_modelo: '' } })
+    expect((await chamar('GET', '/recursos', { token: comum.token })).dados).toMatchObject({ ia: false })
+  })
+
+  test('testar a IA usa o que está na tela e o token salvo; só com a permissão', async () => {
+    const pedidos: { url: string; autorizacao: string | null; corpo: { model: string } }[] = []
+    const ia = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        pedidos.push({ url: new URL(req.url).pathname, autorizacao: req.headers.get('authorization'), corpo: await req.json() })
+        return Response.json({ choices: [{ message: { content: 'ok' } }] })
+      },
+    })
+    try {
+      await chamar('PATCH', '/parametros', { token: gestor.token, corpo: { ia_token: 'token-salvo' } })
+      const corpo = { url: `http://localhost:${ia.port}/v1/`, modelo: 'qwen' }
+      expect((await chamar('POST', '/parametros/ia/testar', { token: comum.token, corpo })).status).toBe(403)
+      const { dados } = await chamar('POST', '/parametros/ia/testar', { token: gestor.token, corpo })
+      expect(dados).toMatchObject({ ok: true, resposta: 'ok', erro: '' })
+      expect(pedidos[0]).toEqual({ url: '/v1/chat/completions', autorizacao: 'Bearer token-salvo', corpo: expect.objectContaining({ model: 'qwen' }) })
+      const semServidor = await chamar('POST', '/parametros/ia/testar', { token: gestor.token, corpo: { url: 'http://localhost:1', modelo: 'x', token: 'outro' } })
+      expect(semServidor.dados.ok).toBe(false)
+      expect(semServidor.dados.erro).toContain('Não foi possível falar com o servidor de IA')
+    } finally {
+      ia.stop(true)
+    }
+  })
+
   test('campo vazio é aceito (desliga a transcrição, por exemplo)', async () => {
     const { dados } = await chamar('PATCH', '/parametros', { token: gestor.token, corpo: { transcritor_url: '' } })
     expect(dados.transcritor_url).toBe('')

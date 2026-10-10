@@ -290,6 +290,40 @@ export async function adicionarUsuarioChamada(sql: Sql, usuario: number, corpo: 
   return { id: corpo.chamada_id }
 }
 
+// Chama de novo quem recusou ou deixou tocar sem atender, com a chamada ainda
+// em andamento: toca outra vez só para ele, e quem está nela atualiza a lista
+export async function chamarNovamente(sql: Sql, usuario: number, corpo: Corpo<'adicionarUsuarioChamada'>) {
+  await validarChamada(sql, usuario, corpo.chamada_id)
+  const chamado = await transacao(sql, async () => {
+    const [linha] = await sql<{ id: number }[]>`
+      update chamada_usuario cu
+         set status = 1
+        from chamada c
+       where c.id = cu.chamada_id
+         and c.id = ${corpo.chamada_id}
+         and c.status in (1, 3)
+         and cu.usuario_id = ${corpo.usuario_id}
+         and cu.status = 2
+         and cu.entrou_em is null
+      returning cu.id`
+    if (!linha) {
+      return false
+    }
+    await registrarEvento(sql, corpo.chamada_id, corpo.usuario_id, 3, usuario)
+    return true
+  })
+  if (!chamado) {
+    throw httpErrors.badRequest('Só dá para chamar de novo quem não atendeu, com a chamada em andamento.')
+  }
+  notificarChamada(corpo.chamada_id, usuario, corpo.usuario_id, TipoMensagemSocket.ChamadaRecebida)
+  const outros = await sql<{ usuario_id: number }[]>`
+    select usuario_id from chamada_usuario where chamada_id = ${corpo.chamada_id} and usuario_id not in (${usuario}, ${corpo.usuario_id})`
+  for (const { usuario_id } of outros) {
+    notificarSinalChamada(corpo.chamada_id, usuario, usuario_id, { acao: 'participantes' })
+  }
+  return dadosChamada(sql, corpo.chamada_id)
+}
+
 export async function finalizarChamada(sql: Sql, usuario: number, chamada: number) {
   await validarChamada(sql, usuario, chamada)
   await registrarEvento(sql, chamada, usuario, 7, usuario)

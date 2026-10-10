@@ -48,6 +48,18 @@ describe('transcrição de áudio', () => {
       configuracao.transcritorUrl = anterior
     }
   })
+
+  test('recursos dizem se a transcrição está ligada', async () => {
+    const anterior = configuracao.transcritorUrl
+    try {
+      configuracao.transcritorUrl = ''
+      expect((await chamar('GET', '/recursos', { token: bruno.token })).dados).toMatchObject({ transcricao: false })
+      configuracao.transcritorUrl = 'http://transcritor:8000'
+      expect((await chamar('GET', '/recursos', { token: bruno.token })).dados).toMatchObject({ transcricao: true })
+    } finally {
+      configuracao.transcritorUrl = anterior
+    }
+  })
 })
 
 describe('transcrição de ponta a ponta, com um transcritor falso', () => {

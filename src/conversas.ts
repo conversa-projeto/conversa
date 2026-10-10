@@ -1,11 +1,12 @@
 import type { Sql } from './banco.ts'
 import { validarAcessoConversa, validarRemocaoConversaUsuario } from './autorizacao.ts'
 import { alterar, excluir, inserir } from './comum.ts'
+import { httpErrors } from './erros.ts'
 import type { Corpo } from './esquemas.ts'
 import { urlPublica } from './minio.ts'
 import type { ConversaUsuario, TipoConversa } from './tabelas.ts'
 import { notificarMembrosConversa } from './notificacoes.ts'
-import { TipoMensagemSocket } from './websocket.ts'
+import { presencaVisivel, TipoMensagemSocket } from './websocket.ts'
 
 // Troca avatar_objeto por avatar_url assinada, no fim do objeto.
 export async function comAvatarUrl<T extends { avatar_objeto: string | null }>({ avatar_objeto, ...linha }: T): Promise<Omit<T, 'avatar_objeto'> & { avatar_url: string | null }> {
@@ -25,8 +26,12 @@ export interface ConversaLista {
   ultima_mensagem_texto: string | null
   mensagens_sem_visualizar: number
   avatar_objeto: string | null
+  // Grupo: emoji no lugar da primeira letra (a imagem vem em avatar_objeto)
+  emoji: string | null
   fixada_ordem: number | null
   arquivada_em: Date | null
+  // Chat criado pelo painel de uma chamada
+  chamada: boolean
 }
 
 export interface MembroConversa {
@@ -43,9 +48,23 @@ export async function incluirConversa(sql: Sql, usuario: number, corpo: Corpo<'i
   return conversa
 }
 
+// Imagem e emoji só no grupo; com os dois, a página mostra a imagem
 export async function alterarConversa(sql: Sql, usuario: number, corpo: Corpo<'alterarConversa'>) {
   await validarAcessoConversa(sql, usuario, corpo.id)
-  return alterar(sql, 'conversa', corpo.id, corpo, ['descricao'])
+  if (corpo.avatar_anexo_id != null || corpo.emoji != null) {
+    const [conversa] = await sql<{ tipo: TipoConversa }[]>`select tipo from conversa where id = ${corpo.id}`
+    if (conversa?.tipo !== 2) {
+      throw httpErrors.badRequest('Só o grupo tem imagem ou emoji.')
+    }
+  }
+  const emoji = corpo.emoji?.trim()
+  if (emoji && [...new Intl.Segmenter().segment(emoji)].length !== 1) {
+    throw httpErrors.badRequest('Use um único emoji.')
+  }
+  const conversa = await alterar(sql, 'conversa', corpo.id, { ...corpo, ...(corpo.emoji !== undefined && { emoji: emoji || null }) }, ['descricao', 'avatar_anexo_id', 'emoji'])
+  // Os outros membros recarregam a lista com o nome, a imagem e o emoji novos
+  await notificarMembrosConversa(sql, corpo.id, usuario, TipoMensagemSocket.ConversaNova)
+  return conversa
 }
 
 export async function excluirConversa(sql: Sql, usuario: number, conversa: number) {
@@ -60,6 +79,8 @@ export async function conversas(sql: Sql, usuario: number) {
                 , c.descricao
                 , c.tipo
                 , c.inserida
+                , c.emoji
+                , c.avatar_anexo_id
                 , cu.fixada_ordem
                 , cu.arquivada_em
              from
@@ -84,9 +105,11 @@ export async function conversas(sql: Sql, usuario: number) {
        , tcm.ultima_mensagem
        , convert_from(tcm.ultima_mensagem_texto, 'utf-8') as ultima_mensagem_texto
        , cast(coalesce(mensagens_sem_visualizar, 0) as int) as mensagens_sem_visualizar
-       , d.avatar_objeto
+       , coalesce(d.avatar_objeto, ga.objeto) as avatar_objeto
+       , tc.emoji
        , tc.fixada_ordem
        , tc.arquivada_em
+       , exists (select 1 from chamada ch where ch.conversa_chat_id = tc.id) as chamada
     from temp_conversa tc
     left
     join
@@ -116,6 +139,9 @@ export async function conversas(sql: Sql, usuario: number) {
              on a.id = u.avatar_anexo_id
        ) as d
       on d.conversa_id = tc.id
+    left
+    join anexo as ga
+      on ga.id = tc.avatar_anexo_id
     left
     join
        ( select *
@@ -243,4 +269,13 @@ export async function avisarAtividade(sql: Sql, usuario: number, conversa: numbe
 export async function excluirMembro(sql: Sql, usuario: number, conversaUsuario: number) {
   await validarRemocaoConversaUsuario(sql, usuario, conversaUsuario)
   return excluir(sql, 'conversa_usuario', conversaUsuario)
+}
+
+// Membros com a conversa aberta agora, para quem acabou de abri-la (depois
+// chegam os avisos pelo WebSocket)
+export async function presentesConversa(sql: Sql, usuario: number, conversa: number) {
+  await validarAcessoConversa(sql, usuario, conversa)
+  const membros = await sql<{ usuario_id: number }[]>`
+    select usuario_id from conversa_usuario where conversa_id = ${conversa} and usuario_id <> ${usuario}`
+  return membros.map((membro) => membro.usuario_id).filter((id) => presencaVisivel(id).conversas.has(conversa))
 }

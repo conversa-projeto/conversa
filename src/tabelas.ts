@@ -19,6 +19,10 @@ export interface Usuario {
   avatar_anexo_id: number | null
   criado_em: Date | null
   criado_por: number | null
+  visto_em: Date | null
+  mostrar_visto_em: boolean
+  mostrar_na_conversa: boolean
+  aparecer_offline: boolean
 }
 
 export interface Dispositivo {
@@ -57,6 +61,8 @@ export interface Conversa {
   tipo: TipoConversa
   inserida: Date
   criado_por: number | null
+  avatar_anexo_id: number | null
+  emoji: string | null
 }
 
 export interface ConversaUsuario {
@@ -78,6 +84,7 @@ export interface Mensagem {
   visivel_em: Date | null
   excluida_em: Date | null
   excluida_por: number | null
+  pede_confirmacao: boolean
 }
 
 export interface MensagemConteudo {

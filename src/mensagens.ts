@@ -6,7 +6,7 @@ import type { StatusTranscricao, TipoConteudo } from './tabelas.ts'
 import { urlPublica } from './minio.ts'
 import { notificarNovaMensagemConversa, notificarStatusMensagens } from './notificacoes.ts'
 import { httpErrors } from './erros.ts'
-import { notificarReacao } from './websocket.ts'
+import { notificarConfirmacao, notificarReacao } from './websocket.ts'
 import {
   apagarAtividadeReacao,
   apagarAtividadesMensagem,
@@ -54,6 +54,20 @@ interface ReacaoUsuarioResposta {
   avatar_url: string | null
 }
 
+interface ConfirmacaoUsuarioResposta {
+  usuario_id: number
+  nome: string
+  confirmada_em: Date
+  avatar_url: string | null
+}
+
+// Mensagem que pede confirmacao de leitura: destinatarios e quem ja confirmou
+interface ConfirmacaoResposta {
+  total: number
+  confirmou: boolean
+  usuarios: ConfirmacaoUsuarioResposta[]
+}
+
 interface ReacaoResposta {
   emoji: string
   quantidade: number
@@ -76,6 +90,7 @@ export interface MensagemResposta {
   reproduzida: boolean
   conteudos: ConteudoResposta[]
   reacoes?: ReacaoResposta[]
+  confirmacao?: ConfirmacaoResposta
 }
 
 // --- Linhas das consultas ---
@@ -102,6 +117,7 @@ interface MensagemLinha {
   excluida_em: Date | null
   referencia_tipo: number | null
   referencia_origem_mensagem_id: number | null
+  pede_confirmacao: boolean
 }
 
 // Somas por mensagem: quantos destinatarios receberam, viram e ouviram
@@ -190,8 +206,8 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
   const mensagem = await inserir(
     sql,
     'mensagem',
-    { conversa_id: corpo.conversa_id, usuario_id: usuario, visivel_em: visivelEm },
-    ['conversa_id', 'usuario_id', 'visivel_em'],
+    { conversa_id: corpo.conversa_id, usuario_id: usuario, visivel_em: visivelEm, pede_confirmacao: corpo.pede_confirmacao ?? false },
+    ['conversa_id', 'usuario_id', 'visivel_em', 'pede_confirmacao'],
   )
 
   let referenciaGravada: { tipo: number; origem_mensagem_id: number } | undefined
@@ -318,6 +334,7 @@ export async function excluirMensagem(sql: Sql, usuario: number, mensagem: numbe
   await sql`delete from mensagem_referencia where origem_mensagem_id = ${mensagem} or destino_mensagem_id = ${mensagem}`
   await sql`delete from mensagem_status where mensagem_id = ${mensagem}`
   await sql`delete from reacao where mensagem_id = ${mensagem}`
+  await sql`delete from mensagem_confirmacao where mensagem_id = ${mensagem}`
   await apagarAtividadesMensagem(sql, mensagem)
 
   const conteudo = await excluir(sql, 'mensagem_conteudo', mensagem, 'mensagem_id')
@@ -516,6 +533,7 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
                   , m.excluida_em
                   , mr.tipo as referencia_tipo
                   , mr.destino_mensagem_id as referencia_origem_mensagem_id
+                  , m.pede_confirmacao
                from ( select m.*
                         from (${script}) as tm
                        inner join mensagem m
@@ -599,7 +617,32 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
       }))),
     })))
 
-    // Mesmas chaves e na mesma ordem de sempre; referencia e reacoes so quando existem
+    let confirmacao: ConfirmacaoResposta | undefined
+    if (linha.pede_confirmacao) {
+      const [destinatarios] = await sql<{ total: number }[]>`select count(1)::int as total from mensagem_status where mensagem_id = ${linha.id}`
+      const confirmaram = await sql<{ usuario_id: number; nome: string; avatar_objeto: string | null; confirmada_em: Date }[]>`
+        select mc.usuario_id
+             , u.nome
+             , a.objeto as avatar_objeto
+             , mc.confirmada_em
+          from mensagem_confirmacao mc
+          join usuario u
+            on u.id = mc.usuario_id
+          left join anexo as a
+            on a.id = u.avatar_anexo_id
+         where mc.mensagem_id = ${linha.id}
+         order by mc.id`
+      confirmacao = {
+        total: destinatarios?.total ?? 0,
+        confirmou: confirmaram.some((pessoa) => pessoa.usuario_id === usuario),
+        usuarios: await Promise.all(confirmaram.map(async ({ avatar_objeto, ...pessoa }) => ({
+          ...pessoa,
+          avatar_url: avatar_objeto ? await urlPublica('GET', avatar_objeto, 600) : null,
+        }))),
+      }
+    }
+
+    // Mesmas chaves e na mesma ordem de sempre; referencia, reacoes e confirmacao so quando existem
     resultado.push({
       id: linha.id,
       remetente_id: linha.remetente_id,
@@ -615,6 +658,7 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
       reproduzida: (status?.reproduzida ?? 0) === total,
       conteudos,
       ...(reacoesResposta.length ? { reacoes: reacoesResposta } : {}),
+      ...(confirmacao ? { confirmacao } : {}),
     })
   }
   return resultado
@@ -722,6 +766,37 @@ export async function novasMensagens(sql: Sql, usuario: number, desde: string) {
                            and ms.usuario_id = cu.usuario_id
                            and ms.visualizada is not null )
      group by m.conversa_id`
+}
+
+// Destinatario marca que leu a mensagem que pede confirmacao; nao desmarca
+export async function confirmarLeitura(sql: Sql, usuario: number, corpo: Corpo<'confirmarLeitura'>) {
+  const [alvo] = await sql<{ conversa_id: number; usuario_id: number; pede_confirmacao: boolean; excluida_em: Date | null }[]>`
+    select conversa_id, usuario_id, pede_confirmacao, excluida_em from mensagem where id = ${corpo.mensagem_id}`
+  if (!alvo) {
+    throw httpErrors.notFound('Mensagem não encontrada!')
+  }
+  await validarAcessoConversa(sql, usuario, alvo.conversa_id)
+  if (!alvo.pede_confirmacao || alvo.excluida_em) {
+    throw httpErrors.badRequest('Esta mensagem não pede confirmação de leitura.')
+  }
+  if (alvo.usuario_id === usuario) {
+    throw httpErrors.badRequest('Quem enviou não confirma a própria mensagem.')
+  }
+
+  const [nova] = await sql<{ confirmada_em: Date }[]>`
+    insert into mensagem_confirmacao (mensagem_id, usuario_id)
+    values (${corpo.mensagem_id}, ${usuario})
+    on conflict (mensagem_id, usuario_id) do nothing
+    returning confirmada_em`
+  if (nova) {
+    const [quem] = await sql<{ nome: string }[]>`select nome from usuario where id = ${usuario}`
+    const membros = await sql<{ usuario_id: number }[]>`
+      select usuario_id from conversa_usuario where conversa_id = ${alvo.conversa_id} and usuario_id <> ${usuario}`
+    for (const { usuario_id } of membros) {
+      notificarConfirmacao(alvo.conversa_id, corpo.mensagem_id, usuario, usuario_id, quem?.nome ?? '', nova.confirmada_em)
+    }
+  }
+  return { mensagem_id: corpo.mensagem_id }
 }
 
 // Emojis diferentes que cada pessoa pode deixar na mesma mensagem

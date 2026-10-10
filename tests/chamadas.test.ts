@@ -104,6 +104,31 @@ describe('chamadas', () => {
   })
 })
 
+describe('chamar de novo quem não atendeu', () => {
+  const statusDe = async (id: number, quem: UsuarioTeste) =>
+    ((await dados(ana, id)).dados.usuarios as { usuario_id: number; status: number }[]).find((u) => u.usuario_id === quem.id)!.status
+
+  test('quem recusou volta a pendente e vê a chamada de novo', async () => {
+    const id = await ligar(ana, [bruno, carla])
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id } })
+    await chamar('POST', '/chamada/recusar', { token: carla.token, corpo: { id, nao_atendeu: true } })
+    expect(await statusDe(id, carla)).toBe(2)
+    const { status } = await chamar('POST', '/chamada/chamar-novamente', { token: bruno.token, corpo: { chamada_id: id, usuario_id: carla.id } })
+    expect(status).toBe(200)
+    expect(await statusDe(id, carla)).toBe(1)
+    const pendentes = await chamar('GET', '/chamadas/pendentes', { token: carla.token })
+    expect(pendentes.dados.map((c: { id: number }) => c.id)).toContain(id)
+  })
+
+  test('não chama de novo quem está pendente, nem com a chamada encerrada', async () => {
+    const id = await ligar(ana, [bruno, carla])
+    expect((await chamar('POST', '/chamada/chamar-novamente', { token: ana.token, corpo: { chamada_id: id, usuario_id: carla.id } })).status).toBe(400)
+    await chamar('POST', '/chamada/recusar', { token: carla.token, corpo: { id } })
+    await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id } })
+    expect((await chamar('POST', '/chamada/chamar-novamente', { token: ana.token, corpo: { chamada_id: id, usuario_id: carla.id } })).status).toBe(400)
+  })
+})
+
 describe('chat da chamada', () => {
   const membros = async (quem: UsuarioTeste, conversa: number) =>
     ((await chamar('GET', '/conversa/usuarios', { token: quem.token, consulta: { conversa } })).dados as { usuario_id: number }[]).map((m) => m.usuario_id).sort()
@@ -118,10 +143,12 @@ describe('chat da chamada', () => {
     expect((await dados(ana, id)).dados.conversa_chat_id).toBe(chat.conversa_id)
     // Carla não atendeu: fica de fora até entrar
     expect(await membros(ana, chat.conversa_id)).toEqual([ana.id, bruno.id].sort())
-    const conversas = (await chamar('GET', '/conversas', { token: ana.token })).dados as { id: number; tipo: number; descricao: string }[]
+    const conversas = (await chamar('GET', '/conversas', { token: ana.token })).dados as { id: number; tipo: number; descricao: string; chamada: boolean }[]
     const grupo = conversas.find((c) => c.id === chat.conversa_id)!
     expect(grupo.tipo).toBe(2)
     expect(grupo.descricao).toStartWith('Chamada: ')
+    expect(grupo.chamada).toBe(true)
+    expect(conversas.filter((c) => c.id !== chat.conversa_id).every((c) => !c.chamada)).toBe(true)
 
     expect((await chamar('PUT', '/chamada/chat', { token: ana.token, corpo: { id } })).dados.conversa_id).toBe(chat.conversa_id)
 

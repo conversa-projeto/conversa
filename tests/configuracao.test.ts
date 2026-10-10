@@ -109,7 +109,7 @@ describe('parâmetros', () => {
     jwt_token: 'chave-existente',
     fcm_project_id: 'p', fcm_client_email: 'e', fcm_private_key: 'k',
     s3_bucket: 'chat', turn_forcar_relay: '0', transcritor_url: 'http://t', transcritor_idioma: 'en',
-    gravacao_dias: '30',
+    gravacao_dias: '30', ia_url: '', ia_token: '', ia_modelo: '',
     ...valores,
   }).map(([nome, valor]) => ({ nome, valor }))
 

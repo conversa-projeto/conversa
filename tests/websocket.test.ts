@@ -77,6 +77,75 @@ describe('online e offline', () => {
   })
 })
 
+describe('presença', () => {
+  const presenca = async (quem: UsuarioTeste, de: UsuarioTeste) =>
+    ((await chamar('GET', '/contatos/presenca', { token: quem.token })).dados as { usuario_id: number; estado: string; visto_em: string | null }[])
+      .find((p) => p.usuario_id === de.id)!
+  const privacidade = (quem: UsuarioTeste, corpo: Record<string, boolean>) => chamar('PATCH', '/usuario', { token: quem.token, corpo: { id: quem.id, ...corpo } })
+
+  test('aba escondida deixa ausente; ao sair do ativo grava o visto por último', async () => {
+    await criarConversa(ana, [bruno])
+    const doBruno = await conectar(bruno)
+    const daAna = await conectar(ana)
+    await doBruno.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'ativo')
+    daAna.enviar({ tipo: 63, ativo: false, conversa_id: null })
+    const ausente = await doBruno.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'ausente')
+    expect(ausente.online).toBe(true)
+    expect(ausente.visto_em).not.toBeNull()
+    expect((await presenca(bruno, ana)).estado).toBe('ausente')
+    daAna.enviar({ tipo: 63, ativo: true, conversa_id: null })
+    await doBruno.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'ativo')
+  })
+
+  test('conversa aberta avisa os membros e aparece nos presentes; escondida sai', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const doBruno = await conectar(bruno)
+    const daAna = await conectar(ana)
+    daAna.enviar({ tipo: 63, ativo: true, conversa_id: conversa })
+    await doBruno.esperar((e) => e.tipo === 63 && e.usuario_id === ana.id && e.conversa_id === conversa && e.aberta === true)
+    expect((await chamar('GET', '/conversa/presentes', { token: bruno.token, consulta: { conversa } })).dados).toEqual([ana.id])
+    daAna.enviar({ tipo: 63, ativo: false, conversa_id: conversa })
+    await doBruno.esperar((e) => e.tipo === 63 && e.usuario_id === ana.id && e.aberta === false)
+    expect((await chamar('GET', '/conversa/presentes', { token: bruno.token, consulta: { conversa } })).dados).toEqual([])
+  })
+
+  test('sem mostrar a conversa nem o visto por último, os outros não veem', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    await privacidade(ana, { mostrar_na_conversa: false, mostrar_visto_em: false })
+    try {
+      const doBruno = await conectar(bruno)
+      const daAna = await conectar(ana)
+      daAna.enviar({ tipo: 63, ativo: true, conversa_id: conversa })
+      await doBruno.nadaChega((e) => e.tipo === 63 && e.usuario_id === ana.id)
+      daAna.enviar({ tipo: 63, ativo: false, conversa_id: null })
+      const ausente = await doBruno.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'ausente')
+      expect(ausente.visto_em).toBeNull()
+      expect((await presenca(bruno, ana)).visto_em).toBeNull()
+    } finally {
+      await privacidade(ana, { mostrar_na_conversa: true, mostrar_visto_em: true })
+    }
+  })
+
+  test('aparecer offline vale na hora, esconde a conexão e o próprio usuário vê como aparece', async () => {
+    await criarConversa(ana, [bruno])
+    const doBruno = await conectar(bruno)
+    const daAna = await conectar(ana)
+    await daAna.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'ativo')
+    await doBruno.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'ativo')
+    try {
+      expect((await privacidade(ana, { aparecer_offline: true })).status).toBe(200)
+      await doBruno.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'offline')
+      await daAna.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'offline')
+      expect(await online(bruno)).not.toContain(ana.id)
+      expect((await presenca(bruno, ana)).estado).toBe('offline')
+      expect((await chamar('GET', '/usuario/privacidade', { token: ana.token })).dados).toEqual({ mostrar_visto_em: true, mostrar_na_conversa: true, aparecer_offline: true })
+    } finally {
+      await privacidade(ana, { aparecer_offline: false })
+    }
+    await doBruno.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'ativo')
+  })
+})
+
 describe('eventos chegam só a quem participa', () => {
   test('digitando', async () => {
     const conversa = await criarConversa(ana, [bruno])
