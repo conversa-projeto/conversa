@@ -27,29 +27,46 @@ export function enderecoCompletions(url: string) {
   return `${/\/v1$/.test(base) ? base : `${base}/v1`}/chat/completions`
 }
 
-// Pede uma resposta ao modelo; com json, pede um objeto JSON (e confere)
-export async function completar(mensagens: MensagemIa[], opcoes: { json?: boolean; servidor?: ServidorIa; tempoLimiteMs?: number } = {}): Promise<string> {
+// Formato da resposta em JSON Schema (response_format json_schema), que vLLM,
+// Ollama, LM Studio e OpenAI aceitam
+export interface EsquemaResposta {
+  nome: string
+  schema: object
+}
+
+// Pede uma resposta ao modelo; com esquema, pede JSON nesse formato. Servidor
+// que recusar o formato (400) recebe o pedido de novo sem ele: as instrucoes
+// ja pedem JSON e lerJson aceita texto em volta.
+export async function completar(mensagens: MensagemIa[], opcoes: { esquema?: EsquemaResposta; servidor?: ServidorIa; tempoLimiteMs?: number } = {}): Promise<string> {
   const servidor = opcoes.servidor ?? configuracao.ia
   if (!servidor.url.trim() || !servidor.modelo.trim()) {
     throw httpErrors.badRequest('IA não configurada: defina o endereço e o modelo nas configurações do sistema.')
   }
+  const formato = opcoes.esquema
+    ? { response_format: { type: 'json_schema', json_schema: { name: opcoes.esquema.nome, strict: true, schema: opcoes.esquema.schema } } }
+    : {}
+  const pedir = (comFormato: boolean) => fetch(enderecoCompletions(servidor.url), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(servidor.token.trim() ? { Authorization: `Bearer ${servidor.token.trim()}` } : {}),
+    },
+    body: JSON.stringify({
+      model: servidor.modelo.trim(),
+      messages: mensagens,
+      temperature: 0.2,
+      stream: false,
+      ...(comFormato ? formato : {}),
+    }),
+    signal: AbortSignal.timeout(opcoes.tempoLimiteMs ?? TEMPO_LIMITE_MS),
+  })
   let resposta: Response
   try {
-    resposta = await fetch(enderecoCompletions(servidor.url), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(servidor.token.trim() ? { Authorization: `Bearer ${servidor.token.trim()}` } : {}),
-      },
-      body: JSON.stringify({
-        model: servidor.modelo.trim(),
-        messages: mensagens,
-        temperature: 0.2,
-        stream: false,
-        ...(opcoes.json ? { response_format: { type: 'json_object' } } : {}),
-      }),
-      signal: AbortSignal.timeout(opcoes.tempoLimiteMs ?? TEMPO_LIMITE_MS),
-    })
+    resposta = await pedir(true)
+    if (resposta.status === 400 && opcoes.esquema) {
+      console.warn('[IA] Servidor recusou o formato JSON, pedindo sem ele:', (await resposta.text()).slice(0, 200))
+      resposta = await pedir(false)
+    }
   } catch (erro) {
     const tempo = erro instanceof Error && erro.name === 'TimeoutError'
     throw new Error(tempo ? 'O servidor de IA demorou demais para responder.' : `Não foi possível falar com o servidor de IA (${erro instanceof Error ? erro.message : erro}).`)

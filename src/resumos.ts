@@ -51,6 +51,32 @@ Use só o que está nas mensagens, sem inventar. Ignore cumprimentos e conversa 
 Liste os assuntos na ordem em que começaram. Responda somente com JSON, assim:
 {"assuntos":[{"titulo":"...","resumo":"...","pendencias":["..."],"mensagens":[1,2]}]}`
 
+const CAMPO_TEXTO = { type: 'string' }
+const ESQUEMA = {
+  nome: 'resumo_conversa',
+  schema: {
+    type: 'object',
+    properties: {
+      assuntos: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            titulo: CAMPO_TEXTO,
+            resumo: CAMPO_TEXTO,
+            pendencias: { type: 'array', items: CAMPO_TEXTO },
+            mensagens: { type: 'array', items: { type: 'integer' } },
+          },
+          required: ['titulo', 'resumo', 'pendencias', 'mensagens'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['assuntos'],
+    additionalProperties: false,
+  },
+}
+
 function esquecerVencidos() {
   const agora = Date.now()
   for (const [id, resumo] of resumos) {
@@ -203,7 +229,7 @@ async function gerar(resumo: Resumo, conversa: number, conteudo: { ids: Set<numb
     const texto = await completar([
       { role: 'system', content: INSTRUCOES },
       { role: 'user', content: `${titulo}. Mensagens (id, data, autor: texto):\n${conteudo.texto}` },
-    ], { json: true })
+    ], { esquema: ESQUEMA })
     resumo.assuntos = lerAssuntos(lerJson(texto), conteudo.ids)
     if (!resumo.assuntos.length) {
       throw new Error('A IA não encontrou assuntos para resumir.')

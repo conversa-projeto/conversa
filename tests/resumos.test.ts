@@ -61,7 +61,20 @@ describe('resumo da conversa', () => {
     expect(texto).toContain(`[${primeira.id}]`)
     expect(texto).toContain('Vamos fechar o orçamento até sexta?')
     expect(texto).toContain('Fecho até quinta, @Ana')
-    expect(pedidos[0]!.response_format).toEqual({ type: 'json_object' })
+    expect(pedidos[0]!.response_format).toMatchObject({ type: 'json_schema', json_schema: { name: 'resumo_conversa', strict: true } })
+  })
+
+  test('servidor que recusa o formato JSON recebe o pedido de novo sem ele', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    await enviarTexto(ana, conversa, 'Reunião amanhã às 9h')
+    responder = (corpo) => 'response_format' in corpo
+      ? new Response(JSON.stringify({ error: "'response_format.type' must be 'json_schema' or 'text'" }), { status: 400 })
+      : respostaIa('Claro! {"assuntos":[{"titulo":"Reunião","resumo":"Amanhã às 9h.","pendencias":[],"mensagens":[]}]}')
+    const { dados } = await chamar('POST', '/conversa/resumo', { token: ana.token, corpo: { conversa_id: conversa, periodo: '24h' } })
+    const pronto = await esperarPronto(ana, dados.id)
+    expect(pronto).toMatchObject({ status: 'concluido', assuntos: [{ titulo: 'Reunião', resumo: 'Amanhã às 9h.' }] })
+    expect(pedidos).toHaveLength(2)
+    expect(pedidos[1]!.response_format).toBeUndefined()
   })
 
   test('sem mensagens no período, fica pronto sem chamar a IA', async () => {
