@@ -29,6 +29,8 @@ interface ConteudoResposta {
   extensao: string
   transcricao_status: StatusTranscricao
   transcricao: string
+  // Mensagem de chamada: o chat da chamada, para quem e membro dele
+  chat_chamada_id?: number
 }
 
 // Mensagem respondida ou encaminhada, com a propria referencia (ate 5 niveis)
@@ -420,6 +422,25 @@ export async function pesquisar(sql: Sql, conversa: number, usuario: number, tex
   return carregarMensagens(sql, 0, usuario, script, false)
 }
 
+// Chat criado durante a chamada (o conteudo guarda o chamada_id), se o usuario e membro dele
+async function chatDaChamada(sql: Sql, usuario: number, conteudo: string) {
+  let chamada: number
+  try {
+    chamada = Number((JSON.parse(conteudo) as { chamada_id?: unknown }).chamada_id)
+  } catch {
+    return null
+  }
+  if (!Number.isInteger(chamada) || chamada <= 0) return null
+  const [linha] = await sql<{ conversa_chat_id: number }[]>`
+    select c.conversa_chat_id
+      from chamada c
+     inner join conversa_usuario cu on cu.conversa_id = c.conversa_chat_id and cu.usuario_id = ${usuario}
+     where c.id = ${chamada}
+       and c.conversa_chat_id is distinct from c.conversa_id
+     limit 1`
+  return linha?.conversa_chat_id ?? null
+}
+
 async function carregarConteudos(sql: Sql, mensagemId: number): Promise<ConteudoResposta[]> {
   const linhas = await sql<ConteudoLinha[]>`
     select id, ordem, tipo, conteudo, nome, extensao, transcricao_status, transcricao
@@ -592,6 +613,12 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
        group by mensagem_id`
     const total = status?.total ?? 0
     const conteudos = await carregarConteudos(sql, linha.id)
+    for (const conteudo of conteudos) {
+      if (conteudo.tipo === 6) {
+        const chat = await chatDaChamada(sql, usuario, conteudo.conteudo)
+        if (chat) conteudo.chat_chamada_id = chat
+      }
+    }
 
     const reacoes = await sql<ReacaoLinha[]>`
       select r.emoji

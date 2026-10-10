@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { chamar, criarConversa, usuariosComuns, type UsuarioTeste } from './api.ts'
+import { chamar, criarConversa, criarUsuario, usuariosComuns, type UsuarioTeste } from './api.ts'
 
 let ana: UsuarioTeste, bruno: UsuarioTeste, carla: UsuarioTeste
 beforeAll(async () => ({ ana, bruno, carla } = await usuariosComuns()))
@@ -133,8 +133,18 @@ describe('chat da chamada', () => {
   const membros = async (quem: UsuarioTeste, conversa: number) =>
     ((await chamar('GET', '/conversa/usuarios', { token: quem.token, consulta: { conversa } })).dados as { usuario_id: number }[]).map((m) => m.usuario_id).sort()
 
+  // Ligação feita fora de uma conversa: o chat é um grupo novo
+  async function ligarAvulsa(de: UsuarioTeste, para: UsuarioTeste[]) {
+    const { dados: criada } = await chamar('PUT', '/chamada/iniciar', { token: de.token, corpo: { tipo: 2, usuarios: [{ id: de.id }, ...para.map((u) => ({ id: u.id }))] } })
+    return criada.id as number
+  }
+  const conteudoDaChamada = async (quem: UsuarioTeste, conversa: number) => {
+    const { dados: lista } = await chamar('GET', '/mensagens', { token: quem.token, consulta: { conversa, mensagemreferencia: 0, mensagensprevias: 10, mensagensseguintes: 0 } })
+    return (lista as { conteudos: { tipo: number; chat_chamada_id?: number }[] }[]).flatMap((m) => m.conteudos).find((c) => c.tipo === 6)
+  }
+
   test('só existe depois de pedido; cria um grupo com quem esteve na chamada e devolve o mesmo depois', async () => {
-    const id = await ligar(ana, [bruno, carla])
+    const id = await ligarAvulsa(ana, [bruno, carla])
     await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id } })
     expect((await dados(ana, id)).dados.conversa_chat_id).toBeNull()
 
@@ -154,6 +164,41 @@ describe('chat da chamada', () => {
 
     await chamar('POST', '/chamada/entrar', { token: carla.token, corpo: { id } })
     expect(await membros(ana, chat.conversa_id)).toEqual([ana.id, bruno.id, carla.id].sort())
+  })
+
+  test('ligação numa conversa que já tem todo mundo reaproveita a conversa, sem mudar os membros', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const { dados: criada } = await chamar('PUT', '/chamada/iniciar', { token: ana.token, corpo: { tipo: 2, usuarios: [{ id: ana.id }, { id: bruno.id }, { id: carla.id }], conversa_id: grupo } })
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id: criada.id } })
+    const antes = (await chamar('GET', '/conversas', { token: ana.token })).dados.length
+    const { dados: chat } = await chamar('PUT', '/chamada/chat', { token: bruno.token, corpo: { id: criada.id } })
+    expect(chat.conversa_id).toBe(grupo)
+    const conversas = (await chamar('GET', '/conversas', { token: ana.token })).dados as { id: number; chamada: boolean }[]
+    expect(conversas).toHaveLength(antes)
+    expect(conversas.find((c) => c.id === grupo)!.chamada).toBe(false)
+
+    // Alguém de fora adicionado depois não entra no grupo
+    const davi = (await chamar('PUT', '/chamada/usuario', { token: ana.token, corpo: { chamada_id: criada.id, usuario_id: (await criarUsuario()).id } }))
+    expect(davi.status).toBe(200)
+    expect(await membros(ana, grupo)).toEqual([ana.id, bruno.id, carla.id].sort())
+
+    // A mensagem da ligação fica na própria conversa, sem apontar para outro chat
+    await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id: criada.id } })
+    expect((await conteudoDaChamada(ana, grupo))!.chat_chamada_id).toBeUndefined()
+  })
+
+  test('com alguém de fora da conversa, cria o grupo; a mensagem e o histórico apontam para ele, só para os membros', async () => {
+    const direta = await criarConversa(ana, [bruno])
+    const { dados: criada } = await chamar('PUT', '/chamada/iniciar', { token: ana.token, corpo: { tipo: 2, usuarios: [{ id: ana.id }, { id: bruno.id }, { id: carla.id }], conversa_id: direta } })
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id: criada.id } })
+    await chamar('POST', '/chamada/entrar', { token: carla.token, corpo: { id: criada.id } })
+    const { dados: chat } = await chamar('PUT', '/chamada/chat', { token: ana.token, corpo: { id: criada.id } })
+    expect(chat.conversa_id).not.toBe(direta)
+    await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id: criada.id } })
+
+    expect((await conteudoDaChamada(ana, direta))!.chat_chamada_id).toBe(chat.conversa_id)
+    const historico = (await chamar('GET', '/chamadas', { token: carla.token })).dados as { id: number; conversa_chat_id: number | null }[]
+    expect(historico.find((h) => h.id === criada.id)!.conversa_chat_id).toBe(chat.conversa_id)
   })
 
   test('quem não participa da chamada não cria o chat', async () => {

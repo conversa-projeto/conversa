@@ -109,7 +109,7 @@ export async function conversas(sql: Sql, usuario: number) {
        , tc.emoji
        , tc.fixada_ordem
        , tc.arquivada_em
-       , exists (select 1 from chamada ch where ch.conversa_chat_id = tc.id) as chamada
+       , exists (select 1 from chamada ch where ch.conversa_chat_id = tc.id and ch.conversa_id is distinct from tc.id) as chamada
     from temp_conversa tc
     left
     join

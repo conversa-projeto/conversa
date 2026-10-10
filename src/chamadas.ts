@@ -229,18 +229,27 @@ export async function sairChamada(sql: Sql, usuario: number, chamada: number) {
 // devolve o mesmo grupo.
 export async function chatChamada(sql: Sql, usuario: number, chamada: number) {
   await validarChamada(sql, usuario, chamada)
-  const { conversa, criada } = await transacao(sql, async () => {
-    const [dados] = await sql<{ conversa_chat_id: number | null }[]>`select conversa_chat_id from chamada where id = ${chamada} for update`
+  const { conversa, criada, avisar } = await transacao(sql, async () => {
+    const [dados] = await sql<{ conversa_chat_id: number | null; conversa_id: number | null }[]>`
+      select conversa_chat_id, conversa_id from chamada where id = ${chamada} for update`
     if (dados?.conversa_chat_id) {
-      return { conversa: dados.conversa_chat_id, criada: false }
+      return { conversa: dados.conversa_chat_id, criada: false, avisar: false }
     }
-    const membros = await sql<{ usuario_id: number; nome: string }[]>`
-      select distinct cu.usuario_id, u.nome
+    const membros = await sql<{ usuario_id: number; nome: string; na_origem: boolean }[]>`
+      select distinct cu.usuario_id
+           , u.nome
+           , exists (select 1 from conversa_usuario co where co.conversa_id = ${dados?.conversa_id ?? 0} and co.usuario_id = cu.usuario_id) as na_origem
         from chamada_usuario cu
        inner join usuario u on u.id = cu.usuario_id
        where cu.chamada_id = ${chamada}
          and (cu.status in (3, 4, 5) or cu.usuario_id = ${usuario})
        order by u.nome`
+    // Ligacao feita numa conversa que ja tem todo mundo (direta, grupo ou o
+    // chat de outra ligacao): o chat e essa conversa, sem criar outra
+    if (dados?.conversa_id && membros.every((membro) => membro.na_origem)) {
+      await sql`update chamada set conversa_chat_id = ${dados.conversa_id} where id = ${chamada}`
+      return { conversa: dados.conversa_id, criada: false, avisar: true }
+    }
     const nomes = membros.map((membro) => membro.nome).join(', ')
     const descricao = `Chamada: ${nomes.length > 80 ? `${nomes.slice(0, 77)}...` : nomes}`
     const [nova] = await sql<{ id: number }[]>`insert into conversa (descricao, tipo) values (${descricao}, 2) returning id`
@@ -251,11 +260,14 @@ export async function chatChamada(sql: Sql, usuario: number, chamada: number) {
       await sql`insert into conversa_usuario (conversa_id, usuario_id) values (${nova.id}, ${membro.usuario_id})`
     }
     await sql`update chamada set conversa_chat_id = ${nova.id} where id = ${chamada}`
-    return { conversa: nova.id, criada: true }
+    return { conversa: nova.id, criada: true, avisar: true }
   })
   if (criada) {
-    // A conversa nova aparece na lista de todos, e quem esta na chamada abre o chat
+    // A conversa nova aparece na lista de todos
     await notificarMembrosConversa(sql, conversa, usuario, TipoMensagemSocket.ConversaNova)
+  }
+  if (avisar) {
+    // Quem esta na chamada abre o chat
     const participantes = await sql<{ usuario_id: number }[]>`
       select usuario_id from chamada_usuario where chamada_id = ${chamada} and usuario_id <> ${usuario}`
     for (const { usuario_id } of participantes) {
@@ -265,7 +277,8 @@ export async function chatChamada(sql: Sql, usuario: number, chamada: number) {
   return { conversa_id: conversa }
 }
 
-// Quem entra depois de o chat existir passa a fazer parte do grupo
+// Quem entra depois de o chat existir passa a fazer parte do grupo. Na
+// conversa onde a ligacao comecou (reaproveitada), os membros nao mudam.
 async function incluirNoChatChamada(sql: Sql, usuario: number, chamada: number) {
   const [incluido] = await sql<{ conversa_id: number }[]>`
     insert into conversa_usuario (conversa_id, usuario_id)
@@ -273,6 +286,7 @@ async function incluirNoChatChamada(sql: Sql, usuario: number, chamada: number) 
       from chamada c
      where c.id = ${chamada}
        and c.conversa_chat_id is not null
+       and c.conversa_chat_id is distinct from c.conversa_id
        and not exists (select 1 from conversa_usuario cu where cu.conversa_id = c.conversa_chat_id and cu.usuario_id = ${usuario})
     returning conversa_id`
   if (incluido) {
@@ -464,8 +478,12 @@ export async function historicoChamadas(sql: Sql, usuario: number, filtro: Consu
   const nenhum = sql``
   const temFiltro = filtro.participante > 0 || filtro.de.trim() || filtro.ate.trim()
 
-  const chamadas = await sql<ChamadaHistorico[]>`
+  // O chat da chamada vai junto so para quem e membro dele
+  const chamadas = await sql<(ChamadaHistorico & { conversa_chat_id: number | null })[]>`
     select ${camposHistorico(sql)}
+         , case when c.conversa_chat_id is distinct from c.conversa_id
+                 and exists (select 1 from conversa_usuario cuc where cuc.conversa_id = c.conversa_chat_id and cuc.usuario_id = ${usuario})
+                then c.conversa_chat_id end as conversa_chat_id
       from chamada c
      inner join chamada_usuario cu on cu.chamada_id = c.id
      where cu.usuario_id = ${usuario}
