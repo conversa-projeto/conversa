@@ -10,6 +10,7 @@ import * as enquetes from './enquetes.ts'
 import * as parametros from './parametros.ts'
 import * as permissoes from './permissoes.ts'
 import * as resumos from './resumos.ts'
+import * as sugestoes from './sugestoes.ts'
 import * as chamadas from './chamadas.ts'
 import * as conversas from './conversas.ts'
 import * as mensagens from './mensagens.ts'
@@ -202,6 +203,9 @@ export function criarRotas(token: Token) {
       comoUsuario(c, (sql, usuario) => permissoes.retirarPermissao(sql, usuario, c.query)), { query: esquemas.permissaoUsuario.query })
 
     .post('/parametros/ia/testar', (c) => comoUsuario(c, (sql, usuario) => parametros.testarIa(sql, usuario, c.body)), esquemas.testarIa)
+
+    .post('/ia/sugestao', (c) =>
+      comoUsuario(c, (sql, usuario) => sugestoes.sugerirTexto(sql, usuario, c.body, c.request.signal)), esquemas.sugerirTexto)
 
     .post('/conversa/resumo', (c) => comoUsuario(c, (sql, usuario) => resumos.pedirResumo(sql, usuario, c.body)), esquemas.pedirResumo)
 

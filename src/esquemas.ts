@@ -122,6 +122,7 @@ export const esquemas = {
   testarIa: { body: t.Object({ url: texto, modelo: texto, token: opcional(texto) }) },
   pedirResumo: { body: t.Object({ conversa_id: inteiro, periodo: t.Union([t.Literal('24h'), t.Literal('7d'), t.Literal('30d'), t.Literal('recentes')]) }) },
   consultarResumo: { query: t.Object({ id: texto }) },
+  sugerirTexto: { body: t.Object({ conversa_id: inteiro, texto: t.String({ maxLength: 4000 }) }) },
   atividades: { query: t.Object({ antes: inteiroPadraoZero, limite: t.Integer({ default: 30, minimum: 1, maximum: 100 }) }) },
 
   historicoChamadas: { query: t.Object({ participante: inteiroPadraoZero, de: textoPadraoVazio, ate: textoPadraoVazio }) },

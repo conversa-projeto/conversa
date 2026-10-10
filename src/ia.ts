@@ -34,18 +34,36 @@ export interface EsquemaResposta {
   schema: object
 }
 
+export interface OpcoesCompletar {
+  esquema?: EsquemaResposta
+  servidor?: ServidorIa
+  tempoLimiteMs?: number
+  // Limite da resposta, em tokens
+  maxTokens?: number
+  // Modelo que "pensa" antes (Gemma 4, Qwen 3...) responde direto: para
+  // sugestoes, o raciocinio levaria dezenas de segundos
+  semRaciocinio?: boolean
+  // Quem pediu desistiu (a pagina cancelou): o pedido ao modelo para junto
+  sinal?: AbortSignal
+}
+
 // Pede uma resposta ao modelo; com esquema, pede JSON nesse formato. Servidor
-// que recusar o formato (400) recebe o pedido de novo sem ele: as instrucoes
-// ja pedem JSON e lerJson aceita texto em volta.
-export async function completar(mensagens: MensagemIa[], opcoes: { esquema?: EsquemaResposta; servidor?: ServidorIa; tempoLimiteMs?: number } = {}): Promise<string> {
+// que recusar os extras (formato JSON, desligar o raciocinio) com 400 recebe o
+// pedido de novo sem eles: as instrucoes ja pedem JSON e lerJson aceita texto em volta.
+export async function completar(mensagens: MensagemIa[], opcoes: OpcoesCompletar = {}): Promise<string> {
   const servidor = opcoes.servidor ?? configuracao.ia
   if (!servidor.url.trim() || !servidor.modelo.trim()) {
     throw httpErrors.badRequest('IA não configurada: defina o endereço e o modelo nas configurações do sistema.')
   }
-  const formato = opcoes.esquema
-    ? { response_format: { type: 'json_schema', json_schema: { name: opcoes.esquema.nome, strict: true, schema: opcoes.esquema.schema } } }
-    : {}
-  const pedir = (comFormato: boolean) => fetch(enderecoCompletions(servidor.url), {
+  const extras = {
+    ...(opcoes.esquema
+      ? { response_format: { type: 'json_schema', json_schema: { name: opcoes.esquema.nome, strict: true, schema: opcoes.esquema.schema } } }
+      : {}),
+    ...(opcoes.semRaciocinio ? { reasoning_effort: 'none' } : {}),
+  }
+  const temExtras = Object.keys(extras).length > 0
+  const tempo = AbortSignal.timeout(opcoes.tempoLimiteMs ?? TEMPO_LIMITE_MS)
+  const pedir = (comExtras: boolean) => fetch(enderecoCompletions(servidor.url), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -56,20 +74,22 @@ export async function completar(mensagens: MensagemIa[], opcoes: { esquema?: Esq
       messages: mensagens,
       temperature: 0.2,
       stream: false,
-      ...(comFormato ? formato : {}),
+      ...(opcoes.maxTokens ? { max_tokens: opcoes.maxTokens } : {}),
+      ...(comExtras ? extras : {}),
     }),
-    signal: AbortSignal.timeout(opcoes.tempoLimiteMs ?? TEMPO_LIMITE_MS),
+    signal: opcoes.sinal ? AbortSignal.any([tempo, opcoes.sinal]) : tempo,
   })
   let resposta: Response
   try {
     resposta = await pedir(true)
-    if (resposta.status === 400 && opcoes.esquema) {
-      console.warn('[IA] Servidor recusou o formato JSON, pedindo sem ele:', (await resposta.text()).slice(0, 200))
+    if (resposta.status === 400 && temExtras) {
+      console.warn('[IA] Servidor recusou o formato JSON ou o raciocínio desligado, pedindo sem eles:', (await resposta.text()).slice(0, 200))
       resposta = await pedir(false)
     }
   } catch (erro) {
-    const tempo = erro instanceof Error && erro.name === 'TimeoutError'
-    throw new Error(tempo ? 'O servidor de IA demorou demais para responder.' : `Não foi possível falar com o servidor de IA (${erro instanceof Error ? erro.message : erro}).`)
+    if (opcoes.sinal?.aborted) throw new Error('Pedido cancelado.')
+    const esgotado = erro instanceof Error && erro.name === 'TimeoutError'
+    throw new Error(esgotado ? 'O servidor de IA demorou demais para responder.' : `Não foi possível falar com o servidor de IA (${erro instanceof Error ? erro.message : erro}).`)
   }
   if (!resposta.ok) {
     const detalhe = (await resposta.text()).slice(0, 300)
