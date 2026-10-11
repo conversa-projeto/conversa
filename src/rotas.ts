@@ -137,6 +137,10 @@ export function criarRotas(token: Token) {
     .get('/pesquisar', (c) =>
       comoUsuario(c, (sql, usuario) => mensagens.pesquisar(sql, c.query.conversa, usuario, c.query.texto)), esquemas.pesquisar)
 
+    .get('/postagem/respostas', (c) => comoUsuario(c, (sql, usuario) => mensagens.respostasPostagem(sql, usuario, c.query.id)), esquemas.respostasPostagem)
+
+    .post('/postagem/visualizar', (c) => comoUsuario(c, (sql, usuario) => mensagens.visualizarPostagem(sql, usuario, c.body)), esquemas.visualizarPostagem)
+
     .post('/mensagem/confirmar', (c) => comoUsuario(c, (sql, usuario) => mensagens.confirmarLeitura(sql, usuario, c.body)), esquemas.confirmarLeitura)
 
     .put('/mensagem/reacao', (c) => comoUsuario(c, (sql, usuario) => mensagens.alternarReacao(sql, usuario, c.body)), esquemas.reacao)

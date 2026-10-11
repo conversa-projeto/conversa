@@ -85,6 +85,9 @@ export interface Mensagem {
   excluida_em: Date | null
   excluida_por: number | null
   pede_confirmacao: boolean
+  postagem: boolean
+  postagem_titulo: string | null
+  postagem_id: number | null
 }
 
 export interface MensagemConteudo {

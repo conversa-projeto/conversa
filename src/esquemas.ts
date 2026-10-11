@@ -55,6 +55,9 @@ export const esquemas = {
       conteudos: t.Array(t.Object({ ordem: inteiro, tipo: inteiro, conteudo: t.Nullable(texto) })),
       mensagem_referencia: ouNulo(t.Object({ tipo: inteiro, origem_mensagem_id: inteiro })),
       pede_confirmacao: opcional(t.Boolean()),
+      // Postagem (só em grupo), com título opcional; ou resposta a uma postagem
+      postagem: opcional(t.Object({ titulo: ouNulo(texto) })),
+      postagem_id: ouNulo(inteiro),
     }),
   },
   mensagens: {
@@ -71,6 +74,8 @@ export const esquemas = {
   pesquisar: { query: t.Object({ conversa: inteiroPadraoZero, texto: textoPadraoVazio }) },
   reacao: { body: t.Object({ mensagem_id: inteiro, emoji: texto }) },
   confirmarLeitura: { body: t.Object({ mensagem_id: inteiro }) },
+  respostasPostagem: { query: t.Object({ id: inteiro }) },
+  visualizarPostagem: { body: t.Object({ postagem_id: inteiro }) },
 
   identificador: { query: t.Object({ identificador: texto }) },
   transcricao: { body: t.Object({ identificador: texto }) },

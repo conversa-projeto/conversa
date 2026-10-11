@@ -6,7 +6,7 @@ import type { StatusTranscricao, TipoConteudo } from './tabelas.ts'
 import { urlPublica } from './minio.ts'
 import { notificarNovaMensagemConversa, notificarStatusMensagens } from './notificacoes.ts'
 import { httpErrors } from './erros.ts'
-import { notificarConfirmacao, notificarReacao } from './websocket.ts'
+import { notificarConfirmacao, notificarPostagem, notificarReacao } from './websocket.ts'
 import {
   apagarAtividadeReacao,
   apagarAtividadesMensagem,
@@ -93,6 +93,15 @@ export interface MensagemResposta {
   conteudos: ConteudoResposta[]
   reacoes?: ReacaoResposta[]
   confirmacao?: ConfirmacaoResposta
+  postagem?: PostagemResposta
+}
+
+// Postagem: título, quantas respostas (e quantas o usuário não viu) e as últimas
+interface PostagemResposta {
+  titulo: string | null
+  respostas: number
+  nao_lidas: number
+  ultimas: MensagemResposta[]
 }
 
 // --- Linhas das consultas ---
@@ -120,6 +129,8 @@ interface MensagemLinha {
   referencia_tipo: number | null
   referencia_origem_mensagem_id: number | null
   pede_confirmacao: boolean
+  postagem: boolean
+  postagem_titulo: string | null
 }
 
 // Somas por mensagem: quantos destinatarios receberam, viram e ouviram
@@ -205,11 +216,42 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
     throw httpErrors.badRequest('Tipo de referência inválido!')
   }
 
+  // Postagem e resposta de postagem: só em grupo; a resposta vai a uma postagem
+  // da mesma conversa, visível e não excluída, e não é agendada nem outra postagem
+  const postagemId = corpo.postagem_id ?? null
+  if (corpo.postagem || postagemId) {
+    const [conversa] = await sql<{ tipo: number }[]>`select tipo from conversa where id = ${corpo.conversa_id}`
+    if (conversa?.tipo !== 2) {
+      throw httpErrors.badRequest('Postagem só existe em grupo.')
+    }
+  }
+  if (postagemId) {
+    if (corpo.postagem || agendada) {
+      throw httpErrors.badRequest('Resposta de postagem não pode ser outra postagem nem agendada.')
+    }
+    const [postagem] = await sql<{ id: number }[]>`
+      select id from mensagem
+       where id = ${postagemId} and conversa_id = ${corpo.conversa_id} and postagem
+         and excluida_em is null and (visivel_em is null or visivel_em <= now())`
+    if (!postagem) {
+      throw httpErrors.badRequest('Postagem não encontrada.')
+    }
+  }
+  const postagemTitulo = corpo.postagem?.titulo?.trim().slice(0, 150) || null
+
   const mensagem = await inserir(
     sql,
     'mensagem',
-    { conversa_id: corpo.conversa_id, usuario_id: usuario, visivel_em: visivelEm, pede_confirmacao: corpo.pede_confirmacao ?? false },
-    ['conversa_id', 'usuario_id', 'visivel_em', 'pede_confirmacao'],
+    {
+      conversa_id: corpo.conversa_id,
+      usuario_id: usuario,
+      visivel_em: visivelEm,
+      pede_confirmacao: corpo.pede_confirmacao ?? false,
+      postagem: !!corpo.postagem,
+      postagem_titulo: postagemTitulo,
+      postagem_id: postagemId,
+    },
+    ['conversa_id', 'usuario_id', 'visivel_em', 'pede_confirmacao', 'postagem', 'postagem_titulo', 'postagem_id'],
   )
 
   let referenciaGravada: { tipo: number; origem_mensagem_id: number } | undefined
@@ -241,12 +283,33 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
   }
 
   await registrarAtividadesMensagem(sql, usuario, corpo.conversa_id, mensagem.id, conteudos, referencia, visivelEm)
+  if (postagemId) {
+    await registrarRespostaPostagem(sql, usuario, corpo.conversa_id, postagemId)
+  }
 
   // Agendadas so notificam quando amadurecem, pelo agendador.
   if (!agendada) {
     await notificarNovaMensagemConversa(sql, usuario, corpo.conversa_id, partes.filter(Boolean).join(' | '))
   }
   return referenciaGravada ? { ...mensagem, mensagem_referencia: referenciaGravada } : mensagem
+}
+
+// Resposta de postagem: quem postou e quem já respondeu ganham a atividade
+// "respondeu", e quem está na conversa atualiza a postagem
+async function registrarRespostaPostagem(sql: Sql, usuario: number, conversa: number, postagem: number) {
+  const interessados = await sql<{ usuario_id: number }[]>`
+    select usuario_id from mensagem where id = ${postagem}
+     union
+    select usuario_id from mensagem where postagem_id = ${postagem} and excluida_em is null`
+  await registrarAtividades(sql, interessados
+    .filter(({ usuario_id }) => usuario_id !== usuario)
+    // Aponta para a postagem: é para onde a atividade leva (a resposta fica embaixo dela)
+    .map(({ usuario_id }) => ({ usuario_id, tipo: TipoAtividade.Resposta, autor_id: usuario, conversa_id: conversa, mensagem_id: postagem })))
+  const membros = await sql<{ usuario_id: number }[]>`
+    select usuario_id from conversa_usuario where conversa_id = ${conversa} and usuario_id <> ${usuario}`
+  for (const { usuario_id } of membros) {
+    notificarPostagem(conversa, postagem, usuario, usuario_id)
+  }
 }
 
 // Resposta a mensagem de outra pessoa e mencoes (so de membros da conversa)
@@ -349,7 +412,8 @@ export async function mensagens(sql: Sql, conversa: number, usuario: number, ref
 
   // Paginacao pelo timestamp efetivo coalesce(visivel_em, inserida), com id como
   // desempate. O cliente manda so o id de referencia e o servidor resolve o par.
-  const visivel = () => sql`(m.usuario_id = ${usuario} or m.visivel_em is null or m.visivel_em <= now())`
+  // Respostas de postagem ficam embaixo dela, fora do fluxo da conversa
+  const visivel = () => sql`(m.usuario_id = ${usuario} or m.visivel_em is null or m.visivel_em <= now()) and m.postagem_id is null`
   const posicao = () => sql`((select coalesce(visivel_em, inserida) from mensagem where id = ${referencia}), ${referencia})`
   const nenhum = sql``
 
@@ -416,10 +480,76 @@ export async function pesquisar(sql: Sql, conversa: number, usuario: number, tex
               where (m.usuario_id = ${usuario} or m.visivel_em is null or m.visivel_em <= now())
                 /* Texto de mensagem excluida nao aparece na pesquisa */
                 and m.excluida_em is null
+                /* Resposta de postagem nao tem lugar no fluxo para onde levar */
+                and m.postagem_id is null
               order by m.id
            ) as tbl`
 
   return carregarMensagens(sql, 0, usuario, script, false)
+}
+
+// Respostas visíveis de uma postagem, da mais antiga à mais nova (as últimas `limite`)
+function respostasDaPostagem(sql: Sql, conversa: number, usuario: number, postagem: number, limite: number) {
+  return carregarMensagens(sql, conversa, usuario, sql`
+    select id
+      from mensagem m
+     where m.postagem_id = ${postagem}
+       and (m.usuario_id = ${usuario} or m.visivel_em is null or m.visivel_em <= now())
+     order by coalesce(m.visivel_em, m.inserida) desc, m.id desc
+     limit ${limite}`, false)
+}
+
+const RESPOSTAS_A_MOSTRA = 2
+
+async function resumoPostagem(sql: Sql, conversa: number, usuario: number, postagem: number, titulo: string | null): Promise<PostagemResposta> {
+  const [contagem] = await sql<{ respostas: number; nao_lidas: number }[]>`
+    select count(1)::int as respostas
+         , count(1) filter (where ms.usuario_id is not null and ms.visualizada is null)::int as nao_lidas
+      from mensagem m
+      left join mensagem_status ms on ms.mensagem_id = m.id and ms.usuario_id = ${usuario}
+     where m.postagem_id = ${postagem}
+       and m.excluida_em is null`
+  return {
+    titulo,
+    respostas: contagem?.respostas ?? 0,
+    nao_lidas: contagem?.nao_lidas ?? 0,
+    ultimas: await respostasDaPostagem(sql, conversa, usuario, postagem, RESPOSTAS_A_MOSTRA),
+  }
+}
+
+async function postagemDoUsuario(sql: Sql, usuario: number, postagem: number) {
+  const [linha] = await sql<{ conversa_id: number }[]>`select conversa_id from mensagem where id = ${postagem} and postagem`
+  if (!linha) {
+    throw httpErrors.notFound('Postagem não encontrada.')
+  }
+  await validarAcessoConversa(sql, usuario, linha.conversa_id)
+  return linha.conversa_id
+}
+
+// Todas as respostas de uma postagem (até 100, as mais recentes)
+export async function respostasPostagem(sql: Sql, usuario: number, postagem: number) {
+  const conversa = await postagemDoUsuario(sql, usuario, postagem)
+  return respostasDaPostagem(sql, conversa, usuario, postagem, 100)
+}
+
+// A postagem apareceu na tela: as respostas dela contam como vistas (elas não
+// estão no fluxo, onde a página marca uma a uma)
+export async function visualizarPostagem(sql: Sql, usuario: number, corpo: Corpo<'visualizarPostagem'>) {
+  const conversa = await postagemDoUsuario(sql, usuario, corpo.postagem_id)
+  const vistas = await sql<{ mensagem_id: number }[]>`
+    update mensagem_status ms
+       set visualizada = now()
+         , recebida = coalesce(ms.recebida, now())
+      from mensagem m
+     where m.id = ms.mensagem_id
+       and m.postagem_id = ${corpo.postagem_id}
+       and ms.usuario_id = ${usuario}
+       and ms.visualizada is null
+ returning ms.mensagem_id`
+  if (vistas.length) {
+    await notificarStatusMensagens(sql, usuario, conversa, vistas.map((v) => v.mensagem_id).join(','))
+  }
+  return { vistas: vistas.length }
 }
 
 // Chat criado durante a chamada (o conteudo guarda o chamada_id), se o usuario e membro dele
@@ -555,6 +685,8 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
                   , mr.tipo as referencia_tipo
                   , mr.destino_mensagem_id as referencia_origem_mensagem_id
                   , m.pede_confirmacao
+                  , m.postagem
+                  , m.postagem_titulo
                from ( select m.*
                         from (${script}) as tm
                        inner join mensagem m
@@ -669,7 +801,9 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
       }
     }
 
-    // Mesmas chaves e na mesma ordem de sempre; referencia, reacoes e confirmacao so quando existem
+    const postagem = linha.postagem ? await resumoPostagem(sql, linha.conversa_id, usuario, linha.id, linha.postagem_titulo) : undefined
+
+    // Mesmas chaves e na mesma ordem de sempre; referencia, reacoes, confirmacao e postagem so quando existem
     resultado.push({
       id: linha.id,
       remetente_id: linha.remetente_id,
@@ -686,6 +820,7 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
       conteudos,
       ...(reacoesResposta.length ? { reacoes: reacoesResposta } : {}),
       ...(confirmacao ? { confirmacao } : {}),
+      ...(postagem ? { postagem } : {}),
     })
   }
   return resultado

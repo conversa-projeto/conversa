@@ -24,6 +24,8 @@ export const TipoMensagemSocket = {
   // Pagina -> servidor: { ativo, conversa_id } da aba; servidor -> pagina:
   // { conversa_id, usuario_id, aberta } de quem abriu ou saiu da conversa
   Presenca: 63,
+  // Postagem com resposta nova: quem está na conversa atualiza a postagem
+  PostagemAtualizada: 64,
 } as const
 export type TipoMensagemSocket = (typeof TipoMensagemSocket)[keyof typeof TipoMensagemSocket]
 
@@ -188,6 +190,10 @@ export function notificarReacao(conversa: number, mensagem: number, remetente: n
 
 export function notificarConfirmacao(conversa: number, mensagem: number, remetente: number, destinatario: number, nome: string, confirmadaEm: Date) {
   enviar(destinatario, { tipo: TipoMensagemSocket.ConfirmacaoLeitura, conversa_id: conversa, mensagem_id: mensagem, usuario_id: remetente, nome, confirmada_em: confirmadaEm })
+}
+
+export function notificarPostagem(conversa: number, postagem: number, remetente: number, destinatario: number) {
+  enviar(destinatario, { tipo: TipoMensagemSocket.PostagemAtualizada, conversa_id: conversa, postagem_id: postagem, usuario_id: remetente })
 }
 
 // Voto novo numa enquete: quem tem a bolha aberta le os votos de novo
