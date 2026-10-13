@@ -224,14 +224,19 @@ export async function sairChamada(sql: Sql, usuario: number, chamada: number) {
   return { id: chamada }
 }
 
-// Chat da chamada: grupo criado na primeira mensagem, com quem esteve nela
-// (entrou, saiu ou caiu; convidado que nao atendeu fica de fora). Ja existindo,
-// devolve o mesmo grupo.
+// Chat da chamada: grupo novo criado na primeira mensagem, com quem esteve nela
+// (entrou, saiu ou caiu; convidado que nao atendeu fica de fora), com o nome
+// dos participantes. Ja existindo, devolve o mesmo grupo.
 export async function chatChamada(sql: Sql, usuario: number, chamada: number) {
   await validarChamada(sql, usuario, chamada)
   const { conversa, criada, avisar } = await transacao(sql, async () => {
-    const [dados] = await sql<{ conversa_chat_id: number | null; conversa_id: number | null }[]>`
-      select conversa_chat_id, conversa_id from chamada where id = ${chamada} for update`
+    const [dados] = await sql<{ conversa_chat_id: number | null; conversa_id: number | null; origem_e_chat: boolean }[]>`
+      select c.conversa_chat_id
+           , c.conversa_id
+           , exists (select 1 from chamada o where o.conversa_chat_id = c.conversa_id and o.conversa_id is distinct from c.conversa_id) as origem_e_chat
+        from chamada c
+       where c.id = ${chamada}
+         for update of c`
     if (dados?.conversa_chat_id) {
       return { conversa: dados.conversa_chat_id, criada: false, avisar: false }
     }
@@ -244,14 +249,15 @@ export async function chatChamada(sql: Sql, usuario: number, chamada: number) {
        where cu.chamada_id = ${chamada}
          and (cu.status in (3, 4, 5) or cu.usuario_id = ${usuario})
        order by u.nome`
-    // Ligacao feita numa conversa que ja tem todo mundo (direta, grupo ou o
-    // chat de outra ligacao): o chat e essa conversa, sem criar outra
-    if (dados?.conversa_id && membros.every((membro) => membro.na_origem)) {
+    // Ligacao feita dentro do chat de outra ligacao, que ja tem todo mundo: o
+    // chat e esse mesmo. Conversa direta ou grupo comum nao: o historico
+    // deles nao e o desta ligacao
+    if (dados?.conversa_id && dados.origem_e_chat && membros.every((membro) => membro.na_origem)) {
       await sql`update chamada set conversa_chat_id = ${dados.conversa_id} where id = ${chamada}`
       return { conversa: dados.conversa_id, criada: false, avisar: true }
     }
     const nomes = membros.map((membro) => membro.nome).join(', ')
-    const descricao = `Chamada: ${nomes.length > 80 ? `${nomes.slice(0, 77)}...` : nomes}`
+    const descricao = nomes.length > 80 ? `${nomes.slice(0, 77)}...` : nomes
     const [nova] = await sql<{ id: number }[]>`insert into conversa (descricao, tipo) values (${descricao}, 2) returning id`
     if (!nova) {
       throw new Error('Falha ao criar o chat da chamada')
@@ -349,6 +355,8 @@ export async function finalizarChamada(sql: Sql, usuario: number, chamada: numbe
 
 export async function ativarVideo(sql: Sql, usuario: number, chamada: number) {
   await validarChamada(sql, usuario, chamada)
+  // Chamada de audio que passou a ter video fica como de video (mensagem e historico)
+  await sql`update chamada set tipo = 2 where id = ${chamada} and tipo = 1`
   await notificarMembrosChamada(sql, chamada, usuario, TipoMensagemSocket.VideoAtivado)
 }
 

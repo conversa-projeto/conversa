@@ -1,4 +1,4 @@
-import type { Fragmento, Sql } from './banco.ts'
+import { transacao, type Fragmento, type Sql } from './banco.ts'
 import { validarAcessoConversa, validarExclusaoMensagem } from './autorizacao.ts'
 import { dataIso, excluir, inserir } from './comum.ts'
 import type { Corpo } from './esquemas.ts'
@@ -6,7 +6,7 @@ import type { StatusTranscricao, TipoConteudo } from './tabelas.ts'
 import { urlPublica } from './minio.ts'
 import { notificarNovaMensagemConversa, notificarStatusMensagens } from './notificacoes.ts'
 import { httpErrors } from './erros.ts'
-import { notificarConfirmacao, notificarPostagem, notificarReacao } from './websocket.ts'
+import { notificarConfirmacao, notificarConfirmacaoPedida, notificarPostagem, notificarReacao } from './websocket.ts'
 import {
   apagarAtividadeReacao,
   apagarAtividadesMensagem,
@@ -63,11 +63,71 @@ interface ConfirmacaoUsuarioResposta {
   avatar_url: string | null
 }
 
-// Mensagem que pede confirmacao de leitura: destinatarios e quem ja confirmou
-interface ConfirmacaoResposta {
+// Mensagem que pede confirmacao de leitura: quem precisa confirmar e quem ja confirmou
+export interface ConfirmacaoResposta {
   total: number
   confirmou: boolean
+  pode_confirmar: boolean
+  destinatarios: { usuario_id: number; nome: string }[]
   usuarios: ConfirmacaoUsuarioResposta[]
+}
+
+// Prazo, depois de enviada, para passar a pedir confirmacao de leitura
+const PRAZO_PEDIR_CONFIRMACAO_HORAS = 24
+
+// Quem precisa confirmar: os outros membros, ou so os escolhidos (que precisam ser membros)
+async function destinatariosConfirmacao(sql: Sql, usuario: number, conversa: number, escolhidos: number[] | undefined) {
+  const membros = (await sql<{ usuario_id: number }[]>`
+    select usuario_id from conversa_usuario where conversa_id = ${conversa} and usuario_id <> ${usuario}`).map((m) => m.usuario_id)
+  if (!escolhidos) {
+    return membros
+  }
+  const lista = [...new Set(escolhidos)]
+  if (!lista.length || lista.some((id) => !membros.includes(id))) {
+    throw httpErrors.badRequest('Escolha quem precisa confirmar entre os membros da conversa.')
+  }
+  return lista
+}
+
+async function gravarDestinatariosConfirmacao(sql: Sql, mensagem: number, usuarios: number[]) {
+  for (const id of usuarios) {
+    await sql`
+      insert into mensagem_confirmacao_destinatario (mensagem_id, usuario_id)
+      values (${mensagem}, ${id})
+      on conflict do nothing`
+  }
+}
+
+async function confirmacaoDaMensagem(sql: Sql, mensagem: number, usuario: number): Promise<ConfirmacaoResposta> {
+  const destinatarios = await sql<{ usuario_id: number; nome: string }[]>`
+    select d.usuario_id, u.nome
+      from mensagem_confirmacao_destinatario d
+     inner join usuario u on u.id = d.usuario_id
+     where d.mensagem_id = ${mensagem}
+     order by u.nome`
+  const confirmaram = await sql<{ usuario_id: number; nome: string; avatar_objeto: string | null; confirmada_em: Date }[]>`
+    select mc.usuario_id
+         , u.nome
+         , a.objeto as avatar_objeto
+         , mc.confirmada_em
+      from mensagem_confirmacao mc
+      join usuario u
+        on u.id = mc.usuario_id
+      left join anexo as a
+        on a.id = u.avatar_anexo_id
+     where mc.mensagem_id = ${mensagem}
+     order by mc.id`
+  const confirmou = confirmaram.some((pessoa) => pessoa.usuario_id === usuario)
+  return {
+    total: destinatarios.length,
+    confirmou,
+    pode_confirmar: !confirmou && destinatarios.some((d) => d.usuario_id === usuario),
+    destinatarios: [...destinatarios],
+    usuarios: await Promise.all(confirmaram.map(async ({ avatar_objeto, ...pessoa }) => ({
+      ...pessoa,
+      avatar_url: avatar_objeto ? await urlPublica('GET', avatar_objeto, 600) : null,
+    }))),
+  }
 }
 
 interface ReacaoResposta {
@@ -238,6 +298,9 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
     }
   }
   const postagemTitulo = corpo.postagem?.titulo?.trim().slice(0, 150) || null
+  const confirmacaoUsuarios = corpo.pede_confirmacao
+    ? await destinatariosConfirmacao(sql, usuario, corpo.conversa_id, corpo.confirmacao_usuarios)
+    : []
 
   const mensagem = await inserir(
     sql,
@@ -253,6 +316,8 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
     },
     ['conversa_id', 'usuario_id', 'visivel_em', 'pede_confirmacao', 'postagem', 'postagem_titulo', 'postagem_id'],
   )
+
+  await gravarDestinatariosConfirmacao(sql, mensagem.id, confirmacaoUsuarios)
 
   let referenciaGravada: { tipo: number; origem_mensagem_id: number } | undefined
   if (referencia && referencia.origem_mensagem_id > 0) {
@@ -400,6 +465,7 @@ export async function excluirMensagem(sql: Sql, usuario: number, mensagem: numbe
   await sql`delete from mensagem_status where mensagem_id = ${mensagem}`
   await sql`delete from reacao where mensagem_id = ${mensagem}`
   await sql`delete from mensagem_confirmacao where mensagem_id = ${mensagem}`
+  await sql`delete from mensagem_confirmacao_destinatario where mensagem_id = ${mensagem}`
   await apagarAtividadesMensagem(sql, mensagem)
 
   const conteudo = await excluir(sql, 'mensagem_conteudo', mensagem, 'mensagem_id')
@@ -470,7 +536,13 @@ export async function pesquisar(sql: Sql, conversa: number, usuario: number, tex
               inner join ( select conversa_id
                              from conversa_usuario
                             where usuario_id = ${usuario}
-                            ${conversa > 0 ? sql`and conversa_id = ${conversa}` : sql``}
+                            /* Na conversa, tambem os chats das ligacoes feitas nela (de que a pessoa participou) */
+                            ${conversa > 0 ? sql`and (conversa_id = ${conversa}
+                                                   or conversa_id in (select ch.conversa_chat_id
+                                                                        from chamada ch
+                                                                       where ch.conversa_id = ${conversa}
+                                                                         and ch.conversa_chat_id is distinct from ch.conversa_id
+                                                                         and exists (select 1 from conversa_usuario cx where cx.conversa_id = ${conversa} and cx.usuario_id = ${usuario})))` : sql``}
                          ) as c
                  on c.conversa_id = m.conversa_id
               inner join mensagem_conteudo mc
@@ -776,30 +848,7 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
       }))),
     })))
 
-    let confirmacao: ConfirmacaoResposta | undefined
-    if (linha.pede_confirmacao) {
-      const [destinatarios] = await sql<{ total: number }[]>`select count(1)::int as total from mensagem_status where mensagem_id = ${linha.id}`
-      const confirmaram = await sql<{ usuario_id: number; nome: string; avatar_objeto: string | null; confirmada_em: Date }[]>`
-        select mc.usuario_id
-             , u.nome
-             , a.objeto as avatar_objeto
-             , mc.confirmada_em
-          from mensagem_confirmacao mc
-          join usuario u
-            on u.id = mc.usuario_id
-          left join anexo as a
-            on a.id = u.avatar_anexo_id
-         where mc.mensagem_id = ${linha.id}
-         order by mc.id`
-      confirmacao = {
-        total: destinatarios?.total ?? 0,
-        confirmou: confirmaram.some((pessoa) => pessoa.usuario_id === usuario),
-        usuarios: await Promise.all(confirmaram.map(async ({ avatar_objeto, ...pessoa }) => ({
-          ...pessoa,
-          avatar_url: avatar_objeto ? await urlPublica('GET', avatar_objeto, 600) : null,
-        }))),
-      }
-    }
+    const confirmacao = linha.pede_confirmacao ? await confirmacaoDaMensagem(sql, linha.id, usuario) : undefined
 
     const postagem = linha.postagem ? await resumoPostagem(sql, linha.conversa_id, usuario, linha.id, linha.postagem_titulo) : undefined
 
@@ -944,6 +993,11 @@ export async function confirmarLeitura(sql: Sql, usuario: number, corpo: Corpo<'
   if (alvo.usuario_id === usuario) {
     throw httpErrors.badRequest('Quem enviou não confirma a própria mensagem.')
   }
+  const [naLista] = await sql`
+    select 1 from mensagem_confirmacao_destinatario where mensagem_id = ${corpo.mensagem_id} and usuario_id = ${usuario}`
+  if (!naLista) {
+    throw httpErrors.forbidden('Você não está entre quem precisa confirmar esta mensagem.')
+  }
 
   const [nova] = await sql<{ confirmada_em: Date }[]>`
     insert into mensagem_confirmacao (mensagem_id, usuario_id)
@@ -959,6 +1013,45 @@ export async function confirmarLeitura(sql: Sql, usuario: number, corpo: Corpo<'
     }
   }
   return { mensagem_id: corpo.mensagem_id }
+}
+
+// Quem enviou passa a pedir confirmacao de leitura numa mensagem ja enviada,
+// ate 24 horas depois dela
+export async function pedirConfirmacao(sql: Sql, usuario: number, corpo: Corpo<'pedirConfirmacao'>) {
+  const [alvo] = await sql<{ conversa_id: number; usuario_id: number; pede_confirmacao: boolean; excluida_em: Date | null; no_prazo: boolean }[]>`
+    select conversa_id
+         , usuario_id
+         , pede_confirmacao
+         , excluida_em
+         , coalesce(visivel_em, inserida) > now() - make_interval(hours => ${PRAZO_PEDIR_CONFIRMACAO_HORAS}) as no_prazo
+      from mensagem
+     where id = ${corpo.mensagem_id}`
+  if (!alvo) {
+    throw httpErrors.notFound('Mensagem não encontrada!')
+  }
+  await validarAcessoConversa(sql, usuario, alvo.conversa_id)
+  if (alvo.usuario_id !== usuario) {
+    throw httpErrors.forbidden('Só quem enviou pede confirmação de leitura.')
+  }
+  if (alvo.excluida_em) {
+    throw httpErrors.badRequest('Mensagem apagada.')
+  }
+  if (alvo.pede_confirmacao) {
+    throw httpErrors.badRequest('Esta mensagem já pede confirmação de leitura.')
+  }
+  if (!alvo.no_prazo) {
+    throw httpErrors.badRequest(`A confirmação de leitura só pode ser pedida até ${PRAZO_PEDIR_CONFIRMACAO_HORAS} horas depois do envio.`)
+  }
+  const usuarios = await destinatariosConfirmacao(sql, usuario, alvo.conversa_id, corpo.usuarios)
+  await transacao(sql, async () => {
+    await sql`update mensagem set pede_confirmacao = true where id = ${corpo.mensagem_id}`
+    await gravarDestinatariosConfirmacao(sql, corpo.mensagem_id, usuarios)
+  })
+  const membros = await sql<{ usuario_id: number }[]>`select usuario_id from conversa_usuario where conversa_id = ${alvo.conversa_id}`
+  for (const { usuario_id } of membros) {
+    notificarConfirmacaoPedida(alvo.conversa_id, corpo.mensagem_id, usuario, usuario_id, await confirmacaoDaMensagem(sql, corpo.mensagem_id, usuario_id))
+  }
+  return await confirmacaoDaMensagem(sql, corpo.mensagem_id, usuario)
 }
 
 // Emojis diferentes que cada pessoa pode deixar na mesma mensagem

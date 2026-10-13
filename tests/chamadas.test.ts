@@ -156,7 +156,7 @@ describe('chat da chamada', () => {
     const conversas = (await chamar('GET', '/conversas', { token: ana.token })).dados as { id: number; tipo: number; descricao: string; chamada: boolean }[]
     const grupo = conversas.find((c) => c.id === chat.conversa_id)!
     expect(grupo.tipo).toBe(2)
-    expect(grupo.descricao).toStartWith('Chamada: ')
+    expect(grupo.descricao).toBe('Ana, Bruno')
     expect(grupo.chamada).toBe(true)
     expect(conversas.filter((c) => c.id !== chat.conversa_id).every((c) => !c.chamada)).toBe(true)
 
@@ -166,8 +166,23 @@ describe('chat da chamada', () => {
     expect(await membros(ana, chat.conversa_id)).toEqual([ana.id, bruno.id, carla.id].sort())
   })
 
-  test('ligação numa conversa que já tem todo mundo reaproveita a conversa, sem mudar os membros', async () => {
-    const grupo = await criarConversa(ana, [bruno, carla])
+  test('ligação nova numa conversa direta ou num grupo comum cria um chat novo, sem o histórico deles', async () => {
+    for (const origem of [await criarConversa(ana, [bruno]), await criarConversa(ana, [bruno, carla])]) {
+      const { dados: criada } = await chamar('PUT', '/chamada/iniciar', { token: ana.token, corpo: { tipo: 2, usuarios: [{ id: ana.id }, { id: bruno.id }], conversa_id: origem } })
+      await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id: criada.id } })
+      const { dados: chat } = await chamar('PUT', '/chamada/chat', { token: ana.token, corpo: { id: criada.id } })
+      expect(chat.conversa_id).not.toBe(origem)
+      expect(await membros(ana, chat.conversa_id)).toEqual([ana.id, bruno.id].sort())
+      await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id: criada.id } })
+    }
+  })
+
+  test('ligação dentro do chat de outra ligação, com todo mundo nele, reaproveita esse chat, sem mudar os membros', async () => {
+    const primeira = await ligarAvulsa(ana, [bruno, carla])
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id: primeira } })
+    await chamar('POST', '/chamada/entrar', { token: carla.token, corpo: { id: primeira } })
+    const grupo = (await chamar('PUT', '/chamada/chat', { token: ana.token, corpo: { id: primeira } })).dados.conversa_id as number
+    await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id: primeira } })
     const { dados: criada } = await chamar('PUT', '/chamada/iniciar', { token: ana.token, corpo: { tipo: 2, usuarios: [{ id: ana.id }, { id: bruno.id }, { id: carla.id }], conversa_id: grupo } })
     await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id: criada.id } })
     const antes = (await chamar('GET', '/conversas', { token: ana.token })).dados.length
@@ -175,7 +190,7 @@ describe('chat da chamada', () => {
     expect(chat.conversa_id).toBe(grupo)
     const conversas = (await chamar('GET', '/conversas', { token: ana.token })).dados as { id: number; chamada: boolean }[]
     expect(conversas).toHaveLength(antes)
-    expect(conversas.find((c) => c.id === grupo)!.chamada).toBe(false)
+    expect(conversas.find((c) => c.id === grupo)!.chamada).toBe(true)
 
     // Alguém de fora adicionado depois não entra no grupo
     const davi = (await chamar('PUT', '/chamada/usuario', { token: ana.token, corpo: { chamada_id: criada.id, usuario_id: (await criarUsuario()).id } }))
@@ -225,6 +240,17 @@ describe('resumo da chamada na conversa', () => {
     expect(conteudo).toMatchObject({ chamada_id: criada.id, tipo: 2, status: 4 })
     expect(conteudo.participantes.map((p: { usuario_id: number }) => p.usuario_id)).toEqual([ana.id, bruno.id])
     expect(resumos[0].remetente_id).toBe(ana.id)
+  })
+
+  test('chamada de áudio que ganhou vídeo fica como de vídeo na mensagem', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const { dados: criada } = await chamar('PUT', '/chamada/iniciar', { token: ana.token, corpo: { tipo: 1, usuarios: [{ id: ana.id }, { id: bruno.id }], conversa_id: conversa } })
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id: criada.id } })
+    await chamar('POST', '/chamada/video', { token: bruno.token, corpo: { id: criada.id } })
+    expect((await dados(ana, criada.id)).dados.tipo).toBe(2)
+    await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id: criada.id } })
+    const [resumo] = await resumoNaConversa(ana, conversa)
+    expect(JSON.parse(resumo.conteudos[0].conteudo).tipo).toBe(2)
   })
 
   test('quem participou recebe o resumo já como lido; quem perdeu, como não lido', async () => {

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { chamar, criarConversa, enviarTexto, usuariosComuns, type UsuarioTeste } from './api.ts'
+import { chamar, criarConversa, enviarTexto, noBanco, usuariosComuns, type UsuarioTeste } from './api.ts'
 
 let ana: UsuarioTeste, bruno: UsuarioTeste, carla: UsuarioTeste
 beforeAll(async () => ({ ana, bruno, carla } = await usuariosComuns()))
@@ -170,6 +170,21 @@ describe('pesquisa', () => {
     expect(status).toBe(200)
     expect(dados.map((m: { conversa_id: number }) => m.conversa_id)).toEqual([daAnaComBruno])
   })
+
+  test('na conversa, acha também no chat das ligações feitas nela, para quem participou', async () => {
+    const termo = `agulha${Date.now()}`
+    const direta = await criarConversa(ana, [bruno])
+    const { dados: criada } = await chamar('PUT', '/chamada/iniciar', { token: ana.token, corpo: { tipo: 2, usuarios: [{ id: ana.id }, { id: bruno.id }, { id: carla.id }], conversa_id: direta } })
+    await chamar('POST', '/chamada/entrar', { token: bruno.token, corpo: { id: criada.id } })
+    const chat = (await chamar('PUT', '/chamada/chat', { token: ana.token, corpo: { id: criada.id } })).dados.conversa_id as number
+    await chamar('POST', '/chamada/finalizar', { token: ana.token, corpo: { id: criada.id } })
+    await enviarTexto(bruno, chat, `no chat da ligação: ${termo}`)
+    await enviarTexto(ana, direta, `na conversa: ${termo}`)
+    const pesquisar = (quem: UsuarioTeste) => chamar('GET', '/pesquisar', { token: quem.token, consulta: { conversa: direta, texto: termo } })
+    expect(((await pesquisar(ana)).dados as { conversa_id: number }[]).map((m) => m.conversa_id).sort()).toEqual([direta, chat].sort())
+    // Carla não atendeu: não está no chat da ligação, nem na conversa
+    expect((await pesquisar(carla)).dados).toEqual([])
+  })
 })
 
 describe('reações', () => {
@@ -201,13 +216,20 @@ describe('reações', () => {
 describe('confirmação de leitura', () => {
   const confirmar = (quem: UsuarioTeste, mensagem: number) => chamar('POST', '/mensagem/confirmar', { token: quem.token, corpo: { mensagem_id: mensagem } })
   const daLista = async (quem: UsuarioTeste, conversa: number, mensagem: number) =>
-    ((await listar(quem, conversa)).dados as { id: number; confirmacao?: { total: number; confirmou: boolean; usuarios: { usuario_id: number; nome: string }[] } }[])
+    ((await listar(quem, conversa)).dados as { id: number; confirmacao?: { total: number; confirmou: boolean; pode_confirmar: boolean; destinatarios: { usuario_id: number; nome: string }[]; usuarios: { usuario_id: number; nome: string }[] } }[])
       .find((m) => m.id === mensagem)!
 
   test('quem envia pede; cada destinatário confirma uma vez e todos veem quem confirmou', async () => {
     const grupo = await criarConversa(ana, [bruno, carla])
     const { dados: mensagem } = await enviarTexto(ana, grupo, 'Leiam, por favor', { pede_confirmacao: true })
-    expect((await daLista(ana, grupo, mensagem.id)).confirmacao).toEqual({ total: 2, confirmou: false, usuarios: [] })
+    expect((await daLista(ana, grupo, mensagem.id)).confirmacao).toEqual({
+      total: 2,
+      confirmou: false,
+      pode_confirmar: false,
+      destinatarios: [{ usuario_id: bruno.id, nome: 'Bruno' }, { usuario_id: carla.id, nome: 'Carla' }],
+      usuarios: [],
+    })
+    expect((await daLista(bruno, grupo, mensagem.id)).confirmacao!.pode_confirmar).toBe(true)
 
     expect((await confirmar(bruno, mensagem.id)).status).toBe(200)
     expect((await confirmar(bruno, mensagem.id)).status).toBe(200)
@@ -226,5 +248,38 @@ describe('confirmação de leitura', () => {
     const { dados: pedida } = await enviarTexto(ana, conversa, 'confirma?', { pede_confirmacao: true })
     expect((await confirmar(ana, pedida.id)).status).toBe(400)
     expect((await confirmar(carla, pedida.id)).status).toBe(403)
+  })
+
+  test('com a lista escolhida, só quem está nela confirma', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const { dados: mensagem } = await enviarTexto(ana, grupo, 'Só o Bruno', { pede_confirmacao: true, confirmacao_usuarios: [bruno.id] })
+    const vistaCarla = (await daLista(carla, grupo, mensagem.id)).confirmacao!
+    expect(vistaCarla.total).toBe(1)
+    expect(vistaCarla.pode_confirmar).toBe(false)
+    expect((await confirmar(carla, mensagem.id)).status).toBe(403)
+    expect((await confirmar(bruno, mensagem.id)).status).toBe(200)
+    // Lista com quem não é membro (ou vazia) é recusada
+    expect((await enviarTexto(ana, grupo, 'x', { pede_confirmacao: true, confirmacao_usuarios: [ana.id] })).status).toBe(400)
+    expect((await enviarTexto(ana, grupo, 'x', { pede_confirmacao: true, confirmacao_usuarios: [] })).status).toBe(400)
+  })
+
+  test('quem enviou pede depois, até 24 horas, uma vez só', async () => {
+    const pedir = (quem: UsuarioTeste, mensagem: number, usuarios?: number[]) =>
+      chamar('POST', '/mensagem/pedir-confirmacao', { token: quem.token, corpo: { mensagem_id: mensagem, ...(usuarios ? { usuarios } : {}) } })
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const { dados: mensagem } = await enviarTexto(ana, grupo, 'Esqueci de pedir')
+    expect((await pedir(bruno, mensagem.id)).status).toBe(403)
+    const { status, dados: confirmacao } = await pedir(ana, mensagem.id, [carla.id])
+    expect(status).toBe(200)
+    expect(confirmacao.destinatarios).toEqual([{ usuario_id: carla.id, nome: 'Carla' }])
+    expect((await daLista(carla, grupo, mensagem.id)).confirmacao!.pode_confirmar).toBe(true)
+    expect((await confirmar(carla, mensagem.id)).status).toBe(200)
+    expect((await pedir(ana, mensagem.id)).status).toBe(400)
+
+    const { dados: antiga } = await enviarTexto(ana, grupo, 'De anteontem')
+    await noBanco((sql) => sql`update mensagem set inserida = now() - interval '25 hours' where id = ${antiga.id}`)
+    const tarde = await pedir(ana, antiga.id)
+    expect(tarde.status).toBe(400)
+    expect(tarde.dados.error).toContain('24 horas')
   })
 })

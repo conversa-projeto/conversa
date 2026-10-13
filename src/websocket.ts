@@ -26,6 +26,8 @@ export const TipoMensagemSocket = {
   Presenca: 63,
   // Postagem com resposta nova: quem está na conversa atualiza a postagem
   PostagemAtualizada: 64,
+  // Quem enviou passou a pedir confirmação de leitura numa mensagem já enviada
+  ConfirmacaoPedida: 65,
 } as const
 export type TipoMensagemSocket = (typeof TipoMensagemSocket)[keyof typeof TipoMensagemSocket]
 
@@ -190,6 +192,10 @@ export function notificarReacao(conversa: number, mensagem: number, remetente: n
 
 export function notificarConfirmacao(conversa: number, mensagem: number, remetente: number, destinatario: number, nome: string, confirmadaEm: Date) {
   enviar(destinatario, { tipo: TipoMensagemSocket.ConfirmacaoLeitura, conversa_id: conversa, mensagem_id: mensagem, usuario_id: remetente, nome, confirmada_em: confirmadaEm })
+}
+
+export function notificarConfirmacaoPedida(conversa: number, mensagem: number, remetente: number, destinatario: number, confirmacao: unknown) {
+  enviar(destinatario, { tipo: TipoMensagemSocket.ConfirmacaoPedida, conversa_id: conversa, mensagem_id: mensagem, usuario_id: remetente, confirmacao })
 }
 
 export function notificarPostagem(conversa: number, postagem: number, remetente: number, destinatario: number) {
