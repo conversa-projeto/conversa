@@ -10,6 +10,7 @@ import { notificarConfirmacao, notificarConfirmacaoPedida, notificarPostagem, no
 import {
   apagarAtividadeReacao,
   apagarAtividadesMensagem,
+  avisarAtividadesLidas,
   avisarAtividadesMensagem,
   idsMencionados,
   registrarAtividades,
@@ -620,6 +621,7 @@ export async function visualizarPostagem(sql: Sql, usuario: number, corpo: Corpo
  returning ms.mensagem_id`
   if (vistas.length) {
     await notificarStatusMensagens(sql, usuario, conversa, vistas.map((v) => v.mensagem_id).join(','))
+    await avisarAtividadesLidas(sql, usuario, vistas.map((v) => v.mensagem_id))
   }
   return { vistas: vistas.length }
 }
@@ -877,14 +879,18 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
 
 export async function marcarStatus(sql: Sql, usuario: number, corpo: Corpo<'marcarStatus'>, coluna: 'visualizada' | 'reproduzida') {
   await validarAcessoConversa(sql, usuario, corpo.conversa)
-  await sql`
+  const marcadas = await sql`
     update mensagem_status
        set ${sql(coluna)} = now()
      where conversa_id = ${corpo.conversa}
        and mensagem_id = ${corpo.mensagem}
        and usuario_id = ${usuario}
-       and ${sql(coluna)} is null`
+       and ${sql(coluna)} is null
+ returning 1`
   await notificarStatusMensagens(sql, usuario, corpo.conversa, String(corpo.mensagem))
+  if (coluna === 'visualizada' && marcadas.length) {
+    await avisarAtividadesLidas(sql, usuario, [corpo.mensagem])
+  }
   return { sucesso: true }
 }
 

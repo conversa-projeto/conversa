@@ -76,6 +76,43 @@ export async function apagarAtividadeReacao(sql: Sql, mensagem: number, autor: n
   }
 }
 
+// Resposta ou mencao que o usuario ja leu no chat: nao conta como nova.
+// Resposta de postagem aponta para a postagem: lida quando nao ha resposta do
+// autor nela sem ler.
+function atividadeLida(sql: Sql) {
+  return sql`(a.tipo in (${TipoAtividade.Resposta}, ${TipoAtividade.Mencao}) and a.mensagem_id is not null and (
+    case when a.tipo = ${TipoAtividade.Resposta}
+              and exists (select 1 from mensagem r where r.postagem_id = a.mensagem_id and r.usuario_id = a.autor_id)
+         then not exists (select 1
+                            from mensagem r
+                           inner join mensagem_status ms on ms.mensagem_id = r.id and ms.usuario_id = a.usuario_id
+                           where r.postagem_id = a.mensagem_id
+                             and r.usuario_id = a.autor_id
+                             and r.excluida_em is null
+                             and ms.visualizada is null)
+         else exists (select 1
+                        from mensagem_status ms
+                       where ms.mensagem_id = a.mensagem_id
+                         and ms.usuario_id = a.usuario_id
+                         and ms.visualizada is not null)
+    end))`
+}
+
+// Leu mensagens com resposta ou mencao para ele (ou respostas de postagem):
+// avisa, para o contador acompanhar
+export async function avisarAtividadesLidas(sql: Sql, usuario: number, mensagens: number[]) {
+  if (!mensagens.length) return
+  const [linha] = await sql`
+    select 1
+      from atividade a
+     where a.usuario_id = ${usuario}
+       and a.tipo in (${TipoAtividade.Resposta}, ${TipoAtividade.Mencao})
+       and (a.mensagem_id in ${sql(mensagens)}
+            or a.mensagem_id in (select m.postagem_id from mensagem m where m.id in ${sql(mensagens)}))
+     limit 1`
+  if (linha) notificarAtividade(usuario)
+}
+
 // Mencoes no texto, no formato @[Nome](id)
 export function idsMencionados(texto: string): number[] {
   return [...new Set([...texto.matchAll(/@\[[^\]]+\]\((\d+)\)/g)].map((m) => Number(m[1])))]
@@ -107,7 +144,7 @@ export async function atividades(sql: Sql, usuario: number, consulta: Consulta<'
     select a.id
          , a.tipo
          , a.criado_em
-         , a.criado_em > coalesce(eu.atividades_vistas_em, '-infinity'::timestamp) as nova
+         , a.criado_em > coalesce(eu.atividades_vistas_em, '-infinity'::timestamp) and not ${atividadeLida(sql)} as nova
          , a.autor_id
          , autor.nome as autor_nome
          , av.objeto as avatar_objeto
@@ -165,7 +202,8 @@ export async function atividadesNovas(sql: Sql, usuario: number) {
      inner join usuario eu on eu.id = a.usuario_id
      where a.usuario_id = ${usuario}
        and a.criado_em <= current_timestamp
-       and a.criado_em > coalesce(eu.atividades_vistas_em, '-infinity'::timestamp)`
+       and a.criado_em > coalesce(eu.atividades_vistas_em, '-infinity'::timestamp)
+       and not ${atividadeLida(sql)}`
   return { quantidade: linha?.quantidade ?? 0 }
 }
 

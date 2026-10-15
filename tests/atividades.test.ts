@@ -176,3 +176,47 @@ describe('lista, novas e vistas', () => {
     expect(await listar(bruno)).toEqual([])
   })
 })
+
+describe('lida no chat', () => {
+  const visualizar = (quem: UsuarioTeste, conversa: number, mensagem: number) =>
+    chamar('POST', '/mensagem/visualizar', { token: quem.token, corpo: { conversa, mensagem } })
+
+  test('resposta e menção lidas no chat deixam de contar como novas, e quem leu é avisado', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const original = (await enviarTexto(ana, conversa, 'pergunta')).dados.id
+    const resposta = (await enviarTexto(bruno, conversa, 'resposta', { mensagem_referencia: { tipo: 1, origem_mensagem_id: original } })).dados.id
+    const comMencao = (await enviarTexto(bruno, conversa, `veja ${mencao(ana)}`)).dados.id
+    expect(await novas(ana)).toBe(2)
+
+    const daAna = await conectarSocket(ana)
+    abertos.push(daAna)
+    expect((await visualizar(ana, conversa, resposta)).status).toBe(200)
+    await daAna.esperar((e) => e.tipo === 61)
+    expect(await novas(ana)).toBe(1)
+
+    await visualizar(ana, conversa, comMencao)
+    expect(await novas(ana)).toBe(0)
+    // Continuam na lista, sem o destaque de nova
+    expect((await listar(ana)).map((a) => a.nova)).toEqual([false, false])
+  })
+
+  test('reação não depende de leitura', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const mensagem = (await enviarTexto(ana, conversa, 'oi')).dados.id
+    await reagir(bruno, mensagem, '👍')
+    await visualizar(ana, conversa, mensagem)
+    expect(await novas(ana)).toBe(1)
+  })
+
+  test('resposta de postagem deixa de contar quando as respostas são vistas', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const postagem = (await enviarTexto(ana, grupo, 'Pauta', { postagem: { titulo: null } })).dados.id
+    await enviarTexto(bruno, grupo, 'eu topo', { postagem_id: postagem })
+    expect(await novas(ana)).toBe(1)
+    const daAna = await conectarSocket(ana)
+    abertos.push(daAna)
+    await chamar('POST', '/postagem/visualizar', { token: ana.token, corpo: { postagem_id: postagem } })
+    await daAna.esperar((e) => e.tipo === 61)
+    expect(await novas(ana)).toBe(0)
+  })
+})
