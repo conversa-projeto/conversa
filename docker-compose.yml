@@ -38,7 +38,7 @@ services:
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -129,6 +129,19 @@ services:
       rtc:
         ipv4_address: 172.30.0.20
 
+  # Banco de vetores da base de conhecimento dos bots (RAG): os trechos dos
+  # documentos com os embeddings. A API grava e busca por HTTP; os documentos
+  # (com o texto inteiro, para reindexar) ficam no PostgreSQL. A porta em
+  # 127.0.0.1 serve para os testes e para o painel em /dashboard.
+  qdrant:
+    image: qdrant/qdrant:v1.13.6
+    container_name: qdrant
+    restart: always
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant:/qdrant/storage
+
   # API em Bun com Elysia. HTTP e WebSocket, em /ws/, na porta 8080. O nginx
   # chega nela pelo nome; a porta em 127.0.0.1 serve para testes locais.
   api:
@@ -143,6 +156,8 @@ services:
       CONVERSA_PASSWORD: ${POSTGRES_PASSWORD:-root}
       # Chamadas do servidor ao MinIO vao direto pela rede do Docker.
       CONVERSA_S3_INTERNO: http://minio:9000
+      # Base de conhecimento dos bots
+      CONVERSA_QDRANT: http://qdrant:6333
       # Producao: porta publica da borda para o TURN, com TLS terminado la.
       # Vazio (desenvolvimento) usa o coturn direto na 3478.
       CONVERSA_TURN_PORTA: ${CONVERSA_TURN_PORTA:-}
@@ -158,6 +173,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      qdrant:
+        condition: service_started
 
   # nginx, ponto de entrada nos dois modos. Configuracao em bin/nginx/nginx.conf,
   # com a parte que muda em bin/nginx/desenvolvimento ou bin/nginx/producao.
@@ -189,13 +206,17 @@ networks:
       config:
         - subnet: 172.30.0.0/24
 
-# Nomes fixos para reaproveitar os volumes criados pelos antigos setup-*.bat.
+# Nomes fixos, todos com o prefixo conversa-. Os antigos pgdata e minio (dos
+# setup-*.bat) passam para conversa-postgres e conversa-minio com o
+# bin\renomear-volumes.bat, que copia os dados, confere e apaga os antigos.
 volumes:
-  pgdata:
-    name: pgdata
+  postgres:
+    name: conversa-postgres
   minio:
-    name: minio
+    name: conversa-minio
   dados:
     name: conversa-dados
   gravacoes:
     name: conversa-gravacoes
+  qdrant:
+    name: conversa-qdrant

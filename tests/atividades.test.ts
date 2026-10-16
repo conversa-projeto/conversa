@@ -15,7 +15,7 @@ afterEach(async () => {
 interface Atividade {
   id: number
   tipo: number
-  nova: boolean
+  pendente: boolean
   autor_id: number
   autor_nome: string
   conversa_id: number | null
@@ -38,7 +38,7 @@ describe('reação', () => {
     const mensagem = (await enviarTexto(ana, conversa, 'bom dia')).dados.id
     await reagir(bruno, mensagem, '😂')
     const [atividade] = await listar(ana)
-    expect(atividade).toMatchObject({ tipo: 1, autor_id: bruno.id, autor_nome: 'Bruno Atividade', conversa_id: conversa, mensagem_id: mensagem, emoji: '😂', texto: 'bom dia', nova: true })
+    expect(atividade).toMatchObject({ tipo: 1, autor_id: bruno.id, autor_nome: 'Bruno Atividade', conversa_id: conversa, mensagem_id: mensagem, emoji: '😂', texto: 'bom dia', pendente: true })
     expect(await listar(bruno)).toEqual([])
 
     await reagir(bruno, mensagem, '😂')
@@ -155,15 +155,24 @@ describe('lista, novas e vistas', () => {
     expect(segunda.map((a) => a.texto)).toEqual(['um'])
   })
 
-  test('as novas contam até o usuário ver; depois deixam de ser novas', async () => {
+  test('o número conta as pendentes: abrir a tela não conclui; concluir à mão sim, e avisa', async () => {
     const conversa = await criarConversa(ana, [bruno])
     const mensagem = (await enviarTexto(ana, conversa, 'oi')).dados.id
     await reagir(bruno, mensagem, '👍')
     await reagir(bruno, mensagem, '🎉')
     expect(await novas(ana)).toBe(2)
     expect((await chamar('POST', '/atividades/vistas', { token: ana.token })).status).toBe(200)
-    expect(await novas(ana)).toBe(0)
-    expect((await listar(ana)).every((a) => !a.nova)).toBe(true)
+    expect(await novas(ana)).toBe(2)
+    const [primeira] = await listar(ana)
+    const daAna = await conectarSocket(ana)
+    abertos.push(daAna)
+    expect((await chamar('POST', '/atividade/concluir', { token: ana.token, corpo: { id: primeira!.id } })).status).toBe(200)
+    await daAna.esperar((e) => e.tipo === 61)
+    expect(await novas(ana)).toBe(1)
+    expect((await listar(ana)).map((a) => a.pendente)).toEqual([false, true])
+    // Só a própria atividade
+    await chamar('POST', '/atividade/concluir', { token: bruno.token, corpo: { id: (await listar(ana))[1]!.id } })
+    expect(await novas(ana)).toBe(1)
   })
 
   test('quem saiu da conversa não vê mais as atividades dela', async () => {
@@ -196,8 +205,8 @@ describe('lida no chat', () => {
 
     await visualizar(ana, conversa, comMencao)
     expect(await novas(ana)).toBe(0)
-    // Continuam na lista, sem o destaque de nova
-    expect((await listar(ana)).map((a) => a.nova)).toEqual([false, false])
+    // Continuam na lista, concluídas
+    expect((await listar(ana)).map((a) => a.pendente)).toEqual([false, false])
   })
 
   test('reação não depende de leitura', async () => {
@@ -218,5 +227,65 @@ describe('lida no chat', () => {
     await chamar('POST', '/postagem/visualizar', { token: ana.token, corpo: { postagem_id: postagem } })
     await daAna.esperar((e) => e.tipo === 61)
     expect(await novas(ana)).toBe(0)
+  })
+})
+
+describe('pedido de confirmação de leitura', () => {
+  const confirmar = (quem: UsuarioTeste, mensagem: number) => chamar('POST', '/mensagem/confirmar', { token: quem.token, corpo: { mensagem_id: mensagem } })
+
+  test('quem precisa confirmar ganha a atividade, pendente até confirmar (ler não basta)', async () => {
+    const grupo = await criarConversa(ana, [bruno, carla])
+    const mensagem = (await enviarTexto(ana, grupo, 'leiam', { pede_confirmacao: true, confirmacao_usuarios: [bruno.id] })).dados.id
+    expect(await listar(bruno)).toMatchObject([{ tipo: 5, autor_id: ana.id, mensagem_id: mensagem, pendente: true }])
+    expect(await listar(carla)).toEqual([])
+    await chamar('POST', '/mensagem/visualizar', { token: bruno.token, corpo: { conversa: grupo, mensagem } })
+    expect(await novas(bruno)).toBe(1)
+    const doBruno = await conectarSocket(bruno)
+    abertos.push(doBruno)
+    expect((await confirmar(bruno, mensagem)).status).toBe(200)
+    await doBruno.esperar((e) => e.tipo === 61)
+    expect(await novas(bruno)).toBe(0)
+    expect((await listar(bruno))[0]!.pendente).toBe(false)
+  })
+
+  test('concluir à mão tira do número e deixa a confirmação pendente', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const mensagem = (await enviarTexto(ana, conversa, 'confirma?', { pede_confirmacao: true })).dados.id
+    const [atividade] = await listar(bruno)
+    await chamar('POST', '/atividade/concluir', { token: bruno.token, corpo: { id: atividade!.id } })
+    expect(await novas(bruno)).toBe(0)
+    const dados = (await chamar('GET', '/mensagens', { token: bruno.token, consulta: { conversa, mensagemreferencia: 0, mensagensprevias: 10, mensagensseguintes: 0 } })).dados as { id: number; confirmacao?: { pode_confirmar: boolean } }[]
+    expect(dados.find((m) => m.id === mensagem)!.confirmacao).toMatchObject({ pode_confirmar: true })
+    expect((await confirmar(bruno, mensagem)).status).toBe(200)
+  })
+
+  test('pedir depois também cria a atividade', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const mensagem = (await enviarTexto(ana, conversa, 'sem pedir')).dados.id
+    expect(await listar(bruno)).toEqual([])
+    expect((await chamar('POST', '/mensagem/pedir-confirmacao', { token: ana.token, corpo: { mensagem_id: mensagem } })).status).toBe(200)
+    expect(await listar(bruno)).toMatchObject([{ tipo: 5, mensagem_id: mensagem, pendente: true }])
+  })
+})
+
+describe('reação vista na mensagem', () => {
+  const vistas = (quem: UsuarioTeste, mensagens: number[]) => chamar('POST', '/atividades/reacoes-vistas', { token: quem.token, corpo: { mensagens } })
+
+  test('ver a própria mensagem com a reação conclui as reações dela, e avisa', async () => {
+    const conversa = await criarConversa(ana, [bruno, carla])
+    const uma = (await enviarTexto(ana, conversa, 'um')).dados.id
+    const outra = (await enviarTexto(ana, conversa, 'dois')).dados.id
+    await reagir(bruno, uma, '👍')
+    await reagir(carla, uma, '❤️')
+    await reagir(bruno, outra, '🎉')
+    expect(await novas(ana)).toBe(3)
+    const daAna = await conectarSocket(ana)
+    abertos.push(daAna)
+    expect((await vistas(ana, [uma])).dados).toEqual({ concluidas: 2 })
+    await daAna.esperar((e) => e.tipo === 61)
+    expect(await novas(ana)).toBe(1)
+    // Outra pessoa não conclui as de Ana
+    expect((await vistas(bruno, [outra])).dados).toEqual({ concluidas: 0 })
+    expect(await novas(ana)).toBe(1)
   })
 })

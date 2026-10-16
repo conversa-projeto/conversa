@@ -4,6 +4,7 @@ import { alterar, excluir, inserir } from './comum.ts'
 import { httpErrors } from './erros.ts'
 import type { Corpo } from './esquemas.ts'
 import { urlPublica } from './minio.ts'
+import { CodigoPermissao, validarPermissao } from './permissoes.ts'
 import type { ConversaUsuario, TipoConversa } from './tabelas.ts'
 import { notificarMembrosConversa } from './notificacoes.ts'
 import { presencaVisivel, TipoMensagemSocket } from './websocket.ts'
@@ -42,6 +43,9 @@ export interface MembroConversa {
 }
 
 export async function incluirConversa(sql: Sql, usuario: number, corpo: Corpo<'incluirConversa'>) {
+  if (corpo.tipo === 2) {
+    await validarPermissao(sql, usuario, CodigoPermissao.Grupo)
+  }
   const conversa = await inserir(sql, 'conversa', corpo, ['descricao', 'tipo'])
   // O criador entra como membro. criado_por vem do app.usuario_id no Postgres.
   await inserir(sql, 'conversa_usuario', { conversa_id: conversa.id, usuario_id: usuario }, ['conversa_id', 'usuario_id'])

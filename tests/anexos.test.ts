@@ -153,4 +153,25 @@ describe('anexo nas mensagens', () => {
     const { dados } = await chamar('GET', '/mensagens', { token: bruno.token, consulta: { conversa, mensagemreferencia: 0, mensagensprevias: 10, mensagensseguintes: 0 } })
     expect(dados[0].conteudos[0]).toMatchObject({ tipo: 3, conteudo: identificador, nome: 'relatorio.pdf', extensao: 'pdf' })
   })
+  test('áudio: duração e intensidade gravadas no envio vêm junto da mensagem; outro envio só completa o que faltava', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const conteudo = unico('áudio')
+    const bytes = new TextEncoder().encode(conteudo)
+    const identificador = new Bun.CryptoHasher('sha256').update(bytes).digest('hex')
+    const corpo = { identificador, tipo: 5, nome: 'audio.webm', extensao: 'webm', tamanho: bytes.length }
+    const pedido = await chamar('PUT', '/anexo', { token: ana.token, corpo: { ...corpo, duracao: 44.95, intensidade: [0, 12, 100, 37] } })
+    await fetch(pedido.dados.upload_url, { method: 'PUT', body: bytes, tls: { rejectUnauthorized: false } })
+    await chamar('POST', '/anexo/confirmar', { token: ana.token, consulta: { identificador } })
+    // Reenviado com outros valores: o que já existe fica
+    await chamar('PUT', '/anexo', { token: bruno.token, corpo: { ...corpo, duracao: 3, intensidade: [1] } })
+    await chamar('PUT', '/mensagem', { token: ana.token, corpo: { conversa_id: conversa, conteudos: [{ ordem: 1, tipo: 5, conteudo: identificador }, { ordem: 2, tipo: 1, conteudo: 'oi' }] } })
+    const { dados } = await chamar('GET', '/mensagens', { token: bruno.token, consulta: { conversa, mensagemreferencia: 0, mensagensprevias: 10, mensagensseguintes: 0 } })
+    expect(dados[0].conteudos[0]).toMatchObject({ tipo: 5, duracao: 44.95, intensidade: [0, 12, 100, 37], transcricao_status: 0 })
+    expect(dados[0].conteudos[1]).toMatchObject({ tipo: 1, duracao: null, intensidade: null })
+  })
+
+  test('intensidade fora de 0 a 100 é recusada', async () => {
+    const { status } = await chamar('PUT', '/anexo', { token: ana.token, corpo: { identificador: 'e'.repeat(64), tipo: 5, nome: 'a.webm', extensao: 'webm', tamanho: 1, intensidade: [101] } })
+    expect(status).toBe(400)
+  })
 })

@@ -68,7 +68,7 @@ Fechar o VS Code para o Vite. Para parar os containers, `docker compose down` na
 
 3. **Subir:** duplo-clique em `bin\producao.bat`. Sobe tudo, com o nginx na porta 80.
 
-4. **Backup:** inclua os volumes `pgdata` (banco), `minio` (anexos) e `conversa-dados` (pepper das senhas, credenciais do MinIO e segredo do TURN). Sem o `conversa-dados`, nenhum login confere. Se as gravacoes das chamadas precisarem de copia, inclua tambem o `conversa-gravacoes` (veja [Gravacao das chamadas](#gravacao-das-chamadas)).
+4. **Backup:** inclua os volumes `conversa-postgres` (banco), `conversa-minio` (anexos), `conversa-qdrant` (trechos da base de conhecimento; dá para refazer com "Reindexar tudo") e `conversa-dados` (pepper das senhas, credenciais do MinIO e segredo do TURN). Instalação antiga, com os volumes `pgdata` e `minio`: rode uma vez o `bin\renomear-volumes.bat` **antes** de subir a versão nova: ele copia os dados para os nomes novos, confere a cópia e apaga os antigos (se o volume novo já tiver dados, não copia e mantém o antigo). Sem o `conversa-dados`, nenhum login confere. Se as gravacoes das chamadas precisarem de copia, inclua tambem o `conversa-gravacoes` (veja [Gravacao das chamadas](#gravacao-das-chamadas)).
 
 ### nginx de borda
 

@@ -6,6 +6,9 @@ import { esquemas } from './esquemas.ts'
 import { TipoMensagemSocket } from './websocket.ts'
 import * as anexos from './anexos.ts'
 import * as atividades from './atividades.ts'
+import * as bots from './bots.ts'
+import * as ferramentas from './ferramentas.ts'
+import * as conhecimento from './conhecimento.ts'
 import * as enquetes from './enquetes.ts'
 import * as parametros from './parametros.ts'
 import * as permissoes from './permissoes.ts'
@@ -40,6 +43,8 @@ export function criarRotas(token: Token) {
 
     .put('/usuario', ({ body }) => comUsuario(0, (sql) => usuarios.incluirUsuario(sql, body)), esquemas.incluirUsuario)
 
+    .get('/cadastro', () => parametros.cadastroSistema())
+
     // --- Daqui em diante exigem o token ---
 
     .resolve(async ({ jwt, headers }) => ({ usuario: await usuarioDoToken(jwt.verify, tokenDoCabecalho(headers.authorization)) }))
@@ -47,7 +52,7 @@ export function criarRotas(token: Token) {
     // --- Usuario ---
 
     .post('/alterar-senha', async (c) => {
-      await comoUsuario(c, (sql, usuario) => usuarios.alterarSenha(sql, usuario, c.body))
+      await comoUsuario(c, (sql, usuario) => usuarios.trocarSenha(sql, usuario, c.body))
       return {}
     }, esquemas.alterarSenha)
 
@@ -55,6 +60,8 @@ export function criarRotas(token: Token) {
 
     .put('/dispositivo/usuario', (c) =>
       comoUsuario(c, (sql, usuario) => usuarios.incluirDispositivoUsuario(sql, usuario, c.query.dispositivo_id)), esquemas.incluirDispositivoUsuario)
+
+    .put('/usuario/novo', (c) => comoUsuario(c, (sql, usuario) => usuarios.cadastrarUsuario(sql, usuario, c.body)), esquemas.cadastrarUsuario)
 
     .patch('/usuario', (c) => comoUsuario(c, (sql, usuario) => usuarios.alterarUsuario(sql, usuario, c.body)), esquemas.alterarUsuario)
 
@@ -207,6 +214,52 @@ export function criarRotas(token: Token) {
     .delete('/permissao/usuario', (c) =>
       comoUsuario(c, (sql, usuario) => permissoes.retirarPermissao(sql, usuario, c.query)), { query: esquemas.permissaoUsuario.query })
 
+    .get('/bots', (c) => comoUsuario(c, (sql, usuario) => bots.listarBots(sql, usuario)))
+
+    .put('/bot', (c) => comoUsuario(c, (sql, usuario) => bots.criarBot(sql, usuario, c.body)), esquemas.criarBot)
+
+    .patch('/bot', (c) => comoUsuario(c, (sql, usuario) => bots.alterarBot(sql, usuario, c.body)), esquemas.alterarBot)
+
+    .delete('/bot', (c) => comoUsuario(c, (sql, usuario) => bots.excluirBot(sql, usuario, c.query.id)), esquemas.idNaConsulta)
+
+    .put('/bot/ferramentas', (c) => comoUsuario(c, (sql, usuario) => bots.definirFerramentasBot(sql, usuario, c.body)), esquemas.ferramentasBot)
+
+    .put('/bot/conhecimento', (c) => comoUsuario(c, (sql, usuario) => bots.definirConhecimentoBot(sql, usuario, c.body)), esquemas.conhecimentoBot)
+
+    .get('/conhecimento/bases', (c) => comoUsuario(c, (sql, usuario) => conhecimento.listarBases(sql, usuario)))
+
+    .get('/conhecimento/disponiveis', (c) => comoUsuario(c, (sql, usuario) => conhecimento.basesDisponiveis(sql, usuario)))
+
+    .put('/conhecimento/base', (c) => comoUsuario(c, (sql, usuario) => conhecimento.incluirBase(sql, usuario, c.body)), esquemas.incluirBase)
+
+    .patch('/conhecimento/base', (c) => comoUsuario(c, (sql, usuario) => conhecimento.alterarBase(sql, usuario, c.body)), esquemas.alterarBase)
+
+    .delete('/conhecimento/base', (c) => comoUsuario(c, (sql, usuario) => conhecimento.excluirBase(sql, usuario, c.query.id)), esquemas.idNaConsulta)
+
+    .get('/conhecimento/documentos', (c) => comoUsuario(c, (sql, usuario) => conhecimento.listarDocumentos(sql, usuario, c.query.base)), esquemas.documentosBase)
+
+    .put('/conhecimento/documento', (c) => comoUsuario(c, (sql, usuario) => conhecimento.incluirDocumento(sql, usuario, c.body)), esquemas.incluirDocumento)
+
+    .delete('/conhecimento/documento', (c) => comoUsuario(c, (sql, usuario) => conhecimento.excluirDocumento(sql, usuario, c.query.id)), esquemas.idNaConsulta)
+
+    .post('/conhecimento/buscar', (c) => comoUsuario(c, (sql, usuario) => conhecimento.testarBusca(sql, usuario, c.body)), esquemas.buscarConhecimento)
+
+    .post('/conhecimento/reindexar', (c) => comoUsuario(c, (sql, usuario) => conhecimento.reindexarTudo(sql, usuario)))
+
+    .get('/ferramentas', (c) => comoUsuario(c, (sql, usuario) => ferramentas.listarFerramentas(sql, usuario)))
+
+    .get('/ferramentas/disponiveis', (c) => comoUsuario(c, (sql, usuario) => ferramentas.ferramentasDisponiveis(sql, usuario)))
+
+    .put('/ferramenta', (c) => comoUsuario(c, (sql, usuario) => ferramentas.incluirFerramenta(sql, usuario, c.body)), esquemas.incluirFerramenta)
+
+    .patch('/ferramenta', (c) => comoUsuario(c, (sql, usuario) => ferramentas.alterarFerramenta(sql, usuario, c.body)), esquemas.alterarFerramenta)
+
+    .delete('/ferramenta', (c) => comoUsuario(c, (sql, usuario) => ferramentas.excluirFerramenta(sql, usuario, c.query.id)), esquemas.idNaConsulta)
+
+    .post('/ferramenta/testar', (c) => comoUsuario(c, (sql, usuario) => ferramentas.testarFerramenta(sql, usuario, c.body)), esquemas.testarFerramenta)
+
+    .put('/bot/permissoes', (c) => comoUsuario(c, (sql, usuario) => bots.definirPermissoesBot(sql, usuario, c.body)), esquemas.permissoesBot)
+
     .post('/parametros/ia/testar', (c) => comoUsuario(c, (sql, usuario) => parametros.testarIa(sql, usuario, c.body)), esquemas.testarIa)
 
     .post('/ia/sugestao', (c) =>
@@ -225,6 +278,10 @@ export function criarRotas(token: Token) {
     .get('/atividades/novas', (c) => comoUsuario(c, (sql, usuario) => atividades.atividadesNovas(sql, usuario)))
 
     .post('/atividades/vistas', (c) => comoUsuario(c, (sql, usuario) => atividades.marcarAtividadesVistas(sql, usuario)))
+
+    .post('/atividade/concluir', (c) => comoUsuario(c, (sql, usuario) => atividades.concluirAtividade(sql, usuario, c.body.id)), esquemas.idNoCorpo)
+
+    .post('/atividades/reacoes-vistas', (c) => comoUsuario(c, (sql, usuario) => atividades.concluirReacoesVistas(sql, usuario, c.body.mensagens)), esquemas.reacoesVistas)
 
     .put('/chamada/chat', (c) => comoUsuario(c, (sql, usuario) => chamadas.chatChamada(sql, usuario, c.body.id)), esquemas.idNoCorpo)
 

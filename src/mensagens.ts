@@ -6,12 +6,15 @@ import type { StatusTranscricao, TipoConteudo } from './tabelas.ts'
 import { urlPublica } from './minio.ts'
 import { notificarNovaMensagemConversa, notificarStatusMensagens } from './notificacoes.ts'
 import { httpErrors } from './erros.ts'
+import { aoNovaMensagem } from './bots.ts'
+import { CodigoPermissao, validarPermissao, validarPermissoes } from './permissoes.ts'
 import { notificarConfirmacao, notificarConfirmacaoPedida, notificarPostagem, notificarReacao } from './websocket.ts'
 import {
   apagarAtividadeReacao,
   apagarAtividadesMensagem,
   avisarAtividadesLidas,
   avisarAtividadesMensagem,
+  avisarConfirmacaoFeita,
   idsMencionados,
   registrarAtividades,
   TipoAtividade,
@@ -30,6 +33,9 @@ interface ConteudoResposta {
   extensao: string
   transcricao_status: StatusTranscricao
   transcricao: string
+  // Audio: duracao em segundos e picos de 0 a 100 para a onda (gravados no envio)
+  duracao: number | null
+  intensidade: number[] | null
   // Mensagem de chamada: o chat da chamada, para quem e membro dele
   chat_chamada_id?: number
 }
@@ -97,6 +103,11 @@ async function gravarDestinatariosConfirmacao(sql: Sql, mensagem: number, usuari
       values (${mensagem}, ${id})
       on conflict do nothing`
   }
+}
+
+// Quem precisa confirmar a leitura ganha a atividade, pendente ate confirmar
+function atividadesConfirmacao(autor: number, conversa: number, mensagem: number, usuarios: number[], criadoEm: string | null): NovaAtividade[] {
+  return usuarios.map((usuario_id) => ({ usuario_id, tipo: TipoAtividade.Confirmacao, autor_id: autor, conversa_id: conversa, mensagem_id: mensagem, criado_em: criadoEm }))
 }
 
 async function confirmacaoDaMensagem(sql: Sql, mensagem: number, usuario: number): Promise<ConfirmacaoResposta> {
@@ -176,6 +187,8 @@ interface ConteudoLinha {
   extensao: string | null
   transcricao_status: StatusTranscricao | null
   transcricao: string | null
+  duracao: string | null
+  intensidade: number[] | null
 }
 
 interface MensagemLinha {
@@ -232,6 +245,41 @@ function textoConteudo(tipo: number, conteudo: string) {
     case 8: return 'enquete'
     default: return ''
   }
+}
+
+const EMOJI = /\p{Extended_Pictographic}/u
+const EXTENSOES_VIDEO = ['mp4', 'webm', 'ogg', 'mov', 'm4v', 'mkv']
+
+// O que a mensagem pede de permissao. Encaminhar so pede "encaminhar": os
+// conteudos sao de outra mensagem. Video e arquivo (tipo 3) pela extensao do anexo.
+async function permissoesMensagem(sql: Sql, corpo: Corpo<'incluirMensagem'>, conteudos: Corpo<'incluirMensagem'>['conteudos']) {
+  const codigos: CodigoPermissao[] = []
+  const referencia = corpo.mensagem_referencia
+  if (referencia && referencia.origem_mensagem_id > 0) {
+    codigos.push(referencia.tipo === 2 ? CodigoPermissao.Encaminhar : CodigoPermissao.Responder)
+    if (referencia.tipo === 2) return codigos
+  }
+  if (corpo.postagem) codigos.push(CodigoPermissao.Postagem)
+  if (corpo.pede_confirmacao) codigos.push(CodigoPermissao.Confirmacao)
+  if (typeof corpo.visivel_em === 'string' && corpo.visivel_em.trim()) codigos.push(CodigoPermissao.Agendar)
+  const arquivos: string[] = []
+  for (const item of conteudos) {
+    if (item.tipo === 1 && EMOJI.test(item.conteudo ?? '')) codigos.push(CodigoPermissao.Emoji)
+    else if (item.tipo === 2) codigos.push(CodigoPermissao.Imagem)
+    else if (item.tipo === 4 || item.tipo === 5) codigos.push(CodigoPermissao.Audio)
+    else if (item.tipo === 7) codigos.push(CodigoPermissao.Figurinha)
+    else if (item.tipo === 3 && item.conteudo) arquivos.push(item.conteudo)
+  }
+  if (arquivos.length) {
+    const anexos = await sql<{ extensao: string | null; nome: string | null }[]>`
+      select extensao, nome from anexo where identificador in ${sql(arquivos)}`
+    for (const anexo of anexos) {
+      const extensao = (anexo.extensao || anexo.nome?.split('.').pop() || '').toLowerCase().replace(/^\./, '')
+      codigos.push(EXTENSOES_VIDEO.includes(extensao) ? CodigoPermissao.Video : CodigoPermissao.Arquivo)
+    }
+    if (anexos.length < arquivos.length) codigos.push(CodigoPermissao.Arquivo)
+  }
+  return codigos
 }
 
 // enquete: chamada pela criacao de enquete, a unica que grava o conteudo tipo 8
@@ -298,6 +346,7 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
       throw httpErrors.badRequest('Postagem não encontrada.')
     }
   }
+  await validarPermissoes(sql, usuario, await permissoesMensagem(sql, corpo, conteudos))
   const postagemTitulo = corpo.postagem?.titulo?.trim().slice(0, 150) || null
   const confirmacaoUsuarios = corpo.pede_confirmacao
     ? await destinatariosConfirmacao(sql, usuario, corpo.conversa_id, corpo.confirmacao_usuarios)
@@ -319,6 +368,7 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
   )
 
   await gravarDestinatariosConfirmacao(sql, mensagem.id, confirmacaoUsuarios)
+  await registrarAtividades(sql, atividadesConfirmacao(usuario, corpo.conversa_id, mensagem.id, confirmacaoUsuarios, visivelEm ?? null))
 
   let referenciaGravada: { tipo: number; origem_mensagem_id: number } | undefined
   if (referencia && referencia.origem_mensagem_id > 0) {
@@ -353,9 +403,10 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
     await registrarRespostaPostagem(sql, usuario, corpo.conversa_id, postagemId)
   }
 
-  // Agendadas so notificam quando amadurecem, pelo agendador.
+  // Agendadas so notificam (e chamam os bots) quando amadurecem, pelo agendador.
   if (!agendada) {
     await notificarNovaMensagemConversa(sql, usuario, corpo.conversa_id, partes.filter(Boolean).join(' | '))
+    aoNovaMensagem(corpo.conversa_id, mensagem.id, usuario)
   }
   return referenciaGravada ? { ...mensagem, mensagem_referencia: referenciaGravada } : mensagem
 }
@@ -432,6 +483,7 @@ export async function notificarMensagemAgendada(sql: Sql, mensagemId: number) {
   await notificarNovaMensagemConversa(sql, mensagem.usuario_id, mensagem.conversa_id, texto)
   await notificarStatusMensagens(sql, mensagem.usuario_id, mensagem.conversa_id, String(mensagemId))
   await avisarAtividadesMensagem(sql, mensagemId)
+  aoNovaMensagem(mensagem.conversa_id, mensagemId, mensagem.usuario_id)
 }
 
 // Excluir marca a mensagem: ela continua na conversa como excluida, com o
@@ -439,6 +491,7 @@ export async function notificarMensagemAgendada(sql: Sql, mensagemId: number) {
 // agendada que ainda nao saiu (ninguem viu) e apagada de vez.
 export async function excluirMensagem(sql: Sql, usuario: number, mensagem: number) {
   await validarExclusaoMensagem(sql, usuario, mensagem)
+  await validarPermissao(sql, usuario, CodigoPermissao.Ocultar)
 
   const [alvo] = await sql<{ conversa_id: number; agendada: boolean; excluida_em: Date | null }[]>`
     select conversa_id
@@ -647,7 +700,7 @@ async function chatDaChamada(sql: Sql, usuario: number, conteudo: string) {
 
 async function carregarConteudos(sql: Sql, mensagemId: number): Promise<ConteudoResposta[]> {
   const linhas = await sql<ConteudoLinha[]>`
-    select id, ordem, tipo, conteudo, nome, extensao, transcricao_status, transcricao
+    select id, ordem, tipo, conteudo, nome, extensao, transcricao_status, transcricao, duracao, intensidade
       from ( /* Texto, chamada, figurinha e enquete */
              select id
                   , ordem
@@ -657,6 +710,8 @@ async function carregarConteudos(sql: Sql, mensagemId: number): Promise<Conteudo
                   , null as extensao
                   , null::int4 as transcricao_status
                   , null::text as transcricao
+                  , null::numeric as duracao
+                  , null::int2[] as intensidade
                from mensagem_conteudo
               where mensagem_id = ${mensagemId}
                 and tipo in (1, 6, 7, 8)
@@ -670,8 +725,10 @@ async function carregarConteudos(sql: Sql, mensagemId: number): Promise<Conteudo
                   , tbl.conteudo
                   , a.nome
                   , a.extensao
-                  , t.status as transcricao_status
-                  , t.texto as transcricao
+                  , t.transcricao_status
+                  , t.transcricao
+                  , t.duracao
+                  , t.intensidade
                from ( select id
                            , ordem
                            , tipo
@@ -682,7 +739,7 @@ async function carregarConteudos(sql: Sql, mensagemId: number): Promise<Conteudo
                     ) as tbl
               inner join anexo a
                  on a.identificador = tbl.conteudo
-               left join anexo_transcricao t
+               left join anexo_audio t
                  on t.identificador = tbl.conteudo
            ) as tbl
      order by ordem`
@@ -695,6 +752,8 @@ async function carregarConteudos(sql: Sql, mensagemId: number): Promise<Conteudo
     extensao: linha.extensao ?? '',
     transcricao_status: linha.transcricao_status ?? 0,
     transcricao: linha.transcricao ?? '',
+    duracao: linha.duracao === null ? null : Number(linha.duracao),
+    intensidade: linha.intensidade,
   }))
 }
 
@@ -1017,6 +1076,7 @@ export async function confirmarLeitura(sql: Sql, usuario: number, corpo: Corpo<'
     for (const { usuario_id } of membros) {
       notificarConfirmacao(alvo.conversa_id, corpo.mensagem_id, usuario, usuario_id, quem?.nome ?? '', nova.confirmada_em)
     }
+    await avisarConfirmacaoFeita(sql, usuario, corpo.mensagem_id)
   }
   return { mensagem_id: corpo.mensagem_id }
 }
@@ -1039,6 +1099,7 @@ export async function pedirConfirmacao(sql: Sql, usuario: number, corpo: Corpo<'
   if (alvo.usuario_id !== usuario) {
     throw httpErrors.forbidden('Só quem enviou pede confirmação de leitura.')
   }
+  await validarPermissao(sql, usuario, CodigoPermissao.Confirmacao)
   if (alvo.excluida_em) {
     throw httpErrors.badRequest('Mensagem apagada.')
   }
@@ -1053,6 +1114,7 @@ export async function pedirConfirmacao(sql: Sql, usuario: number, corpo: Corpo<'
     await sql`update mensagem set pede_confirmacao = true where id = ${corpo.mensagem_id}`
     await gravarDestinatariosConfirmacao(sql, corpo.mensagem_id, usuarios)
   })
+  await registrarAtividades(sql, atividadesConfirmacao(usuario, alvo.conversa_id, corpo.mensagem_id, usuarios, null))
   const membros = await sql<{ usuario_id: number }[]>`select usuario_id from conversa_usuario where conversa_id = ${alvo.conversa_id}`
   for (const { usuario_id } of membros) {
     notificarConfirmacaoPedida(alvo.conversa_id, corpo.mensagem_id, usuario, usuario_id, await confirmacaoDaMensagem(sql, corpo.mensagem_id, usuario_id))
@@ -1069,6 +1131,7 @@ export async function alternarReacao(sql: Sql, usuario: number, corpo: Corpo<'re
     throw httpErrors.notFound('Mensagem não encontrada!')
   }
   await validarAcessoConversa(sql, usuario, alvo.conversa_id)
+  await validarPermissao(sql, usuario, CodigoPermissao.Reagir)
 
   const [existe] = await sql<{ id: number }[]>`select id from reacao where mensagem_id = ${corpo.mensagem_id} and usuario_id = ${usuario} and emoji = ${corpo.emoji}`
   let acao: 'add' | 'remove'

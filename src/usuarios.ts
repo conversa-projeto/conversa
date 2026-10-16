@@ -1,10 +1,13 @@
-import type { Sql } from './banco.ts'
+import { transacao, type Sql } from './banco.ts'
 import { validarContatoUsuario, validarSenhaAtual } from './autorizacao.ts'
 import { alterar, excluir, inserir, semSenha } from './comum.ts'
 import type { Corpo } from './esquemas.ts'
 import { conferirSenha, gerarHash } from './senha.ts'
 import type { Dispositivo, Usuario } from './tabelas.ts'
 import { httpErrors } from './erros.ts'
+import { CodigoPermissao, concederPermissoesUso, validarPermissao, validarPermissoes } from './permissoes.ts'
+import { configuracao } from './configuracao.ts'
+import { ehBot, incluirBot } from './bots.ts'
 import { alterarPreferenciasPresenca, presencaVisivel } from './websocket.ts'
 
 
@@ -30,6 +33,9 @@ export async function login(sql: Sql, corpo: Corpo<'login'>) {
      where lower(u.login) = lower(${corpo.login})`
   if (!usuario) {
     throw httpErrors.unauthorized('Usuário não encontrado!')
+  }
+  if (await ehBot(sql, usuario.id)) {
+    throw httpErrors.unauthorized('Bot não entra pelo login.')
   }
 
   const hash = usuario.senha
@@ -94,7 +100,15 @@ export async function incluirDispositivoUsuario(sql: Sql, usuario: number, dispo
   return inserir(sql, 'dispositivo_usuario', { usuario_id: usuario, dispositivo_id: dispositivo }, ['usuario_id', 'dispositivo_id'])
 }
 
+// Cadastro pela tela de login: so com o cadastro aberto
 export async function incluirUsuario(sql: Sql, corpo: Corpo<'incluirUsuario'>) {
+  if (!configuracao.cadastroAberto) {
+    throw httpErrors.forbidden('O cadastro está fechado: peça a um administrador para criar sua conta.')
+  }
+  return semSenha(await criarConta(sql, corpo))
+}
+
+async function criarConta(sql: Sql, corpo: Corpo<'incluirUsuario'>) {
   const [existente] = await sql<Pick<Usuario, 'id'>[]>`select id from usuario where lower(login) = lower(${corpo.login})`
   if (existente) {
     throw httpErrors.badRequest('Login já cadastrado!')
@@ -103,7 +117,45 @@ export async function incluirUsuario(sql: Sql, corpo: Corpo<'incluirUsuario'>) {
     throw httpErrors.badRequest('A senha deve ter entre 4 e 72 caracteres!')
   }
   const usuario = await inserir(sql, 'usuario', { ...corpo, senha: await gerarHash(corpo.senha) }, COLUNAS_USUARIO_INCLUIR)
-  return semSenha(usuario)
+  await concederPermissoesUso(sql, usuario.id)
+  return usuario
+}
+
+// Pelo administrador (permissao "usuarios"), mesmo com o cadastro fechado:
+// uma pessoa, com login, e-mail e senha, ou um bot, com as instrucoes. O
+// avatar e uma imagem ja enviada (PUT /anexo).
+export async function cadastrarUsuario(sql: Sql, usuario: number, corpo: Corpo<'cadastrarUsuario'>) {
+  await validarPermissao(sql, usuario, CodigoPermissao.Usuarios)
+  const avatar = corpo.avatar_anexo_id ?? null
+  if (avatar) {
+    const [anexo] = await sql`select 1 from anexo where id = ${avatar} and tipo = 2`
+    if (!anexo) {
+      throw httpErrors.badRequest('Avatar inválido: envie uma imagem.')
+    }
+  }
+  if (corpo.bot) {
+    // O bot nasce na transacao dele (conta, bot e permissoes)
+    const bot = await incluirBot(sql, usuario, corpo.nome, corpo.instrucoes ?? '')
+    if (avatar) await sql`update usuario set avatar_anexo_id = ${avatar} where id = ${bot.usuario_id}`
+    return { id: bot.usuario_id, nome: bot.nome, login: bot.login, bot: true }
+  }
+  const login = corpo.login?.trim() ?? ''
+  const email = corpo.email?.trim() ?? ''
+  if (!corpo.nome.trim() || !login || !email || !corpo.senha) {
+    throw httpErrors.badRequest('Preencha nome, login, e-mail e senha.')
+  }
+  const conta = await transacao(sql, async () => {
+    const criada = await criarConta(sql, { nome: corpo.nome.trim(), login, email, telefone: corpo.telefone ?? null, senha: corpo.senha! })
+    if (avatar) await sql`update usuario set avatar_anexo_id = ${avatar} where id = ${criada.id}`
+    return criada
+  })
+  return { id: conta.id, nome: conta.nome, login: conta.login, bot: false }
+}
+
+// Trocar a propria senha pede a permissao; a conversao da senha legada no login, nao
+export async function trocarSenha(sql: Sql, usuario: number, corpo: Corpo<'alterarSenha'>) {
+  await validarPermissao(sql, usuario, CodigoPermissao.Senha)
+  await alterarSenha(sql, usuario, corpo)
 }
 
 // Cada usuario so altera e exclui o proprio cadastro.
@@ -111,6 +163,13 @@ export async function alterarUsuario(sql: Sql, usuario: number, corpo: Corpo<'al
   if (corpo.id !== usuario) {
     throw httpErrors.forbidden('Acesso negado!')
   }
+  // Nome, e-mail (com o telefone), avatar e privacidade pedem cada um a sua permissao
+  const pedidas: CodigoPermissao[] = []
+  if ('nome' in corpo) pedidas.push(CodigoPermissao.Nome)
+  if ('email' in corpo || 'telefone' in corpo) pedidas.push(CodigoPermissao.Email)
+  if ('avatar_anexo_id' in corpo) pedidas.push(CodigoPermissao.Avatar)
+  if (['mostrar_visto_em', 'mostrar_na_conversa', 'aparecer_offline'].some((campo) => campo in corpo)) pedidas.push(CodigoPermissao.Privacidade)
+  await validarPermissoes(sql, usuario, pedidas)
   const alterado = await alterar(sql, 'usuario', corpo.id, corpo, COLUNAS_USUARIO_ALTERAR)
   if ('aparecer_offline' in alterado) {
     const { mostrar_visto_em, mostrar_na_conversa, aparecer_offline } = alterado
@@ -130,11 +189,14 @@ export async function excluirUsuario(sql: Sql, usuario: number, id: number) {
   if (id !== usuario) {
     throw httpErrors.forbidden('Acesso negado!')
   }
-  // Os dispositivos são da conta e saem junto. Outro histórico (mensagens,
-  // conversas, chamadas) impede a exclusão.
-  await sql`delete from dispositivo_usuario where usuario_id = ${id} or dispositivo_id in (select d.id from dispositivo as d where d.usuario_id = ${id})`
-  await sql`delete from dispositivo where usuario_id = ${id}`
-  const excluido = await excluir(sql, 'usuario', id).catch((erro: { code?: string }) => {
+  // Os dispositivos e as permissões são da conta e saem junto. Outro histórico
+  // (mensagens, conversas, chamadas) impede a exclusão, e aí nada sai.
+  const excluido = await transacao(sql, async () => {
+    await sql`delete from dispositivo_usuario where usuario_id = ${id} or dispositivo_id in (select d.id from dispositivo as d where d.usuario_id = ${id})`
+    await sql`delete from dispositivo where usuario_id = ${id}`
+    await sql`delete from permissao_usuario where usuario_id = ${id}`
+    return excluir(sql, 'usuario', id)
+  }).catch((erro: { code?: string }) => {
     if (erro.code === '23503') throw httpErrors.conflict('A conta tem histórico e não pode ser excluída!')
     throw erro
   })
@@ -150,8 +212,13 @@ export async function excluirContato(sql: Sql, usuario: number, contato: number)
   return excluir(sql, 'usuario_contato', contato)
 }
 
+// bot: a pagina mostra a marca de bot ao lado do nome
 export function contatos(sql: Sql) {
-  return sql<Pick<Usuario, 'id' | 'nome' | 'login' | 'email' | 'telefone'>[]>`select u.id, u.nome, u.login, u.email, u.telefone from usuario as u order by u.id`
+  return sql<(Pick<Usuario, 'id' | 'nome' | 'login' | 'email' | 'telefone'> & { bot: boolean })[]>`
+    select u.id, u.nome, u.login, u.email, u.telefone, exists (select 1 from bot b where b.usuario_id = u.id) as bot
+      from usuario as u
+     where not exists (select 1 from bot b where b.usuario_id = u.id and b.excluido_em is not null)
+     order by u.id`
 }
 
 // Contatos de conversas diretas que estao com o WebSocket conectado agora.

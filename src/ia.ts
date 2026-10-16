@@ -116,3 +116,126 @@ export function lerJson(texto: string): unknown {
     throw new Error('A resposta da IA não veio no formato esperado.')
   }
 }
+
+// --- Ferramentas (function calling no padrao da OpenAI), para os bots ---
+
+export interface ChamadaFerramenta {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+export type MensagemComFerramentas =
+  | MensagemIa
+  | { role: 'assistant'; content: string | null; tool_calls: ChamadaFerramenta[] }
+  | { role: 'tool'; tool_call_id: string; content: string }
+
+export interface Ferramenta {
+  type: 'function'
+  function: { name: string; description: string; parameters: object }
+}
+
+export interface RespostaComFerramentas {
+  texto: string
+  chamadas: ChamadaFerramenta[]
+}
+
+// Como completar, mas o modelo pode pedir ferramentas em vez de (ou junto com)
+// o texto. Servidor que recusar as ferramentas com 400 recebe o pedido sem elas:
+// o bot ao menos responde em texto.
+export async function completarComFerramentas(
+  mensagens: MensagemComFerramentas[],
+  ferramentas: Ferramenta[],
+  opcoes: { servidor?: ServidorIa; tempoLimiteMs?: number; maxTokens?: number } = {},
+): Promise<RespostaComFerramentas> {
+  const servidor = opcoes.servidor ?? configuracao.ia
+  if (!servidor.url.trim() || !servidor.modelo.trim()) {
+    throw httpErrors.badRequest('IA não configurada: defina o endereço e o modelo nas configurações do sistema.')
+  }
+  const tempo = AbortSignal.timeout(opcoes.tempoLimiteMs ?? TEMPO_LIMITE_MS)
+  const pedir = (comFerramentas: boolean) => fetch(enderecoCompletions(servidor.url), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(servidor.token.trim() ? { Authorization: `Bearer ${servidor.token.trim()}` } : {}),
+    },
+    body: JSON.stringify({
+      model: servidor.modelo.trim(),
+      messages: mensagens,
+      temperature: 0.4,
+      stream: false,
+      ...(opcoes.maxTokens ? { max_tokens: opcoes.maxTokens } : {}),
+      ...(comFerramentas && ferramentas.length ? { tools: ferramentas, tool_choice: 'auto' } : {}),
+    }),
+    signal: tempo,
+  })
+  let resposta: Response
+  try {
+    resposta = await pedir(true)
+    if (resposta.status === 400 && ferramentas.length) {
+      console.warn('[IA] Servidor recusou as ferramentas, pedindo sem elas:', (await resposta.text()).slice(0, 200))
+      resposta = await pedir(false)
+    }
+  } catch (erro) {
+    const esgotado = erro instanceof Error && erro.name === 'TimeoutError'
+    throw new Error(esgotado ? 'O servidor de IA demorou demais para responder.' : `Não foi possível falar com o servidor de IA (${erro instanceof Error ? erro.message : erro}).`)
+  }
+  if (!resposta.ok) {
+    const detalhe = (await resposta.text()).slice(0, 300)
+    throw new Error(`O servidor de IA respondeu ${resposta.status}${detalhe ? `: ${detalhe}` : ''}`)
+  }
+  const dados = await resposta.json() as { choices?: { message?: { content?: string | null; tool_calls?: ChamadaFerramenta[] | null } }[] }
+  const mensagem = dados.choices?.[0]?.message
+  return {
+    texto: typeof mensagem?.content === 'string' ? mensagem.content : '',
+    chamadas: (mensagem?.tool_calls ?? []).filter((chamada) => chamada?.function?.name),
+  }
+}
+
+// --- Embeddings (POST /v1/embeddings), para a base de conhecimento ---
+
+// Modelos treinados com um prefixo que diz se o texto e a pergunta ou o
+// documento: sem ele, os resultados ficam bem piores
+const PREFIXOS_EMBEDDINGS: [RegExp, { pergunta: string; documento: string }][] = [
+  [/nomic-embed/i, { pergunta: 'search_query: ', documento: 'search_document: ' }],
+  [/(^|[/-])e5[-_]/i, { pergunta: 'query: ', documento: 'passage: ' }],
+]
+
+export function prefixoEmbeddings(modelo: string, tipo: 'pergunta' | 'documento') {
+  return PREFIXOS_EMBEDDINGS.find(([padrao]) => padrao.test(modelo))?.[1][tipo] ?? ''
+}
+
+// Vetor de cada texto, na mesma ordem, com o modelo de embeddings do sistema
+export async function gerarEmbeddings(textos: string[], opcoes: { tempoLimiteMs?: number; tipo?: 'pergunta' | 'documento' } = {}): Promise<number[][]> {
+  const servidor = configuracao.ia
+  const modelo = configuracao.iaModeloEmbeddings
+  if (!servidor.url.trim() || !modelo) {
+    throw httpErrors.badRequest('Base de conhecimento desligada: defina o servidor de IA e o modelo de embeddings nas configurações do sistema.')
+  }
+  const endereco = enderecoCompletions(servidor.url).replace(/\/chat\/completions$/, '/embeddings')
+  let resposta: Response
+  try {
+    resposta = await fetch(endereco, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(servidor.token.trim() ? { Authorization: `Bearer ${servidor.token.trim()}` } : {}),
+      },
+      body: JSON.stringify({ model: modelo, input: textos.map((texto) => prefixoEmbeddings(modelo, opcoes.tipo ?? 'documento') + texto) }),
+      signal: AbortSignal.timeout(opcoes.tempoLimiteMs ?? TEMPO_LIMITE_MS),
+    })
+  } catch (erro) {
+    const esgotado = erro instanceof Error && erro.name === 'TimeoutError'
+    throw new Error(esgotado ? 'O servidor de IA demorou demais para gerar os embeddings.' : `Não foi possível falar com o servidor de IA (${erro instanceof Error ? erro.message : erro}).`)
+  }
+  if (!resposta.ok) {
+    const detalhe = (await resposta.text()).slice(0, 300)
+    throw new Error(`O servidor de IA respondeu ${resposta.status} aos embeddings${detalhe ? `: ${detalhe}` : ''}`)
+  }
+  const dados = await resposta.json() as { data?: { index?: number; embedding?: number[] }[] }
+  const itens = [...(dados.data ?? [])].sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+  if (itens.length !== textos.length || itens.some((item) => !Array.isArray(item.embedding) || !item.embedding.length)) {
+    throw new Error('O servidor de IA não devolveu os embeddings.')
+  }
+  return itens.map((item) => item.embedding!)
+}

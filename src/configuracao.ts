@@ -43,6 +43,8 @@ export const configuracao = {
   portaHttp: 8080,
   bcryptPepper: '',
   s3Interno: '',
+  // Qdrant da base de conhecimento; a colecao muda nos testes
+  qdrant: { url: '', colecao: 'conversa_conhecimento' },
 
   jwtKey: '',
   fcm: { projectId: '', clientEmail: '', privateKey: '' },
@@ -54,6 +56,10 @@ export const configuracao = {
   gravacaoDias: GRAVACAO_DIAS_PADRAO,
   // Servidor de IA no padrao da OpenAI (vLLM, Ollama ou OpenAI)
   ia: { url: '', token: '', modelo: '' },
+  // Cadastro pela tela de login; fechado, so quem tem "usuarios" cadastra
+  cadastroAberto: true,
+  // Modelo de embeddings no mesmo servidor de IA; vazio desliga a base de conhecimento
+  iaModeloEmbeddings: '',
 }
 
 export function definirAmbiente() {
@@ -69,6 +75,7 @@ export function definirAmbiente() {
   // Endereco do MinIO para chamadas do proprio servidor. O endereco que vai
   // para o navegador vem de cada requisicao.
   configuracao.s3Interno = textoAmbiente('CONVERSA_S3_INTERNO', 'http://127.0.0.1:9000')
+  configuracao.qdrant.url = textoAmbiente('CONVERSA_QDRANT', 'http://127.0.0.1:6333')
   // Producao: porta publica da borda para o TURN, com TLS terminado la.
   // Vazio usa o coturn direto na 3478, como em desenvolvimento.
   configuracao.turnPorta = textoAmbiente('CONVERSA_TURN_PORTA', '').trim()
@@ -141,6 +148,8 @@ const PARAMETROS = [
   'ia_url',
   'ia_token',
   'ia_modelo',
+  'cadastro_aberto',
+  'ia_modelo_embeddings',
 ]
 
 export async function carregarParametros(sql: Sql) {
@@ -176,6 +185,8 @@ export async function carregarParametros(sql: Sql) {
   configuracao.transcritorIdioma = valor('transcritor_idioma')
   configuracao.gravacaoDias = lerGravacaoDias(valor('gravacao_dias'))
   configuracao.ia = { url: valor('ia_url'), token: valor('ia_token'), modelo: valor('ia_modelo') }
+  configuracao.cadastroAberto = valor('cadastro_aberto').trim() !== '0'
+  configuracao.iaModeloEmbeddings = valor('ia_modelo_embeddings').trim()
 
   exibirAvisos()
 }

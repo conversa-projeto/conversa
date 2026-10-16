@@ -7,6 +7,7 @@ import type { Corpo, Consulta } from './esquemas.ts'
 import { httpErrors } from './erros.ts'
 import type { StatusChamada, StatusUsuarioChamada, TipoChamada } from './tabelas.ts'
 import { urlPublica } from './minio.ts'
+import { CodigoPermissao, validarPermissao } from './permissoes.ts'
 import { notificarMembrosChamada, notificarMembrosConversa, notificarStatusMensagens } from './notificacoes.ts'
 import { registrarAtividades, TipoAtividade } from './atividades.ts'
 import { esquecerParticipantesChamada, notificarChamada, notificarConversa, notificarSinalChamada, TipoMensagemSocket } from './websocket.ts'
@@ -88,6 +89,7 @@ function registrarEvento(sql: Sql, chamada: number, usuarioAlvo: number, tipo: n
 export async function iniciarChamada(sql: Sql, usuario: number, corpo: Corpo<'iniciarChamada'>) {
   const convidados = corpo.usuarios
   const tipo = corpo.tipo ?? (convidados.length === 2 ? 1 : 2)
+  await validarPermissao(sql, usuario, tipo === 2 ? CodigoPermissao.ChamadaVideo : CodigoPermissao.ChamadaAudio)
   const conversa = corpo.conversa_id && corpo.conversa_id > 0 ? corpo.conversa_id : null
 
   const id = await transacao(sql, async () => {
@@ -355,6 +357,7 @@ export async function finalizarChamada(sql: Sql, usuario: number, chamada: numbe
 
 export async function ativarVideo(sql: Sql, usuario: number, chamada: number) {
   await validarChamada(sql, usuario, chamada)
+  await validarPermissao(sql, usuario, CodigoPermissao.ChamadaVideo)
   // Chamada de audio que passou a ter video fica como de video (mensagem e historico)
   await sql`update chamada set tipo = 2 where id = ${chamada} and tipo = 1`
   await notificarMembrosChamada(sql, chamada, usuario, TipoMensagemSocket.VideoAtivado)

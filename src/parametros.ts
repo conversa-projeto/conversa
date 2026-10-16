@@ -5,6 +5,7 @@ import type { Corpo } from './esquemas.ts'
 import { httpErrors } from './erros.ts'
 import { esquecerAplicativoFcm } from './fcm.ts'
 import { CodigoPermissao, validarPermissao } from './permissoes.ts'
+import { conhecimentoLigado } from './conhecimento.ts'
 
 // Parametros que a tela de configuracao mostra. Segredos nao saem: o
 // jwt_token nunca aparece e da chave do FCM so se diz se esta preenchida. O
@@ -25,12 +26,19 @@ export async function parametrosSistema(sql: Sql, usuario: number) {
     ia_url: valor('ia_url'),
     ia_modelo: valor('ia_modelo'),
     ia_token_configurado: valor('ia_token').trim() !== '',
+    cadastro_aberto: valor('cadastro_aberto').trim() !== '0',
+    ia_modelo_embeddings: valor('ia_modelo_embeddings'),
   }
 }
 
 // O que esta ligado no servidor, para a pagina esconder o que nao funcionaria
+// Publico: a tela de login so mostra "Cadastre-se" com o cadastro aberto
+export function cadastroSistema() {
+  return { aberto: configuracao.cadastroAberto }
+}
+
 export async function recursosSistema() {
-  return { transcricao: configuracao.transcritorUrl.trim() !== '', ia: iaConfigurada() }
+  return { transcricao: configuracao.transcritorUrl.trim() !== '', ia: iaConfigurada(), conhecimento: iaConfigurada() && conhecimentoLigado() }
 }
 
 const IDIOMA = /^[a-z]{2,3}(-[A-Za-z]{2})?$/
@@ -81,6 +89,8 @@ export async function alterarParametros(sql: Sql, usuario: number, corpo: Corpo<
   if (corpo.ia_url !== undefined) novos.push(['ia_url', corpo.ia_url.trim()])
   if (corpo.ia_token !== undefined) novos.push(['ia_token', corpo.ia_token.trim()])
   if (corpo.ia_modelo !== undefined) novos.push(['ia_modelo', corpo.ia_modelo.trim()])
+  if (corpo.ia_modelo_embeddings !== undefined) novos.push(['ia_modelo_embeddings', corpo.ia_modelo_embeddings.trim()])
+  if (corpo.cadastro_aberto !== undefined) novos.push(['cadastro_aberto', corpo.cadastro_aberto ? '1' : '0'])
 
   for (const [nome, valor] of novos) {
     await sql`update parametros set valor = ${valor} where nome = ${nome}`

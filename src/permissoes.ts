@@ -6,6 +6,43 @@ import { httpErrors } from './erros.ts'
 export const CodigoPermissao = {
   Parametros: 'parametros',
   Permissoes: 'permissoes',
+  // Criar bots de IA (migracao 047)
+  Bots: 'bots',
+  // Cadastrar usuarios e bots pela tela de administracao (migracao 048)
+  Usuarios: 'usuarios',
+  // Cadastrar as ferramentas externas dos bots (migracao 051)
+  Ferramentas: 'ferramentas',
+  // Cuidar das bases de conhecimento dos bots (migracao 052)
+  Conhecimento: 'conhecimento',
+  // De uso do app (permissao.uso), migracao 046
+  Emoji: 'emoji',
+  Figurinha: 'figurinha',
+  Imagem: 'imagem',
+  Video: 'video',
+  Audio: 'audio',
+  Arquivo: 'arquivo',
+  Responder: 'responder',
+  Encaminhar: 'encaminhar',
+  Reagir: 'reagir',
+  Postagem: 'postagem',
+  Votacao: 'votacao',
+  Confirmacao: 'confirmacao',
+  Agendar: 'agendar',
+  Grupo: 'grupo',
+  ChamadaAudio: 'chamada_audio',
+  ChamadaVideo: 'chamada_video',
+  CompartilharTela: 'compartilhar_tela',
+  Telefonia: 'telefonia',
+  // Migracao 048. Cores e configuracoes de chamada ficam no navegador: so a pagina confere
+  Ocultar: 'ocultar',
+  // Migracao 049: o perfil, campo a campo (o telefone vai com o e-mail)
+  Nome: 'nome',
+  Email: 'email',
+  Avatar: 'avatar',
+  Senha: 'senha',
+  Privacidade: 'privacidade',
+  Cores: 'cores',
+  ConfigChamadas: 'config_chamadas',
 } as const
 export type CodigoPermissao = (typeof CodigoPermissao)[keyof typeof CodigoPermissao]
 
@@ -23,18 +60,36 @@ export async function modoAberto(sql: Sql) {
 }
 
 export async function validarPermissao(sql: Sql, usuario: number, codigo: CodigoPermissao) {
-  if (await modoAberto(sql)) {
+  await validarPermissoes(sql, usuario, [codigo])
+}
+
+// Descricao vai na mensagem: quem foi barrado sabe o que lhe falta
+export async function validarPermissoes(sql: Sql, usuario: number, codigos: CodigoPermissao[]) {
+  if (!codigos.length || await modoAberto(sql)) {
     return
   }
-  const [linha] = await sql`
-    select 1
-      from permissao_usuario pu
-     inner join permissao p on p.id = pu.permissao_id
-     where pu.usuario_id = ${usuario}
-       and p.codigo = ${codigo}`
-  if (!linha) {
-    throw httpErrors.forbidden('Acesso negado!')
+  const [faltando] = await sql<{ codigo: string; descricao: string; uso: boolean }[]>`
+    select p.codigo, p.descricao, p.uso
+      from permissao p
+     where p.codigo in ${sql([...new Set(codigos)])}
+       and not exists (select 1 from permissao_usuario pu where pu.permissao_id = p.id and pu.usuario_id = ${usuario})
+     order by p.id
+     limit 1`
+  if (faltando) {
+    throw httpErrors.forbidden(faltando.uso ? `Você não tem permissão para: ${faltando.descricao.toLowerCase()}.` : 'Acesso negado!')
   }
+}
+
+export async function permissaoUsuario(sql: Sql, usuario: number, codigo: CodigoPermissao) {
+  return (await minhasPermissoes(sql, usuario)).includes(codigo)
+}
+
+// Conta nova pode tudo no chat; o administrador restringe depois
+export async function concederPermissoesUso(sql: Sql, usuario: number) {
+  await sql`
+    insert into permissao_usuario (usuario_id, permissao_id)
+    select ${usuario}, id from permissao where uso
+        on conflict (usuario_id, permissao_id) do nothing`
 }
 
 // Codigos que o proprio usuario tem: a pagina mostra so as telas permitidas
@@ -55,8 +110,8 @@ export async function minhasPermissoes(sql: Sql, usuario: number): Promise<strin
 // Permissoes que existem e quem tem cada uma, para a tela de acessos
 export async function listarPermissoes(sql: Sql, usuario: number) {
   await validarPermissao(sql, usuario, CodigoPermissao.Permissoes)
-  const permissoes = await sql<{ codigo: string; descricao: string }[]>`
-    select codigo, descricao from permissao order by id`
+  const permissoes = await sql<{ codigo: string; descricao: string; uso: boolean }[]>`
+    select codigo, descricao, uso from permissao order by id`
   const usuarios = await sql<{ id: number; nome: string; login: string; permissoes: string[] }[]>`
     select u.id
          , u.nome
@@ -65,6 +120,7 @@ export async function listarPermissoes(sql: Sql, usuario: number) {
       from usuario u
       left join permissao_usuario pu on pu.usuario_id = u.id
       left join permissao p on p.id = pu.permissao_id
+     where not exists (select 1 from bot b where b.usuario_id = u.id and b.excluido_em is not null)
      group by u.id, u.nome, u.login
      order by lower(u.nome), u.id`
   return { permissoes, usuarios, modo_aberto: await modoAberto(sql) }
@@ -96,6 +152,10 @@ export async function concederPermissao(sql: Sql, usuario: number, corpo: Corpo<
 // direto no banco para conceder de novo
 export async function retirarPermissao(sql: Sql, usuario: number, consulta: Consulta<'permissaoUsuario'>) {
   await validarPermissao(sql, usuario, CodigoPermissao.Permissoes)
+  // Quem administra nao tira os proprios acessos: outra pessoa precisa fazer
+  if (consulta.usuario_id === usuario) {
+    throw httpErrors.badRequest('Você não pode retirar as próprias permissões.')
+  }
   const permissao = await idPermissao(sql, consulta.codigo)
   if (consulta.codigo === CodigoPermissao.Permissoes) {
     const [outros] = await sql<{ total: number }[]>`

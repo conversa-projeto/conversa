@@ -83,6 +83,10 @@ describe('senha legada', () => {
   test('alterar a senha a partir de uma legada', async () => {
     const login = loginUnico('legado')
     await noBanco((sql) => sql`insert into usuario (nome, login, email, senha) values ('Legado', ${login}, ${`${login}@teste.test`}, 'senha-antiga')`)
+    // Conta antiga: as migrações deram a ela as permissões de uso
+    await noBanco((sql) => sql`
+      insert into permissao_usuario (usuario_id, permissao_id)
+      select u.id, p.id from usuario u cross join permissao p where u.login = ${login} and p.uso`)
     const token = (await entrar(login, 'senha-antiga')).dados.token
     await noBanco((sql) => sql`update usuario set senha = 'senha-antiga' where login = ${login}`)
     expect((await chamar('POST', '/alterar-senha', { token, corpo: { senha_atual: 'senha-antiga', senha: 'nova-senha' } })).status).toBe(200)

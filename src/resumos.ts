@@ -160,14 +160,14 @@ async function mensagensDoPeriodo(sql: Sql, usuario: number, conversa: number, p
        , mc.tipo
        , convert_from(mc.conteudo, 'utf-8') as conteudo
        , a.nome as anexo
-       , t.texto as transcricao
+       , t.transcricao
        , e.pergunta
     from escolhidas es
    inner join mensagem m on m.id = es.id
    inner join usuario u on u.id = m.usuario_id
    inner join mensagem_conteudo mc on mc.mensagem_id = m.id
     left join anexo a on mc.tipo in (2, 3, 4, 5) and a.identificador = convert_from(mc.conteudo, 'utf-8')
-    left join anexo_transcricao t on mc.tipo in (4, 5) and t.identificador = convert_from(mc.conteudo, 'utf-8') and t.status = 2
+    left join anexo_audio t on mc.tipo in (4, 5) and t.identificador = convert_from(mc.conteudo, 'utf-8') and t.transcricao_status = 2
     left join enquete e on mc.tipo = 8 and e.id::text = convert_from(mc.conteudo, 'utf-8')
    order by ${quando}, m.id, mc.ordem`
 }
@@ -201,7 +201,7 @@ function montarTexto(linhas: LinhaConteudo[]) {
   return { ids: new Set(escolhidos.map((t) => t.id)), texto: escolhidos.map((t) => t.texto).join('\n') }
 }
 
-function descreverConteudo(linha: LinhaConteudo) {
+export function descreverConteudo(linha: Pick<LinhaConteudo, 'tipo' | 'conteudo' | 'anexo' | 'transcricao' | 'pergunta'>) {
   switch (linha.tipo) {
     case 1:
       // Mencao @[Nome](id) vira @Nome

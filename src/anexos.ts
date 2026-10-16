@@ -55,10 +55,24 @@ export async function urlAnexo(sql: Sql, identificador: string) {
   return { url: await urlPublica('GET', anexo.objeto, 600) }
 }
 
+// Audio (tipos 4 e 5): duracao e intensidade medidas no envio, na anexo_audio.
+// O mesmo audio enviado de novo so completa o que faltava.
+async function gravarDadosAudio(sql: Sql, corpo: Corpo<'incluirAnexo'>) {
+  if (![4, 5].includes(corpo.tipo) || (corpo.duracao == null && !corpo.intensidade?.length)) return
+  await sql`
+    insert into anexo_audio (identificador, duracao, intensidade)
+    values (${corpo.identificador}, ${corpo.duracao ?? null}, ${corpo.intensidade?.length ? corpo.intensidade : null}::int2[])
+    on conflict (identificador) do update
+       set duracao = coalesce(anexo_audio.duracao, excluded.duracao)
+         , intensidade = coalesce(anexo_audio.intensidade, excluded.intensidade)`
+}
+
 export async function incluirAnexo(sql: Sql, corpo: Corpo<'incluirAnexo'>) {
   if (corpo.tamanho > TAMANHO_MAXIMO) {
     throw httpErrors.badRequest('Arquivo muito grande!')
   }
+
+  await gravarDadosAudio(sql, corpo)
 
   const [existente] = await sql<{ id: number; objeto: string }[]>`select id, objeto from anexo where identificador = ${corpo.identificador}`
   if (existente) {

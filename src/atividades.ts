@@ -5,11 +5,15 @@ import { notificarAtividade } from './websocket.ts'
 
 // Atividades do usuario (tabela atividade): gravadas quando o evento acontece e
 // apagadas quando ele deixa de valer (reacao retirada, mensagem ocultada).
+// Ficam pendentes ate serem concluidas (concluida_em, ou a mao).
+
 export const TipoAtividade = {
   Reacao: 1,
   Resposta: 2,
   Mencao: 3,
   ChamadaPerdida: 4,
+  // Pediram a ele a confirmacao de leitura de uma mensagem
+  Confirmacao: 5,
 } as const
 export type TipoAtividade = (typeof TipoAtividade)[keyof typeof TipoAtividade]
 
@@ -98,6 +102,47 @@ function atividadeLida(sql: Sql) {
     end))`
 }
 
+// Pendente: nao concluida, nem lida (resposta e mencao), nem com a leitura ja
+// confirmada (pedido de confirmacao). Concluir a mao o pedido nao confirma a leitura.
+function atividadePendente(sql: Sql) {
+  return sql`(a.concluida_em is null and not ${atividadeLida(sql)} and not (
+    a.tipo = ${TipoAtividade.Confirmacao}
+    and exists (select 1 from mensagem_confirmacao mc where mc.mensagem_id = a.mensagem_id and mc.usuario_id = a.usuario_id)))`
+}
+
+// A mao, ou ao abrir a chamada perdida
+export async function concluirAtividade(sql: Sql, usuario: number, id: number) {
+  const concluidas = await sql`
+    update atividade set concluida_em = current_timestamp
+     where id = ${id} and usuario_id = ${usuario} and concluida_em is null
+ returning 1`
+  if (concluidas.length) notificarAtividade(usuario)
+  return { sucesso: true }
+}
+
+// O usuario viu na tela as proprias mensagens que receberam reacao: as reacoes
+// recebidas ate agora deixam de estar pendentes
+export async function concluirReacoesVistas(sql: Sql, usuario: number, mensagens: number[]) {
+  if (!mensagens.length) return { concluidas: 0 }
+  const concluidas = await sql`
+    update atividade set concluida_em = current_timestamp
+     where usuario_id = ${usuario}
+       and tipo = ${TipoAtividade.Reacao}
+       and mensagem_id in ${sql(mensagens)}
+       and concluida_em is null
+       and criado_em <= current_timestamp
+ returning 1`
+  if (concluidas.length) notificarAtividade(usuario)
+  return { concluidas: concluidas.length }
+}
+
+// Confirmou a leitura pedida: o pedido deixa de estar pendente
+export async function avisarConfirmacaoFeita(sql: Sql, usuario: number, mensagem: number) {
+  const [linha] = await sql`
+    select 1 from atividade where usuario_id = ${usuario} and tipo = ${TipoAtividade.Confirmacao} and mensagem_id = ${mensagem} limit 1`
+  if (linha) notificarAtividade(usuario)
+}
+
 // Leu mensagens com resposta ou mencao para ele (ou respostas de postagem):
 // avisa, para o contador acompanhar
 export async function avisarAtividadesLidas(sql: Sql, usuario: number, mensagens: number[]) {
@@ -122,7 +167,7 @@ interface AtividadeLinha {
   id: string
   tipo: TipoAtividade
   criado_em: Date
-  nova: boolean
+  pendente: boolean
   autor_id: number
   autor_nome: string
   avatar_objeto: string | null
@@ -144,7 +189,7 @@ export async function atividades(sql: Sql, usuario: number, consulta: Consulta<'
     select a.id
          , a.tipo
          , a.criado_em
-         , a.criado_em > coalesce(eu.atividades_vistas_em, '-infinity'::timestamp) and not ${atividadeLida(sql)} as nova
+         , ${atividadePendente(sql)} as pendente
          , a.autor_id
          , autor.nome as autor_nome
          , av.objeto as avatar_objeto
@@ -158,7 +203,6 @@ export async function atividades(sql: Sql, usuario: number, consulta: Consulta<'
          , ch.tipo as chamada_tipo
          , a.emoji
       from atividade a
-     inner join usuario eu on eu.id = a.usuario_id
      inner join usuario autor on autor.id = a.autor_id
       left join anexo av on av.id = autor.avatar_anexo_id
       left join conversa c on c.id = a.conversa_id
@@ -195,15 +239,16 @@ function resumir(texto: string) {
   return linha.length > 120 ? `${linha.slice(0, 119)}…` : linha
 }
 
+// Quantas estao pendentes (o numero na barra)
 export async function atividadesNovas(sql: Sql, usuario: number) {
   const [linha] = await sql<{ quantidade: number }[]>`
     select count(1)::int as quantidade
       from atividade a
-     inner join usuario eu on eu.id = a.usuario_id
      where a.usuario_id = ${usuario}
        and a.criado_em <= current_timestamp
-       and a.criado_em > coalesce(eu.atividades_vistas_em, '-infinity'::timestamp)
-       and not ${atividadeLida(sql)}`
+       and (a.conversa_id is null
+            or exists (select 1 from conversa_usuario cu where cu.conversa_id = a.conversa_id and cu.usuario_id = ${usuario}))
+       and ${atividadePendente(sql)}`
   return { quantidade: linha?.quantidade ?? 0 }
 }
 

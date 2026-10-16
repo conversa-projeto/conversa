@@ -4,6 +4,7 @@ import type { Corpo } from './esquemas.ts'
 import { httpErrors } from './erros.ts'
 import { dataIso } from './comum.ts'
 import { incluirMensagem } from './mensagens.ts'
+import { CodigoPermissao, validarPermissao } from './permissoes.ts'
 import { notificarEnquete } from './websocket.ts'
 
 // Votacao (enquete) em grupos. A mensagem leva so o id da enquete (conteudo
@@ -12,6 +13,7 @@ import { notificarEnquete } from './websocket.ts'
 
 export async function criarEnquete(sql: Sql, usuario: number, corpo: Corpo<'criarEnquete'>) {
   await validarAcessoConversa(sql, usuario, corpo.conversa_id)
+  await validarPermissao(sql, usuario, CodigoPermissao.Votacao)
   const [conversa] = await sql<{ tipo: number }[]>`select tipo from conversa where id = ${corpo.conversa_id}`
   if (conversa?.tipo !== 2) {
     throw httpErrors.badRequest('Votação só pode ser criada em grupos.')

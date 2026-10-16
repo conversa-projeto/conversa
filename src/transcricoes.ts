@@ -17,8 +17,9 @@ const INTERVALO_CONSULTA_MS = 2000
 
 const espera = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+// Linha da anexo_audio sem transcricao pedida tem o status vazio
 interface Transcricao {
-  status: StatusTranscricao
+  status: StatusTranscricao | null
   texto: string | null
   erro: string | null
 }
@@ -58,13 +59,13 @@ async function anexoDeAudio(sql: Sql, usuario: number, identificador: string) {
 
 function resposta(linha?: Transcricao): { status: StatusTranscricao; texto: string; erro: string } {
   return linha
-    ? { status: linha.status, texto: linha.texto ?? '', erro: linha.erro ?? '' }
+    ? { status: linha.status ?? 0, texto: linha.texto ?? '', erro: linha.erro ?? '' }
     : { status: 0, texto: '', erro: '' }
 }
 
 export async function obterTranscricao(sql: Sql, usuario: number, identificador: string) {
   await anexoDeAudio(sql, usuario, identificador)
-  const [linha] = await sql<Transcricao[]>`select status, texto, erro from anexo_transcricao where identificador = ${identificador}`
+  const [linha] = await sql<Transcricao[]>`select transcricao_status as status, transcricao as texto, transcricao_erro as erro from anexo_audio where identificador = ${identificador}`
   return resposta(linha)
 }
 
@@ -75,9 +76,9 @@ export async function transcrever(sql: Sql, usuario: number, identificador: stri
   }
 
   const [atual] = await sql<(Transcricao & { minutos: number })[]>`
-    select status, texto, erro
+    select transcricao_status as status, transcricao as texto, transcricao_erro as erro
          , extract(epoch from (current_timestamp - atualizado_em)) / 60 as minutos
-      from anexo_transcricao
+      from anexo_audio
      where identificador = ${identificador}`
   if (atual && (atual.status === CONCLUIDA || (atual.status === PROCESSANDO && atual.minutos < LIMITE_PROCESSANDO_MIN))) {
     return resposta(atual)
@@ -85,14 +86,14 @@ export async function transcrever(sql: Sql, usuario: number, identificador: stri
 
   const idioma = configuracao.transcritorIdioma.trim() || null
   await sql`
-    insert into anexo_transcricao (identificador, status, idioma, criado_por)
+    insert into anexo_audio (identificador, transcricao_status, transcricao_idioma, criado_por)
     values (${identificador}, ${PROCESSANDO}, ${idioma}, ${usuario})
     on conflict (identificador) do update
-       set status = ${PROCESSANDO}
-         , texto = null
-         , erro = null
-         , job_id = null
-         , idioma = excluded.idioma
+       set transcricao_status = ${PROCESSANDO}
+         , transcricao = null
+         , transcricao_erro = null
+         , transcricao_job_id = null
+         , transcricao_idioma = excluded.transcricao_idioma
          , atualizado_em = current_timestamp`
 
   // Roda em segundo plano: o cliente acompanha por GET /api/anexo/transcricao.
@@ -120,7 +121,7 @@ async function processar(identificador: string, anexo: AnexoAudio, idioma: strin
       throw new Error(`transcritor respondeu ${criado.status}: ${await criado.text()}`)
     }
     let tarefa = await criado.json() as TarefaTranscricao
-    await comUsuario(0, (s) => s`update anexo_transcricao set job_id = ${tarefa.job_id} where identificador = ${identificador}`)
+    await comUsuario(0, (s) => s`update anexo_audio set transcricao_job_id = ${tarefa.job_id} where identificador = ${identificador}`)
 
     while (tarefa.status !== 'done' && tarefa.status !== 'error') {
       if (Date.now() - inicio > LIMITE_PROCESSANDO_MIN * 60_000) {
@@ -143,15 +144,15 @@ async function processar(identificador: string, anexo: AnexoAudio, idioma: strin
     }
     const texto = (await download.text()).trim()
     await comUsuario(0, (s) => s`
-      update anexo_transcricao
-         set status = ${CONCLUIDA}, texto = ${texto}, erro = null, atualizado_em = current_timestamp
+      update anexo_audio
+         set transcricao_status = ${CONCLUIDA}, transcricao = ${texto}, transcricao_erro = null, atualizado_em = current_timestamp
        where identificador = ${identificador}`)
   } catch (erro) {
     const mensagem = erro instanceof Error ? erro.message : String(erro)
     console.error('[Transcricao] falha', identificador, mensagem)
     await comUsuario(0, (s) => s`
-      update anexo_transcricao
-         set status = ${ERRO}, erro = ${mensagem.slice(0, 500)}, atualizado_em = current_timestamp
+      update anexo_audio
+         set transcricao_status = ${ERRO}, transcricao_erro = ${mensagem.slice(0, 500)}, atualizado_em = current_timestamp
        where identificador = ${identificador}`).catch(() => {})
   }
 }

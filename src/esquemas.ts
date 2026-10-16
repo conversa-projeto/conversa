@@ -25,6 +25,22 @@ const camposSip = {
   ativo: opcional(t.Boolean()),
 }
 
+// Ferramenta externa dos bots: cabecalho sem valor mantem o salvo (a tela nunca recebe o valor)
+const camposFerramenta = {
+  nome: texto,
+  descricao: texto,
+  metodo: t.Union([t.Literal('GET'), t.Literal('POST')]),
+  url: texto,
+  cabecalhos: t.Array(t.Object({ nome: texto, valor: ouNulo(texto) }), { maxItems: 30 }),
+  parametros: t.Array(t.Object({
+    nome: texto,
+    tipo: t.Union([t.Literal('string'), t.Literal('number'), t.Literal('boolean')]),
+    descricao: texto,
+    obrigatorio: t.Boolean(),
+  }), { maxItems: 30 }),
+  ativo: opcional(t.Boolean()),
+}
+
 export const esquemas = {
   login: { body: t.Object({ login: texto, senha: texto, dispositivo_id: ouNulo(inteiro) }) },
   alterarSenha: { body: t.Object({ senha_atual: texto, senha: texto }) },
@@ -34,6 +50,19 @@ export const esquemas = {
   incluirDispositivoUsuario: { query: t.Object({ dispositivo_id: inteiro }) },
 
   incluirUsuario: { body: t.Object({ nome: texto, login: texto, email: texto, telefone: ouNulo(texto), senha: texto }) },
+  // Pelo administrador: pessoa (login, e-mail e senha) ou bot (instrucoes), com avatar opcional
+  cadastrarUsuario: {
+    body: t.Object({
+      nome: texto,
+      login: opcional(texto),
+      email: opcional(texto),
+      telefone: ouNulo(texto),
+      senha: opcional(texto),
+      avatar_anexo_id: ouNulo(inteiro),
+      bot: opcional(t.Boolean()),
+      instrucoes: opcional(texto),
+    }),
+  },
   alterarUsuario: { body: t.Object({ id: inteiro, nome: opcional(texto), email: opcional(texto), telefone: ouNulo(texto), avatar_anexo_id: ouNulo(inteiro), mostrar_visto_em: opcional(t.Boolean()), mostrar_na_conversa: opcional(t.Boolean()), aparecer_offline: opcional(t.Boolean()) }) },
   presentesConversa: { query: t.Object({ conversa: inteiro }) },
   incluirContato: { query: t.Object({ relacionamento_id: inteiro }) },
@@ -82,7 +111,14 @@ export const esquemas = {
 
   identificador: { query: t.Object({ identificador: texto }) },
   transcricao: { body: t.Object({ identificador: texto }) },
-  incluirAnexo: { body: t.Object({ identificador: texto, tipo: inteiro, nome: ouNulo(texto), extensao: ouNulo(texto), tamanho: inteiro }) },
+  incluirAnexo: {
+    body: t.Object({
+      identificador: texto, tipo: inteiro, nome: ouNulo(texto), extensao: ouNulo(texto), tamanho: inteiro,
+      // Audio: duracao em segundos e picos de 0 a 100 para a onda
+      duracao: ouNulo(t.Number({ minimum: 0, maximum: 86400 })),
+      intensidade: ouNulo(t.Array(t.Integer({ minimum: 0, maximum: 100 }), { maxItems: 200 })),
+    }),
+  },
   anexos: {
     query: t.Object({
       conversa: inteiroPadraoZero,
@@ -125,6 +161,8 @@ export const esquemas = {
       ia_url: opcional(texto),
       ia_token: opcional(texto),
       ia_modelo: opcional(texto),
+      cadastro_aberto: opcional(t.Boolean()),
+      ia_modelo_embeddings: opcional(texto),
     }),
   },
   testarIa: { body: t.Object({ url: texto, modelo: texto, token: opcional(texto) }) },
@@ -132,10 +170,24 @@ export const esquemas = {
   consultarResumo: { query: t.Object({ id: texto }) },
   sugerirTexto: { body: t.Object({ conversa_id: inteiro, texto: t.String({ maxLength: 4000 }) }) },
   atividades: { query: t.Object({ antes: inteiroPadraoZero, limite: t.Integer({ default: 30, minimum: 1, maximum: 100 }) }) },
+  reacoesVistas: { body: t.Object({ mensagens: t.Array(inteiro, { maxItems: 200 }) }) },
 
   historicoChamadas: { query: t.Object({ participante: inteiroPadraoZero, de: textoPadraoVazio, ate: textoPadraoVazio }) },
 
   incluirSip: { body: t.Object(camposSip) },
+  criarBot: { body: t.Object({ nome: texto, instrucoes: texto }) },
+  alterarBot: { body: t.Object({ id: inteiro, nome: opcional(texto), instrucoes: opcional(texto), ativo: opcional(t.Boolean()) }) },
+  conhecimentoBot: { body: t.Object({ id: inteiro, bases: t.Array(inteiro, { maxItems: 100 }) }) },
+  incluirBase: { body: t.Object({ nome: texto, descricao: opcional(texto) }) },
+  alterarBase: { body: t.Object({ id: inteiro, nome: texto, descricao: opcional(texto) }) },
+  documentosBase: { query: t.Object({ base: inteiro }) },
+  incluirDocumento: { body: t.Object({ base_id: inteiro, nome: texto, texto }) },
+  buscarConhecimento: { body: t.Object({ bases: t.Array(inteiro, { minItems: 1, maxItems: 100 }), pergunta: texto, limite: opcional(t.Integer({ minimum: 1, maximum: 20 })) }) },
+  ferramentasBot: { body: t.Object({ id: inteiro, ferramentas: t.Array(inteiro, { maxItems: 100 }) }) },
+  incluirFerramenta: { body: t.Object(camposFerramenta) },
+  alterarFerramenta: { body: t.Object({ id: inteiro, ...camposFerramenta }) },
+  testarFerramenta: { body: t.Object({ id: inteiro, argumentos: t.Record(t.String(), t.Unknown()) }) },
+  permissoesBot: { body: t.Object({ id: inteiro, permissoes: t.Array(texto, { maxItems: 50 }) }) },
   alterarSip: {
     body: t.Object({
       id: inteiro,
