@@ -24,11 +24,15 @@ type PedidoChat = { messages: { role: string; content: string | null }[]; tools?
 let respostasChat: ((pedido: PedidoChat) => Response)[] = []
 const pedidosChat: PedidoChat[] = []
 let embeddingsFalham = false
+// Token de cada pedido de embeddings, por servidor: o da IA e o proprio
+const tokensEmbeddingsIa: (string | null)[] = []
+const tokensEmbeddingsProprio: (string | null)[] = []
 const ia = Bun.serve({
   port: 0,
   async fetch(req) {
     const corpo = await req.json()
     if (new URL(req.url).pathname.endsWith('/embeddings')) {
+      tokensEmbeddingsIa.push(req.headers.get('authorization'))
       if (embeddingsFalham) return new Response('modelo de embeddings não carregado', { status: 404 })
       return Response.json({ data: (corpo.input as string[]).map((texto, index) => ({ index, embedding: vetor(texto) })) })
     }
@@ -37,7 +41,19 @@ const ia = Bun.serve({
   },
 })
 
-const anterior = { ia: { ...configuracao.ia }, embeddings: configuracao.iaModeloEmbeddings, colecao: configuracao.qdrant.colecao }
+// Servidor de embeddings em outro host e porta, so com os embeddings
+let proprioFalha = false
+const embeddingsProprio = Bun.serve({
+  port: 0,
+  async fetch(req) {
+    const corpo = await req.json()
+    tokensEmbeddingsProprio.push(req.headers.get('authorization'))
+    if (proprioFalha) return new Response('servidor de embeddings fora do ar', { status: 503 })
+    return Response.json({ data: (corpo.input as string[]).map((texto, index) => ({ index, embedding: vetor(texto) })) })
+  },
+})
+
+const anterior = { ia: { ...configuracao.ia }, embeddings: configuracao.iaModeloEmbeddings, servidorEmbeddings: { ...configuracao.iaEmbeddings }, colecao: configuracao.qdrant.colecao }
 let cuidador: UsuarioTeste, criador: UsuarioTeste, comum: UsuarioTeste
 beforeAll(async () => {
   configuracao.qdrant.colecao = COLECAO_TESTE
@@ -45,7 +61,7 @@ beforeAll(async () => {
   ;[cuidador, criador, comum] = await Promise.all([criarUsuario('Cuidador Conhecimento'), criarUsuario('Criador Conhecimento'), criarUsuario('Comum Conhecimento')])
   await noBanco((sql) => sql`
     insert into permissao_usuario (usuario_id, permissao_id)
-    select ${cuidador.id}::int, id from permissao where codigo in ('permissoes', 'conhecimento')
+    select ${cuidador.id}::int, id from permissao where codigo in ('permissoes', 'conhecimento', 'parametros')
      union all
     select ${criador.id}::int, id from permissao where codigo = 'bots'
         on conflict do nothing`)
@@ -54,15 +70,21 @@ beforeEach(() => {
   pedidosChat.length = 0
   respostasChat = []
   embeddingsFalham = false
+  proprioFalha = false
+  tokensEmbeddingsIa.length = 0
+  tokensEmbeddingsProprio.length = 0
   configuracao.ia = { url: `http://localhost:${ia.port}`, token: '', modelo: 'teste' }
   configuracao.iaModeloEmbeddings = 'embeddings-teste'
+  configuracao.iaEmbeddings = { url: '', token: '' }
 })
 afterAll(async () => {
   await fetch(`${configuracao.qdrant.url}/collections/${COLECAO_TESTE}`, { method: 'DELETE' })
   configuracao.ia = anterior.ia
   configuracao.iaModeloEmbeddings = anterior.embeddings
+  configuracao.iaEmbeddings = anterior.servidorEmbeddings
   configuracao.qdrant.colecao = anterior.colecao
   ia.stop(true)
+  embeddingsProprio.stop(true)
 })
 
 const FERIAS = `Política de férias (RH-12)
@@ -241,5 +263,81 @@ describe('prefixos dos modelos de embeddings', () => {
     expect(prefixoEmbeddings('intfloat/multilingual-e5-large', 'pergunta')).toBe('query: ')
     expect(prefixoEmbeddings('e5-base', 'documento')).toBe('passage: ')
     expect(prefixoEmbeddings('text-embedding-3-small', 'pergunta')).toBe('')
+  })
+})
+
+describe('servidor de embeddings próprio', () => {
+  test('com endereço próprio, indexação e busca vão para ele, só com o token dele', async () => {
+    configuracao.ia.token = 'token-da-ia'
+    configuracao.iaEmbeddings = { url: `http://localhost:${embeddingsProprio.port}`, token: 'token-dos-embeddings' }
+    const base = await novaBase()
+    const documento = await subir(base.id, 'ferias.txt', FERIAS)
+    expect((await documentos(base.id)).find((d) => d.id === documento.id)!.status).toBe(StatusDocumento.Pronto)
+    const { dados } = await chamar('POST', '/conhecimento/buscar', { token: cuidador.token, corpo: { bases: [base.id], pergunta: 'férias' } })
+    expect(dados.length).toBeGreaterThan(0)
+    expect(tokensEmbeddingsProprio.length).toBeGreaterThanOrEqual(2)
+    expect(tokensEmbeddingsProprio.every((t) => t === 'Bearer token-dos-embeddings')).toBe(true)
+    expect(tokensEmbeddingsIa).toEqual([])
+  })
+
+  test('sem token próprio, o host próprio não recebe o token da IA', async () => {
+    configuracao.ia.token = 'token-da-ia'
+    configuracao.iaEmbeddings = { url: `http://localhost:${embeddingsProprio.port}`, token: '' }
+    const base = await novaBase()
+    await subir(base.id, 'ferias.txt', FERIAS)
+    expect(tokensEmbeddingsProprio.length).toBeGreaterThan(0)
+    expect(tokensEmbeddingsProprio.every((t) => t === null)).toBe(true)
+  })
+
+  test('sem endereço próprio, usa o servidor da IA com o token dela', async () => {
+    configuracao.ia.token = 'token-da-ia'
+    const base = await novaBase()
+    await subir(base.id, 'ferias.txt', FERIAS)
+    expect(tokensEmbeddingsIa.length).toBeGreaterThan(0)
+    expect(tokensEmbeddingsIa.every((t) => t === 'Bearer token-da-ia')).toBe(true)
+    expect(tokensEmbeddingsProprio).toEqual([])
+  })
+
+  test('com endereço próprio a base fica ligada mesmo sem a IA de conversa', async () => {
+    configuracao.ia = { url: '', token: '', modelo: '' }
+    configuracao.iaEmbeddings = { url: `http://localhost:${embeddingsProprio.port}`, token: '' }
+    expect((await chamar('GET', '/recursos', { token: comum.token })).dados).toMatchObject({ ia: false, conhecimento: true })
+    configuracao.iaEmbeddings = { url: '', token: '' }
+    expect((await chamar('GET', '/recursos', { token: comum.token })).dados).toMatchObject({ conhecimento: false })
+  })
+
+  test('Testar embeddings: no próprio, no da IA quando vazio, com erro e sem permissão', async () => {
+    const testar = (corpo: Record<string, unknown>, quem = cuidador) => chamar('POST', '/parametros/ia/testar-embeddings', { token: quem.token, corpo })
+    const proprio = await testar({ url: `http://localhost:${embeddingsProprio.port}`, url_ia: '', modelo: 'embeddings-teste', token: 'digitado' })
+    expect(proprio.dados).toMatchObject({ ok: true, dimensoes: 64, erro: '' })
+    expect(tokensEmbeddingsProprio).toEqual(['Bearer digitado'])
+
+    const daIa = await testar({ url: '', url_ia: `http://localhost:${ia.port}`, modelo: 'embeddings-teste' })
+    expect(daIa.dados).toMatchObject({ ok: true, dimensoes: 64 })
+    expect(tokensEmbeddingsIa.length).toBe(1)
+
+    proprioFalha = true
+    const falha = await testar({ url: `http://localhost:${embeddingsProprio.port}`, url_ia: '', modelo: 'embeddings-teste' })
+    expect(falha.dados).toMatchObject({ ok: false, dimensoes: 0 })
+    expect(falha.dados.erro).toContain('servidor de embeddings fora do ar')
+
+    expect((await testar({ url: 'ftp://x', url_ia: '', modelo: 'm' })).status).toBe(400)
+    expect((await testar({ url: '', url_ia: '', modelo: 'm' })).status).toBe(400)
+    expect((await testar({ url: `http://localhost:${embeddingsProprio.port}`, url_ia: '', modelo: 'm' }, criador)).status).toBe(403)
+  })
+
+  test('parâmetros: grava endereço e token próprios; o token nunca volta; endereço inválido é recusado', async () => {
+    const alterar = (corpo: Record<string, unknown>) => chamar('PATCH', '/parametros', { token: cuidador.token, corpo })
+    try {
+      const { status, dados } = await alterar({ ia_embeddings_url: 'http://embeddings.test:8081', ia_embeddings_token: 'segredo-dos-embeddings' })
+      expect(status).toBe(200)
+      expect(dados).toMatchObject({ ia_embeddings_url: 'http://embeddings.test:8081', ia_embeddings_token_configurado: true })
+      expect(JSON.stringify(dados)).not.toContain('segredo-dos-embeddings')
+      expect(configuracao.iaEmbeddings).toEqual({ url: 'http://embeddings.test:8081', token: 'segredo-dos-embeddings' })
+      expect((await alterar({ ia_embeddings_url: 'embeddings.test:8081' })).status).toBe(400)
+    } finally {
+      await alterar({ ia_embeddings_url: '', ia_embeddings_token: '' })
+    }
+    expect((await chamar('GET', '/parametros', { token: cuidador.token })).dados).toMatchObject({ ia_embeddings_url: '', ia_embeddings_token_configurado: false })
   })
 })

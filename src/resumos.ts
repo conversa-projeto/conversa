@@ -201,6 +201,19 @@ function montarTexto(linhas: LinhaConteudo[]) {
   return { ids: new Set(escolhidos.map((t) => t.id)), texto: escolhidos.map((t) => t.texto).join('\n') }
 }
 
+// Localizacao (tipo 9): "[localização: nome (lat, lng)]" ou "[trajeto: origem → destino, 12,3 km]"
+function descreverLocalizacao(conteudo: string) {
+  try {
+    const { pontos, distancia } = JSON.parse(conteudo) as { pontos: { lat: number; lng: number; nome?: string }[]; distancia?: number }
+    const ponto = (p: { lat: number; lng: number; nome?: string }) => `${p.nome ? `${p.nome} ` : ''}(${p.lat.toFixed(5)}, ${p.lng.toFixed(5)})`
+    if (pontos.length === 1) return `[localização: ${ponto(pontos[0]!)}]`
+    const km = distancia === undefined ? '' : `, ${(distancia / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km`
+    return `[trajeto: ${pontos.map(ponto).join(' → ')}${km}]`
+  } catch {
+    return '[localização]'
+  }
+}
+
 export function descreverConteudo(linha: Pick<LinhaConteudo, 'tipo' | 'conteudo' | 'anexo' | 'transcricao' | 'pergunta'>) {
   switch (linha.tipo) {
     case 1:
@@ -215,6 +228,8 @@ export function descreverConteudo(linha: Pick<LinhaConteudo, 'tipo' | 'conteudo'
       return linha.transcricao ? `[áudio: "${linha.transcricao.replace(/\s+/g, ' ').trim()}"]` : '[áudio]'
     case 8:
       return linha.pergunta ? `[votação: ${linha.pergunta}]` : '[votação]'
+    case 9:
+      return descreverLocalizacao(linha.conteudo ?? '')
     default:
       return ''
   }

@@ -1,6 +1,6 @@
 import type { Sql } from './banco.ts'
 import { carregarParametros, configuracao } from './configuracao.ts'
-import { completar, iaConfigurada } from './ia.ts'
+import { completar, gerarEmbeddings, iaConfigurada } from './ia.ts'
 import type { Corpo } from './esquemas.ts'
 import { httpErrors } from './erros.ts'
 import { esquecerAplicativoFcm } from './fcm.ts'
@@ -28,6 +28,8 @@ export async function parametrosSistema(sql: Sql, usuario: number) {
     ia_token_configurado: valor('ia_token').trim() !== '',
     cadastro_aberto: valor('cadastro_aberto').trim() !== '0',
     ia_modelo_embeddings: valor('ia_modelo_embeddings'),
+    ia_embeddings_url: valor('ia_embeddings_url'),
+    ia_embeddings_token_configurado: valor('ia_embeddings_token').trim() !== '',
   }
 }
 
@@ -38,7 +40,7 @@ export function cadastroSistema() {
 }
 
 export async function recursosSistema() {
-  return { transcricao: configuracao.transcritorUrl.trim() !== '', ia: iaConfigurada(), conhecimento: iaConfigurada() && conhecimentoLigado() }
+  return { transcricao: configuracao.transcritorUrl.trim() !== '', ia: iaConfigurada(), conhecimento: conhecimentoLigado() }
 }
 
 const IDIOMA = /^[a-z]{2,3}(-[A-Za-z]{2})?$/
@@ -59,6 +61,10 @@ function conferir(corpo: Corpo<'alterarParametros'>) {
   const urlIa = corpo.ia_url?.trim()
   if (urlIa && !enderecoHttp(urlIa)) {
     throw httpErrors.badRequest('Endereço do servidor de IA inválido (use http:// ou https://).')
+  }
+  const urlEmbeddings = corpo.ia_embeddings_url?.trim()
+  if (urlEmbeddings && !enderecoHttp(urlEmbeddings)) {
+    throw httpErrors.badRequest('Endereço do servidor de embeddings inválido (use http:// ou https://).')
   }
   const idioma = corpo.transcritor_idioma?.trim()
   if (idioma && !IDIOMA.test(idioma)) {
@@ -90,6 +96,8 @@ export async function alterarParametros(sql: Sql, usuario: number, corpo: Corpo<
   if (corpo.ia_token !== undefined) novos.push(['ia_token', corpo.ia_token.trim()])
   if (corpo.ia_modelo !== undefined) novos.push(['ia_modelo', corpo.ia_modelo.trim()])
   if (corpo.ia_modelo_embeddings !== undefined) novos.push(['ia_modelo_embeddings', corpo.ia_modelo_embeddings.trim()])
+  if (corpo.ia_embeddings_url !== undefined) novos.push(['ia_embeddings_url', corpo.ia_embeddings_url.trim()])
+  if (corpo.ia_embeddings_token !== undefined) novos.push(['ia_embeddings_token', corpo.ia_embeddings_token.trim()])
   if (corpo.cadastro_aberto !== undefined) novos.push(['cadastro_aberto', corpo.cadastro_aberto ? '1' : '0'])
 
   for (const [nome, valor] of novos) {
@@ -104,6 +112,25 @@ export async function alterarParametros(sql: Sql, usuario: number, corpo: Corpo<
 
 // Testa o servidor de IA com o que esta na tela, antes de salvar. Token em
 // branco usa o salvo (a tela nunca recebe o token).
+// Testa os embeddings com o que esta na tela. Sem endereco proprio, vai ao da
+// IA (url_ia) com o token dela; token em branco usa o salvo do servidor usado.
+export async function testarEmbeddings(sql: Sql, usuario: number, corpo: Corpo<'testarEmbeddings'>) {
+  await validarPermissao(sql, usuario, CodigoPermissao.Parametros)
+  const proprio = corpo.url.trim()
+  const url = proprio || corpo.url_ia.trim()
+  if (!enderecoHttp(url)) {
+    throw httpErrors.badRequest(proprio ? 'Endereço do servidor de embeddings inválido (use http:// ou https://).' : 'Defina o endereço do servidor de IA ou o de embeddings.')
+  }
+  const servidor = { url, modelo: corpo.modelo, token: corpo.token?.trim() || (proprio ? configuracao.iaEmbeddings.token : configuracao.ia.token) }
+  const inicio = Date.now()
+  try {
+    const [vetor] = await gerarEmbeddings(['teste de conexão'], { servidor, tempoLimiteMs: 60_000, tipo: 'pergunta' })
+    return { ok: true, dimensoes: vetor!.length, erro: '', milissegundos: Date.now() - inicio }
+  } catch (erro) {
+    return { ok: false, dimensoes: 0, erro: erro instanceof Error ? erro.message : String(erro), milissegundos: Date.now() - inicio }
+  }
+}
+
 export async function testarIa(sql: Sql, usuario: number, corpo: Corpo<'testarIa'>) {
   await validarPermissao(sql, usuario, CodigoPermissao.Parametros)
   const url = corpo.url.trim()

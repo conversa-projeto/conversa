@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { chamar, criarConversa, enviarAnexo, noBanco, usuariosComuns, type UsuarioTeste } from './api.ts'
+import { chamar, criarConversa, criarUsuario, enviarAnexo, noBanco, usuariosComuns, type UsuarioTeste } from './api.ts'
 
 let ana: UsuarioTeste, bruno: UsuarioTeste, carla: UsuarioTeste
 beforeAll(async () => ({ ana, bruno, carla } = await usuariosComuns()))
@@ -173,5 +173,32 @@ describe('anexo nas mensagens', () => {
   test('intensidade fora de 0 a 100 é recusada', async () => {
     const { status } = await chamar('PUT', '/anexo', { token: ana.token, corpo: { identificador: 'e'.repeat(64), tipo: 5, nome: 'a.webm', extensao: 'webm', tamanho: 1, intensidade: [101] } })
     expect(status).toBe(400)
+  })
+})
+
+describe('espaço usado', () => {
+  test('soma os arquivos que a pessoa enviou, cada um uma vez; o mesmo arquivo de outra pessoa conta para ela também', async () => {
+    const [dona, outra] = [await criarUsuario('Dona Espaço'), await criarUsuario('Outra Espaço')]
+    const conversa = await criarConversa(dona, [outra])
+    const primeiro = unico('primeiro arquivo')
+    const segundo = unico('segundo arquivo, um pouco maior')
+    const tamanho = (texto: string) => new TextEncoder().encode(texto).length
+    expect((await chamar('GET', '/usuario/espaco', { token: dona.token })).dados).toEqual({ bytes: 0 })
+
+    await anexarNaConversa(dona, conversa, primeiro)
+    // O mesmo arquivo de novo, noutra mensagem: não soma duas vezes
+    await anexarNaConversa(dona, conversa, primeiro)
+    await anexarNaConversa(dona, conversa, segundo, 2, 'foto.png')
+    await anexarNaConversa(outra, conversa, primeiro)
+
+    expect((await chamar('GET', '/usuario/espaco', { token: dona.token })).dados).toEqual({ bytes: tamanho(primeiro) + tamanho(segundo) })
+    expect((await chamar('GET', '/usuario/espaco', { token: outra.token })).dados).toEqual({ bytes: tamanho(primeiro) })
+
+    // Na lista de pessoas (quem tem "permissoes" vê o de todos)
+    const gestor = await criarUsuario('Gestor Espaço')
+    await noBanco((sql) => sql`insert into permissao_usuario (usuario_id, permissao_id) select ${gestor.id}, id from permissao where codigo = 'permissoes'`)
+    const usuarios = (await chamar('GET', '/permissoes', { token: gestor.token })).dados.usuarios as { id: number; espaco: number }[]
+    expect(usuarios.find((u) => u.id === dona.id)!.espaco).toBe(tamanho(primeiro) + tamanho(segundo))
+    expect(usuarios.find((u) => u.id === gestor.id)!.espaco).toBe(0)
   })
 })

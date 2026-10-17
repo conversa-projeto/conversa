@@ -205,12 +205,22 @@ export function prefixoEmbeddings(modelo: string, tipo: 'pergunta' | 'documento'
   return PREFIXOS_EMBEDDINGS.find(([padrao]) => padrao.test(modelo))?.[1][tipo] ?? ''
 }
 
+// Servidor dos embeddings: o proprio, quando tem endereco, so com o token
+// dele (o da IA de conversa nao vai para outro host); senao, o da IA
+export function servidorEmbeddings(): ServidorIa {
+  const proprio = configuracao.iaEmbeddings
+  return proprio.url
+    ? { url: proprio.url, token: proprio.token, modelo: configuracao.iaModeloEmbeddings }
+    : { url: configuracao.ia.url.trim(), token: configuracao.ia.token, modelo: configuracao.iaModeloEmbeddings }
+}
+
 // Vetor de cada texto, na mesma ordem, com o modelo de embeddings do sistema
-export async function gerarEmbeddings(textos: string[], opcoes: { tempoLimiteMs?: number; tipo?: 'pergunta' | 'documento' } = {}): Promise<number[][]> {
-  const servidor = configuracao.ia
-  const modelo = configuracao.iaModeloEmbeddings
+// (servidor: o do teste da tela de configuracao, ou o configurado)
+export async function gerarEmbeddings(textos: string[], opcoes: { tempoLimiteMs?: number; tipo?: 'pergunta' | 'documento'; servidor?: ServidorIa } = {}): Promise<number[][]> {
+  const servidor = opcoes.servidor ?? servidorEmbeddings()
+  const modelo = servidor.modelo.trim()
   if (!servidor.url.trim() || !modelo) {
-    throw httpErrors.badRequest('Base de conhecimento desligada: defina o servidor de IA e o modelo de embeddings nas configurações do sistema.')
+    throw httpErrors.badRequest('Base de conhecimento desligada: defina o servidor de IA (ou o de embeddings) e o modelo de embeddings nas configurações do sistema.')
   }
   const endereco = enderecoCompletions(servidor.url).replace(/\/chat\/completions$/, '/embeddings')
   let resposta: Response
@@ -226,16 +236,16 @@ export async function gerarEmbeddings(textos: string[], opcoes: { tempoLimiteMs?
     })
   } catch (erro) {
     const esgotado = erro instanceof Error && erro.name === 'TimeoutError'
-    throw new Error(esgotado ? 'O servidor de IA demorou demais para gerar os embeddings.' : `Não foi possível falar com o servidor de IA (${erro instanceof Error ? erro.message : erro}).`)
+    throw new Error(esgotado ? 'O servidor de embeddings demorou demais para responder.' : `Não foi possível falar com o servidor de embeddings (${erro instanceof Error ? erro.message : erro}).`)
   }
   if (!resposta.ok) {
     const detalhe = (await resposta.text()).slice(0, 300)
-    throw new Error(`O servidor de IA respondeu ${resposta.status} aos embeddings${detalhe ? `: ${detalhe}` : ''}`)
+    throw new Error(`O servidor de embeddings respondeu ${resposta.status}${detalhe ? `: ${detalhe}` : ''}`)
   }
   const dados = await resposta.json() as { data?: { index?: number; embedding?: number[] }[] }
   const itens = [...(dados.data ?? [])].sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
   if (itens.length !== textos.length || itens.some((item) => !Array.isArray(item.embedding) || !item.embedding.length)) {
-    throw new Error('O servidor de IA não devolveu os embeddings.')
+    throw new Error('O servidor de embeddings não devolveu os vetores.')
   }
   return itens.map((item) => item.embedding!)
 }

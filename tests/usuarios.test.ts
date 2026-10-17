@@ -189,3 +189,19 @@ describe('SIP', () => {
     expect(alteracao.dados).toMatchObject({ sip_user: '1002', ativo: false })
   })
 })
+
+describe('data de cadastro', () => {
+  test('vem nos contatos e na lista de pessoas, para o "Usuário desde"', async () => {
+    const antes = Date.now() - 60_000
+    const nova = await criarUsuario('Nova Desde')
+    const contatos = (await chamar('GET', '/usuario/contatos', { token: nova.token })).dados as { id: number; criado_em: string }[]
+    const cadastro = new Date(contatos.find((c) => c.id === nova.id)!.criado_em).getTime()
+    expect(cadastro).toBeGreaterThan(antes)
+    expect(cadastro).toBeLessThanOrEqual(Date.now() + 60_000)
+
+    const gestor = await criarUsuario('Gestor Desde')
+    await noBanco((sql) => sql`insert into permissao_usuario (usuario_id, permissao_id) select ${gestor.id}, id from permissao where codigo = 'permissoes'`)
+    const usuarios = (await chamar('GET', '/permissoes', { token: gestor.token })).dados.usuarios as { id: number; criado_em: string }[]
+    expect(new Date(usuarios.find((u) => u.id === nova.id)!.criado_em).getTime()).toBe(cadastro)
+  })
+})

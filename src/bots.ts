@@ -14,7 +14,7 @@ import { gerarHash } from './senha.ts'
 import { buscarTrechos, conhecimentoLigado } from './conhecimento.ts'
 import { chamarFerramenta, ferramentasDoBot as ferramentasExternasDoBot, type FerramentaExterna } from './ferramentas.ts'
 import { inserir } from './comum.ts'
-import { TipoMensagemSocket } from './websocket.ts'
+import { notificarContatos, TipoMensagemSocket } from './websocket.ts'
 
 // Bots de IA. Cada bot e um usuario comum: o que ele faz no chat passa pelas
 // mesmas rotinas (e as mesmas permissoes de uso) de uma pessoa. Responde na
@@ -142,6 +142,7 @@ export async function incluirBot(sql: Sql, usuario: number, nomePedido: string, 
     return bot!.id
   })
   const [bot] = await linhasBots(sql, { id })
+  notificarContatos()
   return bot!
 }
 
@@ -154,6 +155,7 @@ export async function alterarBot(sql: Sql, usuario: number, corpo: Corpo<'altera
     if (instrucoes !== undefined) await sql`update bot set instrucoes = ${instrucoes} where id = ${bot.id}`
     if (corpo.ativo !== undefined) await sql`update bot set ativo = ${corpo.ativo} where id = ${bot.id}`
   })
+  if (nome !== undefined) notificarContatos()
   const [alterado] = await linhasBots(sql, { id: bot.id })
   return alterado!
 }
@@ -261,6 +263,7 @@ export async function excluirBot(sql: Sql, usuario: number, id: number) {
       return false
     }
   })
+  notificarContatos()
   return { id: bot.id, apagado }
 }
 
@@ -588,21 +591,7 @@ function ferramentasDoBot(contexto: Contexto): Ferramenta[] {
   ]
   // Base de conhecimento: com mais de uma, o modelo pode escolher qual
   const conhecimento: Ferramenta[] = contexto.bases.length
-    ? [{
-        type: 'function',
-        function: {
-          name: 'consultar_conhecimento',
-          description: `Procura na base de conhecimento (${contexto.bases.map((b) => `${b.nome}${b.descricao ? `: ${b.descricao}` : ''}`).join('; ')}) os trechos de documentos que respondem à pergunta.`,
-          parameters: {
-            type: 'object',
-            properties: {
-              pergunta: { type: 'string', description: 'O que procurar, em poucas palavras' },
-              ...(contexto.bases.length > 1 ? { base: { type: 'string', enum: contexto.bases.map((b) => b.nome), description: 'Em qual base procurar (sem ela, em todas)' } } : {}),
-            },
-            required: ['pergunta'],
-          },
-        },
-      }]
+    ? [ferramentaConhecimento(contexto.bases)]
     : []
   // As externas ligadas no bot, com os parametros cadastrados
   const externas: Ferramenta[] = contexto.externas.map((externa) => ({
@@ -618,6 +607,46 @@ function ferramentasDoBot(contexto: Contexto): Ferramenta[] {
     },
   }))
   return [...lista.filter((ferramenta): ferramenta is Ferramenta => !!ferramenta), ...conhecimento, ...externas]
+}
+
+// A ferramenta da base de conhecimento, como o modelo a recebe: a descricao
+// cita as bases ligadas no bot; com mais de uma, ele pode escolher qual
+export function ferramentaConhecimento(bases: { nome: string; descricao: string }[]): Ferramenta {
+  return {
+    type: 'function',
+    function: {
+      name: 'consultar_conhecimento',
+      description: `Procura na base de conhecimento (${bases.map((b) => `${b.nome}${b.descricao ? `: ${b.descricao}` : ''}`).join('; ')}) os trechos de documentos que respondem à pergunta.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          pergunta: { type: 'string', description: 'O que procurar, em poucas palavras' },
+          ...(bases.length > 1 ? { base: { type: 'string', enum: bases.map((b) => b.nome), description: 'Em qual base procurar (sem ela, em todas)' } } : {}),
+        },
+        required: ['pergunta'],
+      },
+    },
+  }
+}
+
+// Para a tela de ferramentas: as embutidas, so para ver como e uma
+// configuracao de verdade. A definicao e a que o modelo recebe, montada com
+// as bases que existem (ou duas de exemplo, sem nenhuma)
+export async function ferramentasEmbutidas(sql: Sql, usuario: number) {
+  await validarPermissao(sql, usuario, CodigoPermissao.Ferramentas)
+  const existentes = await sql<{ nome: string; descricao: string }[]>`select nome, descricao from conhecimento_base order by lower(nome)`
+  const bases = existentes.length ? existentes : [{ nome: 'RH', descricao: 'Políticas de férias e benefícios' }, { nome: 'Suporte', descricao: 'Manuais dos sistemas' }]
+  const definicao = ferramentaConhecimento(bases)
+  return [{
+    nome: definicao.function.name,
+    descricao: definicao.function.description,
+    origem: 'Interna: busca no Qdrant os trechos das bases ligadas ao bot (IA › Conhecimento). Não chama endereço externo e não tem cabeçalhos.',
+    parametros: [
+      { nome: 'pergunta', tipo: 'string' as const, descricao: 'O que procurar, em poucas palavras', obrigatorio: true },
+      { nome: 'base', tipo: 'string' as const, descricao: 'Em qual base procurar (sem ela, em todas). Só aparece quando o bot tem mais de uma base, com os nomes delas', obrigatorio: false },
+    ],
+    definicao,
+  }]
 }
 
 const NOMES_PERMISSAO: Record<string, string> = {

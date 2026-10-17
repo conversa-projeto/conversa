@@ -5,10 +5,10 @@ import type { Corpo } from './esquemas.ts'
 import { conferirSenha, gerarHash } from './senha.ts'
 import type { Dispositivo, Usuario } from './tabelas.ts'
 import { httpErrors } from './erros.ts'
-import { CodigoPermissao, concederPermissoesUso, validarPermissao, validarPermissoes } from './permissoes.ts'
+import { CodigoPermissao, concederPermissoesUso, conferirListaPermissoes, definirPermissoesConta, validarPermissao, validarPermissoes } from './permissoes.ts'
 import { configuracao } from './configuracao.ts'
 import { ehBot, incluirBot } from './bots.ts'
-import { alterarPreferenciasPresenca, presencaVisivel } from './websocket.ts'
+import { alterarPreferenciasPresenca, notificarContatos, presencaVisivel } from './websocket.ts'
 
 
 const COLUNAS_DISPOSITIVO_INCLUIR = ['nome', 'modelo', 'versao_so', 'plataforma', 'ativo', 'usuario_id'] as const
@@ -118,14 +118,17 @@ async function criarConta(sql: Sql, corpo: Corpo<'incluirUsuario'>) {
   }
   const usuario = await inserir(sql, 'usuario', { ...corpo, senha: await gerarHash(corpo.senha) }, COLUNAS_USUARIO_INCLUIR)
   await concederPermissoesUso(sql, usuario.id)
+  notificarContatos()
   return usuario
 }
 
-// Pelo administrador (permissao "usuarios"), mesmo com o cadastro fechado:
-// uma pessoa, com login, e-mail e senha, ou um bot, com as instrucoes. O
-// avatar e uma imagem ja enviada (PUT /anexo).
+// Pelo administrador (permissao "permissoes", Pessoas na tela), mesmo com o
+// cadastro fechado: uma pessoa, com login, e-mail e senha, ou um bot, com as
+// instrucoes. O avatar e uma imagem ja enviada (PUT /anexo). Com a lista de
+// permissoes, a conta nasce com ela no lugar do padrao.
 export async function cadastrarUsuario(sql: Sql, usuario: number, corpo: Corpo<'cadastrarUsuario'>) {
-  await validarPermissao(sql, usuario, CodigoPermissao.Usuarios)
+  await validarPermissao(sql, usuario, CodigoPermissao.Permissoes)
+  if (corpo.permissoes) await conferirListaPermissoes(sql, corpo.permissoes, !!corpo.bot)
   const avatar = corpo.avatar_anexo_id ?? null
   if (avatar) {
     const [anexo] = await sql`select 1 from anexo where id = ${avatar} and tipo = 2`
@@ -137,6 +140,7 @@ export async function cadastrarUsuario(sql: Sql, usuario: number, corpo: Corpo<'
     // O bot nasce na transacao dele (conta, bot e permissoes)
     const bot = await incluirBot(sql, usuario, corpo.nome, corpo.instrucoes ?? '')
     if (avatar) await sql`update usuario set avatar_anexo_id = ${avatar} where id = ${bot.usuario_id}`
+    if (corpo.permissoes) await definirPermissoesConta(sql, bot.usuario_id, corpo.permissoes)
     return { id: bot.usuario_id, nome: bot.nome, login: bot.login, bot: true }
   }
   const login = corpo.login?.trim() ?? ''
@@ -147,6 +151,7 @@ export async function cadastrarUsuario(sql: Sql, usuario: number, corpo: Corpo<'
   const conta = await transacao(sql, async () => {
     const criada = await criarConta(sql, { nome: corpo.nome.trim(), login, email, telefone: corpo.telefone ?? null, senha: corpo.senha! })
     if (avatar) await sql`update usuario set avatar_anexo_id = ${avatar} where id = ${criada.id}`
+    if (corpo.permissoes) await definirPermissoesConta(sql, criada.id, corpo.permissoes)
     return criada
   })
   return { id: conta.id, nome: conta.nome, login: conta.login, bot: false }
@@ -171,6 +176,7 @@ export async function alterarUsuario(sql: Sql, usuario: number, corpo: Corpo<'al
   if (['mostrar_visto_em', 'mostrar_na_conversa', 'aparecer_offline'].some((campo) => campo in corpo)) pedidas.push(CodigoPermissao.Privacidade)
   await validarPermissoes(sql, usuario, pedidas)
   const alterado = await alterar(sql, 'usuario', corpo.id, corpo, COLUNAS_USUARIO_ALTERAR)
+  if ('nome' in corpo || 'email' in corpo) notificarContatos()
   if ('aparecer_offline' in alterado) {
     const { mostrar_visto_em, mostrar_na_conversa, aparecer_offline } = alterado
     await alterarPreferenciasPresenca(usuario, { mostrar_visto_em, mostrar_na_conversa, aparecer_offline })
@@ -200,6 +206,7 @@ export async function excluirUsuario(sql: Sql, usuario: number, id: number) {
     if (erro.code === '23503') throw httpErrors.conflict('A conta tem histórico e não pode ser excluída!')
     throw erro
   })
+  notificarContatos()
   return semSenha(excluido)
 }
 
@@ -212,10 +219,10 @@ export async function excluirContato(sql: Sql, usuario: number, contato: number)
   return excluir(sql, 'usuario_contato', contato)
 }
 
-// bot: a pagina mostra a marca de bot ao lado do nome
+// bot: a pagina mostra a marca de bot ao lado do nome; criado_em, "Usuario desde"
 export function contatos(sql: Sql) {
-  return sql<(Pick<Usuario, 'id' | 'nome' | 'login' | 'email' | 'telefone'> & { bot: boolean })[]>`
-    select u.id, u.nome, u.login, u.email, u.telefone, exists (select 1 from bot b where b.usuario_id = u.id) as bot
+  return sql<(Pick<Usuario, 'id' | 'nome' | 'login' | 'email' | 'telefone' | 'criado_em'> & { bot: boolean })[]>`
+    select u.id, u.nome, u.login, u.email, u.telefone, u.criado_em, exists (select 1 from bot b where b.usuario_id = u.id) as bot
       from usuario as u
      where not exists (select 1 from bot b where b.usuario_id = u.id and b.excluido_em is not null)
      order by u.id`

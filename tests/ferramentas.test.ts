@@ -134,6 +134,19 @@ describe('cadastro de ferramentas', () => {
     expect(faltando.dados).toMatchObject({ ok: false, erro: 'Faltou o parâmetro pergunta.' })
   })
 
+  test('a embutida da base de conhecimento vem como exemplo, com a definição que o modelo recebe', async () => {
+    expect((await chamar('GET', '/ferramentas/embutidas', { token: criador.token })).status).toBe(403)
+    const { status, dados } = await chamar('GET', '/ferramentas/embutidas', { token: admin.token })
+    expect(status).toBe(200)
+    const [conhecimento] = dados as { nome: string; descricao: string; origem: string; parametros: { nome: string; obrigatorio: boolean }[]; definicao: { function: { name: string; description: string; parameters: { required: string[] } } } }[]
+    expect(conhecimento!.nome).toBe('consultar_conhecimento')
+    expect(conhecimento!.origem).toContain('Não chama endereço externo')
+    expect(conhecimento!.parametros.map((p) => [p.nome, p.obrigatorio])).toEqual([['pergunta', true], ['base', false]])
+    expect(conhecimento!.definicao.function.name).toBe('consultar_conhecimento')
+    expect(conhecimento!.definicao.function.description).toBe(conhecimento!.descricao)
+    expect(conhecimento!.definicao.function.parameters.required).toEqual(['pergunta'])
+  })
+
   test('excluir tira a ferramenta dos bots', async () => {
     const ferramenta = await criar()
     const { dados: bot } = await chamar('PUT', '/bot', { token: criador.token, corpo: { nome: 'Com Ferramenta', instrucoes: 'Ajuda.' } })

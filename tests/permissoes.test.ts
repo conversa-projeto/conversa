@@ -23,9 +23,11 @@ const USO_046 = [
 // "nome" era o "perfil" da 048, renomeado na 049
 const USO_048 = ['ocultar', 'nome', 'senha', 'privacidade', 'cores', 'config_chamadas']
 const USO_049 = ['email', 'avatar']
-const USO = [...USO_046, ...USO_048, ...USO_049]
+const USO_055 = ['localizacao']
+const USO = [...USO_046, ...USO_048, ...USO_049, ...USO_055]
 // Todas, na ordem do banco: as de administracao entram entre as de uso
-const TODAS = ['parametros', 'permissoes', ...USO_046, 'bots', ...USO_048, 'usuarios', ...USO_049, 'ferramentas', 'conhecimento']
+// "usuarios" (048) saiu na 054: cadastrar ficou com "permissoes"
+const TODAS = ['parametros', 'permissoes', ...USO_046, 'bots', ...USO_048, ...USO_049, 'ferramentas', 'conhecimento', ...USO_055]
 
 function retirar(quem: UsuarioTeste, ...codigos: string[]) {
   return noBanco((sql) => sql`
@@ -115,12 +117,13 @@ describe('permissões de uso', () => {
     expect((await enviarTexto(comum, conversa, 'oi')).status).toBe(200)
   })
 
-  test('figurinha, imagem, áudio e agendar pedem cada uma a sua', async () => {
+  test('figurinha, imagem, áudio, agendar e localização pedem cada uma a sua', async () => {
     const conversa = await criarConversa(comum, [outro])
-    await retirar(comum, 'figurinha', 'imagem', 'audio', 'agendar')
+    await retirar(comum, 'figurinha', 'imagem', 'audio', 'agendar', 'localizacao')
     const enviar = (tipo: number, conteudo: string, extras = {}) =>
       chamar('PUT', '/mensagem', { token: comum.token, corpo: { conversa_id: conversa, conteudos: [{ ordem: 1, tipo, conteudo }], ...extras } })
     await proibido(enviar(7, 'noto/1f600'), 'figurinhas')
+    await proibido(enviar(9, JSON.stringify({ pontos: [{ lat: -23.5, lng: -46.6 }] })), 'localizações')
     await proibido(enviar(2, 'a'.repeat(64)), 'imagens')
     await proibido(enviar(5, 'a'.repeat(64)), 'áudios')
     await proibido(enviar(1, 'depois', { visivel_em: new Date(Date.now() + 60 * 60 * 1000).toISOString() }), 'agendar')
@@ -213,7 +216,7 @@ describe('permissões de uso', () => {
 describe('cadastro', () => {
   const novoLogin = () => `cad${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 
-  test('com o cadastro fechado, ninguém se cadastra pela tela de login; quem tem "usuarios" cadastra', async () => {
+  test('com o cadastro fechado, ninguém se cadastra pela tela de login; quem tem "permissoes" (Pessoas) cadastra', async () => {
     expect((await chamar('GET', '/cadastro')).dados).toEqual({ aberto: true })
     await chamar('PATCH', '/parametros', { token: gestor.token, corpo: { cadastro_aberto: false } })
     try {
@@ -224,7 +227,6 @@ describe('cadastro', () => {
       expect(proprio.dados.error).toContain('cadastro está fechado')
       expect((await chamar('GET', '/parametros', { token: gestor.token })).dados.cadastro_aberto).toBe(false)
 
-      await conceder(gestor, 'usuarios')
       const pessoa = await chamar('PUT', '/usuario/novo', { token: gestor.token, corpo: { nome: 'Pelo Admin', login, email: `${login}@teste.test`, senha: 'senha-x' } })
       expect(pessoa.status).toBe(200)
       expect(pessoa.dados).toMatchObject({ nome: 'Pelo Admin', login, bot: false })
@@ -235,11 +237,10 @@ describe('cadastro', () => {
     }
   })
 
-  test('sem "usuarios" não cadastra (403); faltando campo é 400; avatar precisa ser uma imagem', async () => {
+  test('sem "permissoes" (Pessoas) não cadastra (403); faltando campo é 400; avatar precisa ser uma imagem', async () => {
     const login = novoLogin()
     const corpo = { nome: 'X', login, email: `${login}@teste.test`, senha: 'senha-x' }
     expect((await chamar('PUT', '/usuario/novo', { token: comum.token, corpo })).status).toBe(403)
-    await conceder(gestor, 'usuarios')
     expect((await chamar('PUT', '/usuario/novo', { token: gestor.token, corpo: { nome: 'X', login } })).status).toBe(400)
     const arquivo = await enviarAnexo(gestor, `nao-e-imagem ${Math.random()}`, 3, 'nota.txt')
     const arquivoId = (await noBanco((sql) => sql<{ id: number }[]>`select id from anexo where identificador = ${arquivo.identificador}`))[0]!.id
@@ -252,8 +253,34 @@ describe('cadastro', () => {
     expect(conta!.avatar_anexo_id).toBe(imagemId)
   })
 
+  test('com a lista de permissões, a conta nasce com ela; bot só com as de uso; código desconhecido é 400', async () => {
+    const login = `cad${Date.now().toString(36)}lista`
+    const pessoa = await chamar('PUT', '/usuario/novo', {
+      token: gestor.token,
+      corpo: { nome: 'Com Lista', login, email: `${login}@teste.test`, senha: 'senha-x', permissoes: ['emoji', 'parametros'] },
+    })
+    expect(pessoa.status).toBe(200)
+    const lista = (await chamar('GET', '/permissoes', { token: gestor.token })).dados.usuarios as { id: number; bot: boolean; permissoes: string[] }[]
+    expect(lista.find((u) => u.id === pessoa.dados.id)).toMatchObject({ bot: false, permissoes: ['parametros', 'emoji'] })
+    const desconhecida = await chamar('PUT', '/usuario/novo', { token: gestor.token, corpo: { nome: 'X', login: `${login}2`, email: `${login}2@teste.test`, senha: 'senha-x', permissoes: ['voar'] } })
+    expect(desconhecida.status).toBe(400)
+
+    const anterior = { ...configuracao.ia }
+    configuracao.ia = { url: 'http://ia.test', token: '', modelo: 'teste' }
+    try {
+      const botAdmin = await chamar('PUT', '/usuario/novo', { token: gestor.token, corpo: { nome: 'Bot Admin', bot: true, instrucoes: 'x', permissoes: ['permissoes'] } })
+      expect(botAdmin.status).toBe(400)
+      expect(botAdmin.dados.error).toContain('só recebe permissões de uso')
+      const bot = await chamar('PUT', '/usuario/novo', { token: gestor.token, corpo: { nome: 'Bot Lista', bot: true, instrucoes: 'x', permissoes: ['figurinha'] } })
+      expect(bot.status).toBe(200)
+      const depois = (await chamar('GET', '/permissoes', { token: gestor.token })).dados.usuarios as { id: number; bot: boolean; permissoes: string[] }[]
+      expect(depois.find((u) => u.id === bot.dados.id)).toMatchObject({ bot: true, permissoes: ['figurinha'] })
+    } finally {
+      configuracao.ia = anterior
+    }
+  })
+
   test('cadastra um bot, com as instruções e só o básico liberado', async () => {
-    await conceder(gestor, 'usuarios')
     const anterior = { ...configuracao.ia }
     configuracao.ia = { url: 'http://ia.test', token: '', modelo: 'teste' }
     try {

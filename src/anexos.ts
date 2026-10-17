@@ -30,6 +30,33 @@ interface AnexoLista {
 const TAMANHO_MAXIMO = 1024 * 1024 * 1024 // 1 GiB
 const TIPOS_ANEXO = [2, 3, 4, 5] // 2-Imagem; 3-Arquivo; 4-Audio; 5-Gravacao de audio
 
+// Espaco que cada pessoa ocupa: os arquivos (imagem, arquivo, audio e
+// gravacao) das mensagens que ela enviou, cada um uma vez por pessoa, mesmo
+// mandado em varias conversas. O mesmo arquivo mandado por duas pessoas conta
+// para as duas (o servidor guarda uma copia so). Em bytes.
+export async function espacoPorUsuario(sql: Sql, usuario?: number) {
+  const linhas = await sql<{ usuario_id: number; bytes: number }[]>`
+    select e.usuario_id
+         , coalesce(sum(a.tamanho), 0)::float8 as bytes
+      from ( select distinct m.usuario_id
+                  , convert_from(mc.conteudo, 'utf-8') as identificador
+               from mensagem_conteudo mc
+              inner join mensagem m
+                 on m.id = mc.mensagem_id
+              where mc.tipo in ${sql(TIPOS_ANEXO)}
+                ${usuario ? sql`and m.usuario_id = ${usuario}` : sql``}
+           ) e
+     inner join anexo a
+        on a.identificador = e.identificador
+     group by e.usuario_id`
+  return new Map(linhas.map((linha) => [linha.usuario_id, linha.bytes]))
+}
+
+// O da propria conta, para a aba Conta
+export async function espacoUsuario(sql: Sql, usuario: number) {
+  return { bytes: (await espacoPorUsuario(sql, usuario)).get(usuario) ?? 0 }
+}
+
 export async function anexoExiste(sql: Sql, identificador: string) {
   const [anexo] = await sql<{ id: number; identificador: string; tipo: number; tamanho: number; upload_status: number }[]>`
     select a.id, a.identificador, a.tipo, a.tamanho, a.upload_status

@@ -11,6 +11,7 @@ import * as ferramentas from './ferramentas.ts'
 import * as conhecimento from './conhecimento.ts'
 import * as enquetes from './enquetes.ts'
 import * as parametros from './parametros.ts'
+import * as pastas from './pastas.ts'
 import * as permissoes from './permissoes.ts'
 import * as resumos from './resumos.ts'
 import * as sugestoes from './sugestoes.ts'
@@ -77,6 +78,8 @@ export function criarRotas(token: Token) {
     .get('/contatos/online', (c) => comoUsuario(c, (sql, usuario) => usuarios.contatosOnline(sql, usuario)))
 
     .get('/contatos/presenca', (c) => comoUsuario(c, (sql, usuario) => usuarios.contatosPresenca(sql, usuario)))
+
+    .get('/usuario/espaco', (c) => comoUsuario(c, (sql, usuario) => anexos.espacoUsuario(sql, usuario)))
 
     .get('/usuario/privacidade', (c) => comoUsuario(c, (sql, usuario) => usuarios.privacidade(sql, usuario)))
 
@@ -202,6 +205,24 @@ export function criarRotas(token: Token) {
     .post('/enquete/encerrar', (c) => comoUsuario(c, (sql, usuario) => enquetes.encerrarEnquete(sql, usuario, c.body)), esquemas.encerrarEnquete)
     .patch('/enquete', (c) => comoUsuario(c, (sql, usuario) => enquetes.alterarPrazoEnquete(sql, usuario, c.body)), esquemas.prazoEnquete)
 
+    // --- Pastas de mensagens (conversa direta) ---
+
+    .get('/pastas', (c) => comoUsuario(c, (sql, usuario) => pastas.listarPastas(sql, usuario, c.query.conversa)), esquemas.pastas)
+
+    .put('/pasta', (c) => comoUsuario(c, (sql, usuario) => pastas.incluirPasta(sql, usuario, c.body)), esquemas.incluirPasta)
+
+    .patch('/pasta', (c) => comoUsuario(c, (sql, usuario) => pastas.alterarPasta(sql, usuario, c.body)), esquemas.alterarPasta)
+
+    .delete('/pasta', (c) => comoUsuario(c, (sql, usuario) => pastas.excluirPasta(sql, usuario, c.query.id)), esquemas.idNaConsulta)
+
+    .get('/pasta/mensagens', (c) =>
+      comoUsuario(c, (sql, usuario) => pastas.mensagensDaPasta(sql, usuario, c.query.id, c.query.antes)), esquemas.mensagensDaPasta)
+
+    .put('/pasta/mensagens', (c) => comoUsuario(c, (sql, usuario) => pastas.incluirMensagensPasta(sql, usuario, c.body)), esquemas.mensagensPasta)
+
+    .delete('/pasta/mensagens', (c) => comoUsuario(c, (sql, usuario) => pastas.tirarMensagensPasta(sql, usuario, c.body)), esquemas.mensagensPasta)
+
+
     .get('/usuario/permissoes', (c) => comoUsuario(c, (sql, usuario) => permissoes.minhasPermissoes(sql, usuario)))
 
     .get('/recursos', (c) => comoUsuario(c, () => parametros.recursosSistema()))
@@ -248,6 +269,8 @@ export function criarRotas(token: Token) {
 
     .get('/ferramentas', (c) => comoUsuario(c, (sql, usuario) => ferramentas.listarFerramentas(sql, usuario)))
 
+    .get('/ferramentas/embutidas', (c) => comoUsuario(c, (sql, usuario) => bots.ferramentasEmbutidas(sql, usuario)))
+
     .get('/ferramentas/disponiveis', (c) => comoUsuario(c, (sql, usuario) => ferramentas.ferramentasDisponiveis(sql, usuario)))
 
     .put('/ferramenta', (c) => comoUsuario(c, (sql, usuario) => ferramentas.incluirFerramenta(sql, usuario, c.body)), esquemas.incluirFerramenta)
@@ -259,6 +282,8 @@ export function criarRotas(token: Token) {
     .post('/ferramenta/testar', (c) => comoUsuario(c, (sql, usuario) => ferramentas.testarFerramenta(sql, usuario, c.body)), esquemas.testarFerramenta)
 
     .put('/bot/permissoes', (c) => comoUsuario(c, (sql, usuario) => bots.definirPermissoesBot(sql, usuario, c.body)), esquemas.permissoesBot)
+
+    .post('/parametros/ia/testar-embeddings', (c) => comoUsuario(c, (sql, usuario) => parametros.testarEmbeddings(sql, usuario, c.body)), esquemas.testarEmbeddings)
 
     .post('/parametros/ia/testar', (c) => comoUsuario(c, (sql, usuario) => parametros.testarIa(sql, usuario, c.body)), esquemas.testarIa)
 

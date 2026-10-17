@@ -28,6 +28,11 @@ export const TipoMensagemSocket = {
   PostagemAtualizada: 64,
   // Quem enviou passou a pedir confirmação de leitura numa mensagem já enviada
   ConfirmacaoPedida: 65,
+  // Conta criada, renomeada ou excluída: as abas recarregam os contatos (busca e @)
+  ContatosAtualizados: 66,
+  // Pasta de mensagens criada, mudada ou excluída, ou mensagens postas/tiradas
+  // dela: quem a enxerga recarrega as pastas da conversa (e as marcas nas bolhas)
+  PastasAtualizadas: 67,
 } as const
 export type TipoMensagemSocket = (typeof TipoMensagemSocket)[keyof typeof TipoMensagemSocket]
 
@@ -205,6 +210,17 @@ export function notificarPostagem(conversa: number, postagem: number, remetente:
 // Voto novo numa enquete: quem tem a bolha aberta le os votos de novo
 export function notificarEnquete(usuarioId: number, enquete: number, conversa: number) {
   enviar(usuarioId, { tipo: TipoMensagemSocket.EnqueteAtualizada, enquete_id: enquete, conversa_id: conversa })
+}
+
+export function notificarPastas(usuarioId: number, conversa: number, pasta: number, extras: { mensagens?: number[]; acao?: 'incluir' | 'tirar' }) {
+  enviar(usuarioId, { tipo: TipoMensagemSocket.PastasAtualizadas, conversa_id: conversa, pasta_id: pasta, ...extras })
+}
+
+// Lista de contatos mudou: vai para todas as conexoes abertas
+export function notificarContatos() {
+  for (const usuarioId of conexoes.keys()) {
+    enviar(usuarioId, { tipo: TipoMensagemSocket.ContatosAtualizados })
+  }
 }
 
 // Atividade nova (ou retirada) para o usuario: a pagina atualiza o contador

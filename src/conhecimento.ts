@@ -3,7 +3,7 @@ import { comUsuario, type Sql } from './banco.ts'
 import { configuracao } from './configuracao.ts'
 import type { Corpo } from './esquemas.ts'
 import { httpErrors } from './erros.ts'
-import { gerarEmbeddings } from './ia.ts'
+import { gerarEmbeddings, servidorEmbeddings } from './ia.ts'
 import { CodigoPermissao, permissaoUsuario, validarPermissao } from './permissoes.ts'
 
 // Base de conhecimento dos bots (RAG). Cada base tem documentos (texto que a
@@ -22,7 +22,8 @@ const LIMITE_TEXTO = 2_000_000
 const TRECHOS_POR_BUSCA = 5
 
 export function conhecimentoLigado() {
-  return configuracao.ia.url.trim() !== '' && configuracao.iaModeloEmbeddings !== ''
+  const servidor = servidorEmbeddings()
+  return servidor.url !== '' && servidor.modelo !== ''
 }
 
 // --- Qdrant (API HTTP) ---

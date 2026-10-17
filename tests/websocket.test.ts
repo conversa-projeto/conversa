@@ -236,3 +236,25 @@ describe('eventos chegam só a quem participa', () => {
     await doBruno.esperar((e) => e.tipo === 40 && e.conversa_id === conversa)
   })
 })
+
+describe('contatos', () => {
+  test('conta nova, nome trocado e conta excluída avisam todas as conexões (tipo 66)', async () => {
+    const daAna = await conectar(ana)
+    const doBruno = await conectar(bruno)
+    const nova = await criarUsuario('Conta Nova Socket')
+    await daAna.esperar((e) => e.tipo === 66)
+    await doBruno.esperar((e) => e.tipo === 66)
+
+    daAna.eventos.length = 0
+    await chamar('PATCH', '/usuario', { token: nova.token, corpo: { id: nova.id, nome: 'Conta Renomeada Socket' } })
+    await daAna.esperar((e) => e.tipo === 66)
+
+    // Mudar só a privacidade não mexe nos contatos
+    daAna.eventos.length = 0
+    await chamar('PATCH', '/usuario', { token: nova.token, corpo: { id: nova.id, mostrar_visto_em: false } })
+    await daAna.nadaChega((e) => e.tipo === 66)
+
+    await chamar('DELETE', '/usuario', { token: nova.token, consulta: { id: nova.id } })
+    await daAna.esperar((e) => e.tipo === 66)
+  })
+})

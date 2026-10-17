@@ -1,6 +1,7 @@
 import type { Sql } from './banco.ts'
 import type { Consulta, Corpo } from './esquemas.ts'
 import { httpErrors } from './erros.ts'
+import { espacoPorUsuario } from './anexos.ts'
 
 // Codigos da tabela permissao (migracao 034). Permissao nova entra la e aqui.
 export const CodigoPermissao = {
@@ -8,8 +9,6 @@ export const CodigoPermissao = {
   Permissoes: 'permissoes',
   // Criar bots de IA (migracao 047)
   Bots: 'bots',
-  // Cadastrar usuarios e bots pela tela de administracao (migracao 048)
-  Usuarios: 'usuarios',
   // Cadastrar as ferramentas externas dos bots (migracao 051)
   Ferramentas: 'ferramentas',
   // Cuidar das bases de conhecimento dos bots (migracao 052)
@@ -43,6 +42,8 @@ export const CodigoPermissao = {
   Privacidade: 'privacidade',
   Cores: 'cores',
   ConfigChamadas: 'config_chamadas',
+  // Migracao 055: localizacao e trajeto (conteudo tipo 9)
+  Localizacao: 'localizacao',
 } as const
 export type CodigoPermissao = (typeof CodigoPermissao)[keyof typeof CodigoPermissao]
 
@@ -84,6 +85,29 @@ export async function permissaoUsuario(sql: Sql, usuario: number, codigo: Codigo
   return (await minhasPermissoes(sql, usuario)).includes(codigo)
 }
 
+// Troca as permissoes da conta pela lista (cadastro pelo administrador). Bot
+// so recebe as de uso.
+export async function conferirListaPermissoes(sql: Sql, codigos: string[], bot: boolean) {
+  const existentes = await sql<{ codigo: string; uso: boolean }[]>`select codigo, uso from permissao`
+  const desconhecida = codigos.find((codigo) => !existentes.some((p) => p.codigo === codigo))
+  if (desconhecida) {
+    throw httpErrors.badRequest(`Permissão inválida: ${desconhecida}`)
+  }
+  const administracao = bot && codigos.find((codigo) => !existentes.find((p) => p.codigo === codigo)!.uso)
+  if (administracao) {
+    throw httpErrors.badRequest('Bot só recebe permissões de uso.')
+  }
+}
+
+export async function definirPermissoesConta(sql: Sql, conta: number, codigos: string[]) {
+  await sql`delete from permissao_usuario where usuario_id = ${conta}`
+  if (codigos.length) {
+    await sql`
+      insert into permissao_usuario (usuario_id, permissao_id)
+      select ${conta}, id from permissao where codigo in ${sql([...new Set(codigos)])}`
+  }
+}
+
 // Conta nova pode tudo no chat; o administrador restringe depois
 export async function concederPermissoesUso(sql: Sql, usuario: number) {
   await sql`
@@ -112,18 +136,25 @@ export async function listarPermissoes(sql: Sql, usuario: number) {
   await validarPermissao(sql, usuario, CodigoPermissao.Permissoes)
   const permissoes = await sql<{ codigo: string; descricao: string; uso: boolean }[]>`
     select codigo, descricao, uso from permissao order by id`
-  const usuarios = await sql<{ id: number; nome: string; login: string; permissoes: string[] }[]>`
+  const usuarios = await sql<{ id: number; nome: string; login: string; criado_em: Date | null; bot: boolean; permissoes: string[] }[]>`
     select u.id
          , u.nome
          , u.login
+         , u.criado_em
+         , exists (select 1 from bot b where b.usuario_id = u.id) as bot
          , coalesce(array_agg(p.codigo order by p.id) filter (where p.codigo is not null), '{}') as permissoes
       from usuario u
       left join permissao_usuario pu on pu.usuario_id = u.id
       left join permissao p on p.id = pu.permissao_id
      where not exists (select 1 from bot b where b.usuario_id = u.id and b.excluido_em is not null)
-     group by u.id, u.nome, u.login
+     group by u.id, u.nome, u.login, u.criado_em
      order by lower(u.nome), u.id`
-  return { permissoes, usuarios, modo_aberto: await modoAberto(sql) }
+  const espaco = await espacoPorUsuario(sql)
+  return {
+    permissoes,
+    usuarios: usuarios.map((linha) => ({ ...linha, espaco: espaco.get(linha.id) ?? 0 })),
+    modo_aberto: await modoAberto(sql),
+  }
 }
 
 async function idPermissao(sql: Sql, codigo: string) {

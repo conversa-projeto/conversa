@@ -166,6 +166,8 @@ export interface MensagemResposta {
   reacoes?: ReacaoResposta[]
   confirmacao?: ConfirmacaoResposta
   postagem?: PostagemResposta
+  // Pastas (da conversa direta) em que a mensagem está e que o usuário enxerga
+  pastas?: number[]
 }
 
 // Postagem: título, quantas respostas (e quantas o usuário não viu) e as últimas
@@ -236,6 +238,28 @@ function resumirTexto(texto: string) {
 
 const FIGURINHA = /^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/
 
+// Localizacao (tipo 9): JSON com um ponto (o local) ou dois (origem e destino
+// do trajeto), cada um com lat, lng e um nome opcional; o trajeto pode levar a
+// rota pelas ruas (polyline do OSRM), a distancia em metros e a duracao em segundos
+function localizacaoValida(conteudo: string) {
+  if (conteudo.length > 200_000) return false
+  let dados: unknown
+  try { dados = JSON.parse(conteudo) } catch { return false }
+  if (!dados || typeof dados !== 'object' || Array.isArray(dados)) return false
+  const { pontos, rota, distancia, duracao } = dados as Record<string, unknown>
+  if (!Array.isArray(pontos) || pontos.length < 1 || pontos.length > 2) return false
+  const pontoValido = (ponto: unknown) => {
+    if (!ponto || typeof ponto !== 'object') return false
+    const { lat, lng, nome } = ponto as Record<string, unknown>
+    return typeof lat === 'number' && typeof lng === 'number' && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+      && (nome === undefined || (typeof nome === 'string' && nome.length <= 300))
+  }
+  const numeroOpcional = (valor: unknown) => valor === undefined || (typeof valor === 'number' && Number.isFinite(valor) && valor >= 0)
+  return pontos.every(pontoValido)
+    && (rota === undefined || (typeof rota === 'string' && pontos.length === 2))
+    && numeroOpcional(distancia) && numeroOpcional(duracao)
+}
+
 function textoConteudo(tipo: number, conteudo: string) {
   switch (tipo) {
     case 1: return resumirTexto(conteudo)
@@ -243,6 +267,7 @@ function textoConteudo(tipo: number, conteudo: string) {
     case 3: return 'arquivo'
     case 7: return 'figurinha'
     case 8: return 'enquete'
+    case 9: return 'localização'
     default: return ''
   }
 }
@@ -268,6 +293,7 @@ async function permissoesMensagem(sql: Sql, corpo: Corpo<'incluirMensagem'>, con
     else if (item.tipo === 2) codigos.push(CodigoPermissao.Imagem)
     else if (item.tipo === 4 || item.tipo === 5) codigos.push(CodigoPermissao.Audio)
     else if (item.tipo === 7) codigos.push(CodigoPermissao.Figurinha)
+    else if (item.tipo === 9) codigos.push(CodigoPermissao.Localizacao)
     else if (item.tipo === 3 && item.conteudo) arquivos.push(item.conteudo)
   }
   if (arquivos.length) {
@@ -318,6 +344,10 @@ export async function incluirMensagem(sql: Sql, usuario: number, corpo: Corpo<'i
   // cliente, entao so aceita o formato do identificador
   if (conteudos.some((item) => item.tipo === 7 && !FIGURINHA.test(item.conteudo ?? ''))) {
     throw httpErrors.badRequest('Figurinha inválida!')
+  }
+
+  if (conteudos.some((item) => item.tipo === 9 && !localizacaoValida(item.conteudo ?? ''))) {
+    throw httpErrors.badRequest('Localização inválida!')
   }
 
   const referencia = corpo.mensagem_referencia
@@ -701,7 +731,7 @@ async function chatDaChamada(sql: Sql, usuario: number, conteudo: string) {
 async function carregarConteudos(sql: Sql, mensagemId: number): Promise<ConteudoResposta[]> {
   const linhas = await sql<ConteudoLinha[]>`
     select id, ordem, tipo, conteudo, nome, extensao, transcricao_status, transcricao, duracao, intensidade
-      from ( /* Texto, chamada, figurinha e enquete */
+      from ( /* Texto, chamada, figurinha, enquete e localizacao */
              select id
                   , ordem
                   , tipo
@@ -714,7 +744,7 @@ async function carregarConteudos(sql: Sql, mensagemId: number): Promise<Conteudo
                   , null::int2[] as intensidade
                from mensagem_conteudo
               where mensagem_id = ${mensagemId}
-                and tipo in (1, 6, 7, 8)
+                and tipo in (1, 6, 7, 8, 9)
 
               union
 
@@ -804,7 +834,7 @@ async function carregarReferencia(sql: Sql, mensagemId: number, destino: Mensage
   }
 }
 
-async function carregarMensagens(sql: Sql, conversa: number, usuario: number, script: Fragmento, marcarComoRecebida: boolean): Promise<MensagemResposta[]> {
+export async function carregarMensagens(sql: Sql, conversa: number, usuario: number, script: Fragmento, marcarComoRecebida: boolean): Promise<MensagemResposta[]> {
   const linhas = await sql<MensagemLinha[]>`
     select *
       from ( select m.id
@@ -913,7 +943,16 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
 
     const postagem = linha.postagem ? await resumoPostagem(sql, linha.conversa_id, usuario, linha.id, linha.postagem_titulo) : undefined
 
-    // Mesmas chaves e na mesma ordem de sempre; referencia, reacoes, confirmacao e postagem so quando existem
+    const pastas = (await sql<{ pasta_id: number }[]>`
+      select pm.pasta_id
+        from pasta_mensagem pm
+       inner join pasta p
+          on p.id = pm.pasta_id
+       where pm.mensagem_id = ${linha.id}
+         and (p.usuario_id = ${usuario} or p.compartilhada)
+       order by pm.pasta_id`).map((pasta) => pasta.pasta_id)
+
+    // Mesmas chaves e na mesma ordem de sempre; referencia, reacoes, confirmacao, postagem e pastas so quando existem
     resultado.push({
       id: linha.id,
       remetente_id: linha.remetente_id,
@@ -931,6 +970,7 @@ async function carregarMensagens(sql: Sql, conversa: number, usuario: number, sc
       ...(reacoesResposta.length ? { reacoes: reacoesResposta } : {}),
       ...(confirmacao ? { confirmacao } : {}),
       ...(postagem ? { postagem } : {}),
+      ...(pastas.length ? { pastas } : {}),
     })
   }
   return resultado

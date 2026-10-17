@@ -69,6 +69,34 @@ describe('figurinha', () => {
   })
 })
 
+describe('localização', () => {
+  const enviarLocalizacao = (quem: UsuarioTeste, conversa: number, conteudo: string) =>
+    chamar('PUT', '/mensagem', { token: quem.token, corpo: { conversa_id: conversa, conteudos: [{ ordem: 1, tipo: 9, conteudo }] } })
+
+  test('ponto e trajeto voltam como foram e aparecem como "localização" na prévia', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    const ponto = JSON.stringify({ pontos: [{ lat: -23.55, lng: -46.63, nome: 'Praça da Sé' }] })
+    const trajeto = JSON.stringify({ pontos: [{ lat: -23.55, lng: -46.63 }, { lat: -23.56, lng: -46.65 }], rota: '_p~iF~ps|U_ulLnnqC', distancia: 2500, duracao: 420 })
+    expect((await enviarLocalizacao(ana, conversa, ponto)).status).toBe(200)
+    expect((await enviarLocalizacao(ana, conversa, trajeto)).status).toBe(200)
+    const mensagens = (await listar(bruno, conversa)).dados as { conteudos: { tipo: number; conteudo: string }[] }[]
+    expect(mensagens.flatMap((m) => m.conteudos).map((c) => c.conteudo).sort()).toEqual([ponto, trajeto].sort())
+    const conversas = (await chamar('GET', '/conversas', { token: bruno.token })).dados as { id: number; ultima_mensagem_texto: string }[]
+    expect(conversas.find((c) => c.id === conversa)!.ultima_mensagem_texto).toBe('localização')
+  })
+
+  test('fora do formato é 400', async () => {
+    const conversa = await criarConversa(ana, [bruno])
+    for (const conteudo of [
+      'texto', '[]', JSON.stringify({ pontos: [] }), JSON.stringify({ pontos: [{ lat: 91, lng: 0 }] }),
+      JSON.stringify({ pontos: [{ lat: '1', lng: 0 }] }), JSON.stringify({ pontos: [{ lat: 0, lng: 0 }, { lat: 0, lng: 0 }, { lat: 0, lng: 0 }] }),
+      JSON.stringify({ pontos: [{ lat: 0, lng: 0 }], rota: 'abc' }), JSON.stringify({ pontos: [{ lat: 0, lng: 0 }, { lat: 1, lng: 1 }], distancia: -1 }),
+    ]) {
+      expect((await enviarLocalizacao(ana, conversa, conteudo)).status).toBe(400)
+    }
+  })
+})
+
 describe('agendadas', () => {
   const daquiA = (minutos: number) => new Date(Date.now() + minutos * 60_000).toISOString()
 

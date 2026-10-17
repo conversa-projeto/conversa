@@ -60,6 +60,8 @@ export const configuracao = {
   cadastroAberto: true,
   // Modelo de embeddings no mesmo servidor de IA; vazio desliga a base de conhecimento
   iaModeloEmbeddings: '',
+  // Servidor de embeddings proprio; endereco vazio usa o da IA (com o token dela)
+  iaEmbeddings: { url: '', token: '' },
 }
 
 export function definirAmbiente() {
@@ -150,6 +152,8 @@ const PARAMETROS = [
   'ia_modelo',
   'cadastro_aberto',
   'ia_modelo_embeddings',
+  'ia_embeddings_url',
+  'ia_embeddings_token',
 ]
 
 export async function carregarParametros(sql: Sql) {
@@ -187,6 +191,7 @@ export async function carregarParametros(sql: Sql) {
   configuracao.ia = { url: valor('ia_url'), token: valor('ia_token'), modelo: valor('ia_modelo') }
   configuracao.cadastroAberto = valor('cadastro_aberto').trim() !== '0'
   configuracao.iaModeloEmbeddings = valor('ia_modelo_embeddings').trim()
+  configuracao.iaEmbeddings = { url: valor('ia_embeddings_url').trim(), token: valor('ia_embeddings_token').trim() }
 
   exibirAvisos()
 }
