@@ -167,26 +167,72 @@ describe('contatos salvos', () => {
 
 describe('SIP', () => {
   const ramal = { sip_user: '1001', sip_password: 'segredo', domain: 'pbx.teste', ws_server: 'wss://pbx.teste/ws' }
+  let admin: UsuarioTeste
+  beforeAll(async () => {
+    // Com alguem com "permissoes" o modo aberto acaba: so quem tem "sip" configura
+    admin = await criarUsuario('Admin SIP')
+    await noBanco((sql) => sql`
+      insert into permissao_usuario (usuario_id, permissao_id)
+      select ${admin.id}, id from permissao where codigo in ('permissoes', 'sip')`)
+  })
 
   test('sem ramal devolve objeto vazio', async () => {
     const usuario = await criarUsuario()
     expect((await chamar('GET', '/sip', { token: usuario.token })).dados).toEqual({})
   })
 
-  test('cadastra o ramal sempre para quem está logado', async () => {
+  test('o administrador cadastra o ramal da pessoa, que recebe os dados para registrar', async () => {
     const usuario = await criarUsuario()
-    const inclusao = await chamar('PUT', '/sip', { token: usuario.token, corpo: { ...ramal, usuario_id: ana.id } })
+    const inclusao = await chamar('PUT', '/sip/usuario', { token: admin.token, corpo: { ...ramal, usuario_id: usuario.id, turn_server: 'turns:pbx.teste:443', turn_user: 'webrtc', turn_password: 'turno' } })
     expect(inclusao.status).toBe(200)
-    expect(inclusao.dados.usuario_id).toBe(usuario.id)
-    expect((await chamar('GET', '/sip', { token: usuario.token })).dados).toMatchObject({ sip_user: '1001', domain: 'pbx.teste' })
+    // Ao administrador as senhas nao voltam
+    expect(inclusao.dados).toMatchObject({ usuario_id: usuario.id, sip_user: '1001', tem_senha: true, tem_senha_turn: true, turn_user: 'webrtc', ativo: true })
+    expect(inclusao.dados.sip_password).toBeUndefined()
+    expect(inclusao.dados.turn_password).toBeUndefined()
+    expect((await chamar('GET', '/sip', { token: usuario.token })).dados).toMatchObject({
+      sip_user: '1001', sip_password: 'segredo', domain: 'pbx.teste', ws_server: 'wss://pbx.teste/ws',
+      turn_server: 'turns:pbx.teste:443', turn_user: 'webrtc', turn_password: 'turno',
+    })
   })
 
-  test('altera só o próprio ramal', async () => {
+  test('alterar sem senha mantém a salva; tirar o TURN apaga a senha dele', async () => {
     const usuario = await criarUsuario()
-    const { dados } = await chamar('PUT', '/sip', { token: usuario.token, corpo: ramal })
-    expect((await chamar('PATCH', '/sip', { token: ana.token, corpo: { id: dados.id, sip_user: '9999' } })).status).toBe(403)
-    const alteracao = await chamar('PATCH', '/sip', { token: usuario.token, corpo: { id: dados.id, sip_user: '1002', ativo: false } })
-    expect(alteracao.dados).toMatchObject({ sip_user: '1002', ativo: false })
+    await chamar('PUT', '/sip/usuario', { token: admin.token, corpo: { ...ramal, usuario_id: usuario.id, turn_server: 'turns:pbx.teste:443', turn_user: 'webrtc', turn_password: 'turno' } })
+    const alteracao = await chamar('PUT', '/sip/usuario', { token: admin.token, corpo: { ...ramal, sip_password: '', usuario_id: usuario.id, sip_user: '1002', ativo: false } })
+    expect(alteracao.dados).toMatchObject({ sip_user: '1002', ativo: false, tem_senha: true, tem_senha_turn: false, turn_server: null, turn_user: null })
+    expect((await chamar('GET', '/sip/usuario', { token: admin.token, consulta: { usuario_id: usuario.id } })).dados).toMatchObject({ sip_user: '1002' })
+    expect((await chamar('GET', '/sip', { token: usuario.token })).dados).toMatchObject({ sip_password: 'segredo', turn_password: null })
+  })
+
+  test('ramal novo sem senha, ou com dados inválidos, é recusado', async () => {
+    const usuario = await criarUsuario()
+    const salvar = (corpo: Record<string, unknown>) => chamar('PUT', '/sip/usuario', { token: admin.token, corpo: { ...ramal, usuario_id: usuario.id, ...corpo } })
+    expect((await salvar({ sip_password: '' })).dados.error).toBe('Informe a senha do ramal.')
+    expect((await salvar({ sip_user: 'sip:1001@pbx' })).dados.error).toContain('Ramal inválido')
+    expect((await salvar({ domain: 'pbx teste' })).dados.error).toContain('Domínio SIP inválido')
+    expect((await salvar({ ws_server: 'https://pbx.teste/ws' })).dados.error).toContain('wss://')
+    expect((await salvar({ turn_server: 'pbx.teste:443', turn_user: 'x' })).dados.error).toContain('turn:')
+    expect((await salvar({ turn_server: 'turns:pbx.teste:443' })).dados.error).toBe('Informe o usuário do TURN.')
+    expect((await salvar({ usuario_id: 999999 })).status).toBe(404)
+    expect((await chamar('GET', '/sip', { token: usuario.token })).dados).toEqual({})
+  })
+
+  test('sem a permissão "sip", ninguém vê nem mexe no ramal de ninguém, nem no próprio', async () => {
+    const usuario = await criarUsuario()
+    await chamar('PUT', '/sip/usuario', { token: admin.token, corpo: { ...ramal, usuario_id: usuario.id } })
+    expect((await chamar('PUT', '/sip/usuario', { token: usuario.token, corpo: { ...ramal, usuario_id: usuario.id } })).status).toBe(403)
+    expect((await chamar('GET', '/sip/usuario', { token: usuario.token, consulta: { usuario_id: usuario.id } })).status).toBe(403)
+    expect((await chamar('DELETE', '/sip/usuario', { token: usuario.token, consulta: { usuario_id: usuario.id } })).status).toBe(403)
+    // As rotas antigas, em que cada um cadastrava o seu, nao existem mais
+    expect((await chamar('PUT', '/sip', { token: usuario.token, corpo: ramal })).status).toBe(404)
+  })
+
+  test('o administrador exclui o ramal', async () => {
+    const usuario = await criarUsuario()
+    await chamar('PUT', '/sip/usuario', { token: admin.token, corpo: { ...ramal, usuario_id: usuario.id } })
+    expect((await chamar('DELETE', '/sip/usuario', { token: admin.token, consulta: { usuario_id: usuario.id } })).status).toBe(200)
+    expect((await chamar('GET', '/sip', { token: usuario.token })).dados).toEqual({})
+    expect((await chamar('GET', '/sip/usuario', { token: admin.token, consulta: { usuario_id: usuario.id } })).dados).toEqual({})
   })
 })
 

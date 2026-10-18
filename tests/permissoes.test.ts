@@ -27,7 +27,8 @@ const USO_055 = ['localizacao']
 const USO = [...USO_046, ...USO_048, ...USO_049, ...USO_055]
 // Todas, na ordem do banco: as de administracao entram entre as de uso
 // "usuarios" (048) saiu na 054: cadastrar ficou com "permissoes"
-const TODAS = ['parametros', 'permissoes', ...USO_046, 'bots', ...USO_048, ...USO_049, 'ferramentas', 'conhecimento', ...USO_055]
+// "sip" (057): so o administrador configura o ramal de cada pessoa
+const TODAS = ['parametros', 'permissoes', ...USO_046, 'bots', ...USO_048, ...USO_049, 'ferramentas', 'conhecimento', ...USO_055, 'sip']
 
 function retirar(quem: UsuarioTeste, ...codigos: string[]) {
   return noBanco((sql) => sql`
@@ -185,8 +186,13 @@ describe('permissões de uso', () => {
   test('sem telefonia, o ramal não volta e não se cadastra', async () => {
     await retirar(comum, 'telefonia')
     expect((await chamar('GET', '/sip', { token: comum.token })).dados).toEqual({})
-    const corpo = { sip_user: '100', auth_user: '100', sip_password: 'x', display_name: 'X', domain: 'pbx.test', ws_server: 'wss://pbx.test', ativo: true }
-    await proibido(chamar('PUT', '/sip', { token: comum.token, corpo }), 'telefonia')
+    await conceder(gestor, 'sip')
+    const corpo = { usuario_id: comum.id, sip_user: '100', auth_user: '100', sip_password: 'x', display_name: 'X', domain: 'pbx.test', ws_server: 'wss://pbx.test', ativo: true }
+    expect((await chamar('PUT', '/sip/usuario', { token: gestor.token, corpo })).status).toBe(200)
+    expect((await chamar('GET', '/sip', { token: comum.token })).dados).toEqual({})
+    // O ramal fica salvo: devolver a permissao volta a registrar
+    await conceder(comum, 'telefonia')
+    expect((await chamar('GET', '/sip', { token: comum.token })).dados).toMatchObject({ sip_user: '100' })
   })
 
   test('ocultar a própria mensagem pede a permissão', async () => {

@@ -48,16 +48,6 @@ export async function validarContatoUsuario(sql: Sql, usuario: number, usuarioCo
   }
 }
 
-export async function validarSipUsuario(sql: Sql, usuario: number, sip: number) {
-  if (usuario <= 0 || sip <= 0) {
-    throw acessoNegado()
-  }
-  const [linha] = await sql`select 1 from sip where id = ${sip} and usuario_id = ${usuario}`
-  if (!linha) {
-    throw acessoNegado()
-  }
-}
-
 export async function validarSenhaAtual(sql: Sql, usuario: number, senhaAtual: string) {
   const [linha] = usuario > 0 ? await sql<{ senha: string }[]>`select senha from usuario where id = ${usuario}` : []
   // Hash bcrypt tem 60 caracteres. Fora disso e senha legada em texto puro.

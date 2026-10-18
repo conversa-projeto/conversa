@@ -141,7 +141,6 @@ describe('ids inválidos nas checagens de acesso', () => {
     ['DELETE', '/conversa/usuario', { consulta: { id: 0 } }],
     ['DELETE', '/mensagem', { consulta: { id: 0 } }],
     ['DELETE', '/usuario/contato', { consulta: { id: 0 } }],
-    ['PATCH', '/sip', { corpo: { id: 0, sip_user: 'x' } }],
   ] as const)('%s %s com id zero é 403', async (metodo, caminho, opcoes) => {
     expect((await chamar(metodo, caminho, { token: ana.token, ...opcoes })).status).toBe(403)
   })

@@ -118,6 +118,9 @@ export interface Sip {
   display_name: string | null
   domain: string
   ws_server: string
+  turn_server: string | null
+  turn_user: string | null
+  turn_password: string | null
   ativo: boolean
   criado_em: Date | null
   criado_por: number | null

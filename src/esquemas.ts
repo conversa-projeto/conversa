@@ -15,16 +15,6 @@ const paginacao = t.Integer({ default: 0, minimum: 0, maximum: 1000 })
 
 const soId = t.Object({ id: inteiro })
 
-const camposSip = {
-  sip_user: texto,
-  auth_user: ouNulo(texto),
-  sip_password: texto,
-  display_name: ouNulo(texto),
-  domain: texto,
-  ws_server: texto,
-  ativo: opcional(t.Boolean()),
-}
-
 // Ferramenta externa dos bots: cabecalho sem valor mantem o salvo (a tela nunca recebe o valor)
 const camposFerramenta = {
   nome: texto,
@@ -184,7 +174,23 @@ export const esquemas = {
 
   historicoChamadas: { query: t.Object({ participante: inteiroPadraoZero, de: textoPadraoVazio, ate: textoPadraoVazio }) },
 
-  incluirSip: { body: t.Object(camposSip) },
+  // Ramal de cada pessoa, pelo administrador. Senha vazia mantem a salva
+  sipUsuario: { query: t.Object({ usuario_id: inteiro }) },
+  salvarSipUsuario: {
+    body: t.Object({
+      usuario_id: inteiro,
+      sip_user: texto,
+      auth_user: ouNulo(texto),
+      sip_password: ouNulo(texto),
+      display_name: ouNulo(texto),
+      domain: texto,
+      ws_server: texto,
+      turn_server: ouNulo(texto),
+      turn_user: ouNulo(texto),
+      turn_password: ouNulo(texto),
+      ativo: opcional(t.Boolean()),
+    }),
+  },
   criarBot: { body: t.Object({ nome: texto, instrucoes: texto }) },
   alterarBot: { body: t.Object({ id: inteiro, nome: opcional(texto), instrucoes: opcional(texto), ativo: opcional(t.Boolean()) }) },
   conhecimentoBot: { body: t.Object({ id: inteiro, bases: t.Array(inteiro, { maxItems: 100 }) }) },
@@ -198,18 +204,6 @@ export const esquemas = {
   alterarFerramenta: { body: t.Object({ id: inteiro, ...camposFerramenta }) },
   testarFerramenta: { body: t.Object({ id: inteiro, argumentos: t.Record(t.String(), t.Unknown()) }) },
   permissoesBot: { body: t.Object({ id: inteiro, permissoes: t.Array(texto, { maxItems: 50 }) }) },
-  alterarSip: {
-    body: t.Object({
-      id: inteiro,
-      sip_user: opcional(texto),
-      auth_user: ouNulo(texto),
-      sip_password: opcional(texto),
-      display_name: ouNulo(texto),
-      domain: opcional(texto),
-      ws_server: opcional(texto),
-      ativo: opcional(t.Boolean()),
-    }),
-  },
 }
 
 type Esquemas = typeof esquemas

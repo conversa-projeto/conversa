@@ -327,7 +327,9 @@ export function criarRotas(token: Token) {
 
     .get('/sip', (c) => comoUsuario(c, (sql, usuario) => sip.sip(sql, usuario)))
 
-    .put('/sip', (c) => comoUsuario(c, (sql, usuario) => sip.incluirSip(sql, usuario, c.body)), esquemas.incluirSip)
+    .get('/sip/usuario', (c) => comoUsuario(c, (sql, usuario) => sip.sipDoUsuario(sql, usuario, c.query.usuario_id)), esquemas.sipUsuario)
 
-    .patch('/sip', (c) => comoUsuario(c, (sql, usuario) => sip.alterarSip(sql, usuario, c.body)), esquemas.alterarSip)
+    .put('/sip/usuario', (c) => comoUsuario(c, (sql, usuario) => sip.salvarSipDoUsuario(sql, usuario, c.body)), esquemas.salvarSipUsuario)
+
+    .delete('/sip/usuario', (c) => comoUsuario(c, (sql, usuario) => sip.excluirSipDoUsuario(sql, usuario, c.query.usuario_id)), esquemas.sipUsuario)
 }

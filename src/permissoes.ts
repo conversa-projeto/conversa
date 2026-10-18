@@ -13,6 +13,8 @@ export const CodigoPermissao = {
   Ferramentas: 'ferramentas',
   // Cuidar das bases de conhecimento dos bots (migracao 052)
   Conhecimento: 'conhecimento',
+  // Configurar o ramal SIP de cada pessoa (migracao 057)
+  Sip: 'sip',
   // De uso do app (permissao.uso), migracao 046
   Emoji: 'emoji',
   Figurinha: 'figurinha',
