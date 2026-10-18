@@ -634,10 +634,11 @@ function segredoTurn() {
 
 // Credencial TURN temporaria no formato do use-auth-secret do coturn:
 // usuario "<expiracao unix>:<id>", senha base64(HMAC-SHA1(segredo, usuario)).
-// O endereco e o mesmo que o navegador usou para chamar a API. Em producao a
-// borda recebe o TURN com TLS na porta CONVERSA_TURN_PORTA.
+// O endereco e o mesmo que o navegador usou para chamar a API. Vai primeiro o
+// UDP direto na 3478; o TCP fica de reserva para redes que barram UDP. Em
+// producao o TCP chega na borda com TLS, na porta CONVERSA_TURN_PORTA.
 export function servidoresIce(usuario: number): {
-  iceServers: { urls: string; username: string; credential: string }[]
+  iceServers: { urls: string[]; username: string; credential: string }[]
   iceTransportPolicy: 'relay' | 'all'
 } {
   const origem = origemPublica()
@@ -647,7 +648,10 @@ export function servidoresIce(usuario: number): {
   }
   const { hostname } = new URL(origem)
   const { turnPorta, turnForcarRelay } = configuracao
-  const urls = turnPorta ? `turns:${hostname}:${turnPorta}?transport=tcp` : `turn:${hostname}:3478?transport=tcp`
+  const urls = [
+    `turn:${hostname}:3478?transport=udp`,
+    turnPorta ? `turns:${hostname}:${turnPorta}?transport=tcp` : `turn:${hostname}:3478?transport=tcp`,
+  ]
   const username = `${Math.floor(Date.now() / 1000) + 3600}:${usuario}`
   const credential = createHmac('sha1', segredo).update(username).digest('base64')
   return {

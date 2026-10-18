@@ -99,7 +99,7 @@ server {
 }
 ```
 
-A porta das chamadas (a mesma do `CONVERSA_TURN_PORTA`) precisa de TLS terminado na borda e repasse TCP para `IP_DA_MAQUINA:3478`.
+A porta das chamadas (a mesma do `CONVERSA_TURN_PORTA`) precisa de TLS terminado na borda e repasse TCP para `IP_DA_MAQUINA:3478`. Para o audio nao atrasar, libere tambem a porta 3478 **UDP** no firewall, com repasse direto para `IP_DA_MAQUINA:3478` (sem TLS). O navegador tenta o UDP primeiro e so usa o TCP quando o UDP nao passa.
 
 ---
 

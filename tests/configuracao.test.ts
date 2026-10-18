@@ -178,7 +178,7 @@ describe('servidores ICE com o segredo do TURN', () => {
     configuracao.turnForcarRelay = false
     const { dados } = await ice()
     const [servidor] = dados.iceServers
-    expect(servidor.urls).toBe('turn:localhost:3478?transport=tcp')
+    expect(servidor.urls).toEqual(['turn:localhost:3478?transport=udp', 'turn:localhost:3478?transport=tcp'])
     const [expira, usuario] = servidor.username.split(':')
     expect(Number(usuario)).toBe(ana.id)
     expect(Number(expira)).toBeGreaterThan(Date.now() / 1000 + 3500)
@@ -191,7 +191,7 @@ describe('servidores ICE com o segredo do TURN', () => {
     configuracao.turnPorta = '8443'
     configuracao.turnForcarRelay = true
     const { dados } = await ice()
-    expect(dados.iceServers[0].urls).toBe('turns:localhost:8443?transport=tcp')
+    expect(dados.iceServers[0].urls).toEqual(['turn:localhost:3478?transport=udp', 'turns:localhost:8443?transport=tcp'])
     expect(dados.iceTransportPolicy).toBe('relay')
   })
 })

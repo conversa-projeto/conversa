@@ -16,8 +16,8 @@
 # senhas, credenciais do MinIO e segredo do TURN. Esse volume precisa entrar
 # no backup junto com o banco: sem o pepper nenhum login confere.
 #
-# Portas publicadas so em 127.0.0.1, exceto o nginx e o TURN na 3478, que
-# precisam ser alcancados por navegadores de fora.
+# Portas publicadas so em 127.0.0.1, exceto o nginx e o TURN na 3478 (UDP e
+# TCP), que precisam ser alcancados por navegadores de fora.
 #
 # A senha do PostgreSQL pode ser trocada num arquivo .env ao lado deste
 # (POSTGRES_PASSWORD). As credenciais do MinIO sao geradas, veja o servico.
@@ -102,6 +102,7 @@ services:
         exec turnserver -c /tmp/turnserver.conf --proc-user=nobody --proc-group=nogroup
     ports:
       - "3478:3478/tcp"
+      - "3478:3478/udp"
     volumes:
       - ./bin/coturn:/etc/coturn:ro
       - dados:/dados
