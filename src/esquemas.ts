@@ -168,6 +168,8 @@ export const esquemas = {
   testarIa: { body: t.Object({ url: texto, modelo: texto, token: opcional(texto) }) },
   pedirResumo: { body: t.Object({ conversa_id: inteiro, periodo: t.Union([t.Literal('24h'), t.Literal('7d'), t.Literal('30d'), t.Literal('recentes')]) }) },
   consultarResumo: { query: t.Object({ id: texto }) },
+  // Sugestao de pasta pela IA: "ignorar" sao as mensagens que a pessoa ja dispensou
+  sugerirPastas: { body: t.Object({ conversa_id: inteiro, ignorar: opcional(t.Array(inteiro, { maxItems: 2000 })) }) },
   sugerirTexto: { body: t.Object({ conversa_id: inteiro, texto: t.String({ maxLength: 4000 }) }) },
   atividades: { query: t.Object({ antes: inteiroPadraoZero, limite: t.Integer({ default: 30, minimum: 1, maximum: 100 }) }) },
   reacoesVistas: { body: t.Object({ mensagens: t.Array(inteiro, { maxItems: 200 }) }) },

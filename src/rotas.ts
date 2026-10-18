@@ -12,6 +12,7 @@ import * as conhecimento from './conhecimento.ts'
 import * as enquetes from './enquetes.ts'
 import * as parametros from './parametros.ts'
 import * as pastas from './pastas.ts'
+import * as sugestoesPastas from './sugestoesPastas.ts'
 import * as permissoes from './permissoes.ts'
 import * as resumos from './resumos.ts'
 import * as sugestoes from './sugestoes.ts'
@@ -221,6 +222,10 @@ export function criarRotas(token: Token) {
     .put('/pasta/mensagens', (c) => comoUsuario(c, (sql, usuario) => pastas.incluirMensagensPasta(sql, usuario, c.body)), esquemas.mensagensPasta)
 
     .delete('/pasta/mensagens', (c) => comoUsuario(c, (sql, usuario) => pastas.tirarMensagensPasta(sql, usuario, c.body)), esquemas.mensagensPasta)
+
+    .post('/pastas/sugerir', (c) => comoUsuario(c, (sql, usuario) => sugestoesPastas.pedirSugestoes(sql, usuario, c.body)), esquemas.sugerirPastas)
+
+    .get('/pastas/sugestao', (c) => comoUsuario(c, async (_sql, usuario) => sugestoesPastas.consultarSugestoes(usuario, c.query.id)), esquemas.consultarResumo)
 
 
     .get('/usuario/permissoes', (c) => comoUsuario(c, (sql, usuario) => permissoes.minhasPermissoes(sql, usuario)))
