@@ -323,10 +323,9 @@ function presencaReal(usuarioId: number): { estado: EstadoPresenca; conversas: S
   let ativo = false
   for (const socket of doUsuario) {
     const presenca = presencaDaConexao.get(socket)
-    if (presenca?.ativo) {
-      ativo = true
-      if (presenca.conversa) conversas.add(presenca.conversa)
-    }
+    if (presenca?.ativo) ativo = true
+    // A aba parada, mas visivel, continua com a conversa aberta
+    if (presenca?.conversa) conversas.add(presenca.conversa)
   }
   return { estado: ativo ? 'ativo' : 'ausente', conversas }
 }

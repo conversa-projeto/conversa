@@ -97,7 +97,7 @@ describe('presença', () => {
     await doBruno.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'ativo')
   })
 
-  test('conversa aberta avisa os membros e aparece nos presentes; escondida sai', async () => {
+  test('conversa aberta avisa os membros e aparece nos presentes, mesmo parada; escondida sai', async () => {
     const conversa = await criarConversa(ana, [bruno])
     const doBruno = await conectar(bruno)
     const daAna = await conectar(ana)
@@ -105,6 +105,9 @@ describe('presença', () => {
     await doBruno.esperar((e) => e.tipo === 63 && e.usuario_id === ana.id && e.conversa_id === conversa && e.aberta === true)
     expect((await chamar('GET', '/conversa/presentes', { token: bruno.token, consulta: { conversa } })).dados).toEqual([ana.id])
     daAna.enviar({ tipo: 63, ativo: false, conversa_id: conversa })
+    await doBruno.esperar((e) => e.tipo === 60 && e.usuario_id === ana.id && e.estado === 'ausente')
+    expect((await chamar('GET', '/conversa/presentes', { token: bruno.token, consulta: { conversa } })).dados).toEqual([ana.id])
+    daAna.enviar({ tipo: 63, ativo: false, conversa_id: null })
     await doBruno.esperar((e) => e.tipo === 63 && e.usuario_id === ana.id && e.aberta === false)
     expect((await chamar('GET', '/conversa/presentes', { token: bruno.token, consulta: { conversa } })).dados).toEqual([])
   })
